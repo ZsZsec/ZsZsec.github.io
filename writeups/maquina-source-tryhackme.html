@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Source TryHackMe | ZsZsec</title>
+<meta content="Introduccion En este ejercicio obtuvimos acceso raíz a la máquina objetivo explotando una vulnerabilidad crítica en Webmin servicio MiniServ escuchando por defecto en el puerto TCP..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina Source TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>CVE-2019-15107 / RCE / Webmin</span></div>
+<div class="tag-row"><span class="tag">CVE-2019-15107</span><span class="tag">RCE</span><span class="tag">Webmin</span><span class="tag">Nmap</span><span class="tag">web</span><span class="tag">metasploit</span><span class="tag">root</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Introduccion</h1>
+<p>En este ejercicio obtuvimos acceso raíz a la máquina objetivo explotando una vulnerabilidad crítica en <code>Webmin</code> (servicio <code>MiniServ</code>  escuchando por defecto en el puerto TCP <strong>10000</strong>). El objetivo del writeup es documentar de forma técnica y reproducible las fases de reconocimiento, identificación de la vulnerabilidad, explotación, y las acciones de post-explotación realizadas para fijar evidencias y explorar el sistema.</p>
+<p>La vulnerabilidad aprovechada es <code>CVE-2019-15107</code>, una inyección de comandos en el endpoint <code>password_change.cgi</code> que permite ejecución remota de comandos sin autenticación en instalaciones afectadas de Webmin; por su naturaleza permite ejecución arbitraria en el contexto del proceso de Webmin (en muchas instalaciones ese proceso corre con privilegios elevados), por lo que la explotación resulta en ejecución como root o en la posibilidad de escalar a root inmediatamente.</p>
+<h2>Reconocimiento y enumeración inicial</h2>
+<p>La enumeración de servicios se realizó con <strong>nmap</strong> empleando un escaneo amplio y rápido para descubrir puertos y versiones disponibles; el comando usado fue:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Desktop/source]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 10.201.116.36 -oN nmap.txt
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-09-04 08:22 CDT
+Nmap scan report for 10.201.116.36
+Host is up (0.24s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT      STATE SERVICE VERSION
+22/tcp    open  ssh     OpenSSH 7.6p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   2048 b7:4c:d0:bd:e2:7b:1b:15:72:27:64:56:29:15:ea:23 (RSA)
+|   256 b7:85:23:11:4f:44:fa:22:00:8e:40:77:5e:cf:28:7c (ECDSA)
+|_  256 a9:fe:4b:82:bf:89:34:59:36:5b:ec:da:c2:d3:95:ce (ED25519)
+10000/tcp open  http    MiniServ 1.890 (Webmin httpd)
+|_http-title: Site doesn't have a title (text/html; Charset=iso-8859-1).
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+</code></pre>
+<p><code>-sS</code> hace un SYN scan para descubrir puertos sin completar el handshake; <code>-sV</code> intenta identificar versiones de servicios; <code>-Pn</code> evita el ping previo (útil en entornos que bloquean ICMP); <code>-p-</code> escanea todos los puertos TCP; <code>-sC</code> ejecuta scripts NSE básicos; <code>--min-rate</code> acelera el escaneo; <code>-oN</code> guarda salida legible.</p>
+<p>El resultado mostró, entre otros, <strong>10000/tcp open http MiniServ 1.890 (Webmin)</strong>, lo que señaló inmediatamente la presencia de Webmin en la máquina objetivo y justificó enfocar la investigación en vulnerabilidades públicas de esa aplicación. Esta salida y decisión de enfoque provienen del comportamiento registrado durante el ejercicio.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/28270816-55fb-4fee-9ce0-730844955262"/></p>
+<p>A partir de la detección de <code>Webmin</code>, se realizó búsqueda de vulnerabilidades públicas y exploits disponibles. <code>Webmin</code>  tuvo una serie de versiones afectadas por inyección de comandos en <code>password_change.cgi</code> (variantes alrededor de 1.882–1.921; la versión 1.890 es especialmente citada en la divulgación inicial), y documentación pública detalla que el parámetro vulnerable es <code>old</code> (y en algunos casos <code>expired</code>) permitiendo inyección al no filtrar adecuadamente entrada que termina ejecutándose en shell. Estas referencias públicas y análisis de la presencia de un backdoor en binarios distribuidos motivaron el intento de explotación.</p>
+<h2>Explotación</h2>
+<p>Dado que existía un módulo público en Metasploit y varios scripts PoC, se procedió con Metasploit para lanzar el exploit de manera rápida y reproducible. El flujo general usado fue:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/68d9bea2-cec5-49a7-ae7d-d0cf0afb52f7"/></p>
+<p>Cargar el módulo correspondiente (en Metasploit suele encontrarse como <code>linux/http/webmin_backdoor</code> o mediante el exploit publicado para Webmin 1.920/1.890). El módulo encapsula el payload que explota la inyección en <code>password_change.cgi</code> y establece un canal interactivo</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/27d8a091-39fc-4d43-a8da-bfd7e08ce3d4"/></p>
+<p>Tras el exploit, se obtiene una shell remota proveída por el contexto en el que la vulnerabilidad ejecutó el comando; en la máquina objetivo se observó que el acceso resultante tenía permisos ampliados (root o equivalentes), lo que permitió moverse por el sistema y leer las flags del CTF.</p>
+<h2>Post-explotación: estabilizar la shell y técnicas usadas</h2>
+<p>Al recibir una shell básica de la explotación, es práctica estándar “mejorar la TTY” para tener un entorno interactivo utilizable (historial, señales, tab completion). En este caso se empleó el clásico comando Python para salto de pty:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/4e4cb04d-6308-4a1a-850d-ccacd4cabf94"/></p>
+<p><code>python -c 'import pty; pty.spawn("/bin/bash")'</code></p>
+<h2>Explicación técnica extendida (cómo funciona la inyección y por qué es crítica)</h2>
+<p>La inyección de comandos en aplicaciones web ocurre cuando entrada del usuario se concatena o interpola en llamadas al sistema (por ejemplo, <code>system()</code>, backticks, <code>exec</code>) sin saneamiento. En el caso de <code>password_change.cgi</code>, la lógica de cambio de contraseña históricamente dependía de invocar utilidades del sistema para verificar o actualizar contraseñas; si la implementación construye la línea de comando con las variables HTTP recibidas sin escapar caracteres especiales como <code>;</code>, <code>&amp;&amp;</code> o <code>|</code>, un atacante puede cerrar la orden legítima y añadir la suya propia. Cuando el servicio que invoca esos comandos tiene privilegios elevados, esa orden maliciosa se ejecuta con los mismos privilegios — de ahí el riesgo extremo. Además, cuando el binario distribuido ya contiene código malicioso (backdoor) la superficie de ataque no depende siquiera de una configuración específica, por lo que la explotación es prácticamente directa. La literatura técnica y el análisis forense de los binarios de Webmin en 2019 documentaron exactamente esta situación: inyección en parámetros <code>old</code>/<code>expired</code> y presencia de código malicioso en algunas distribuciones oficiales, lo que obligó al proyecto a reconstruir y publicar nuevas versiones seguras</p>
+<h2>Detección y mitigación recomendadas</h2>
+<p>Para detección inmediata tras el incidente:</p>
+<ul>
+<li><p>Revisar logs HTTP (accesos a <code>/password_change.cgi</code>, parámetros, user-agent y patrones de petición inusuales).</p>
+</li>
+<li><p>Revisar <code>auth.log</code>, <code>syslog</code> y registros de Webmin para accesos y ejecuciones inusuales de comandos.</p>
+</li>
+<li><p>Comprobar procesos y binarios de Webmin con sumas de verificación frente a versiones conocidas buenas, y detectar archivos con timestamps o firmas que no coincidan con la instalación esperada.</p>
+<p>Mitigación y acciones correctoras:</p>
+</li>
+</ul>
+<ol>
+<li><strong>Actualizar Webmin a la versión parcheada</strong>: el proyecto publicó versiones seguras tras el incidente (la rama 1.930 se distribuyó para corregir los problemas causados por código malicioso añadido en binarios), por lo que actualizar a la versión más reciente y reconstruir desde código fuente confiable es mandatorio. Además, CISA listó esta vulnerabilidad entre las explotadas conocidas, por lo que aplica aplicar parches urgentemente.</li>
+<li><strong>Reinstalar desde fuentes de confianza</strong>: reconstruir desde el repositorio Git limpio en infraestructura de construcción controlada, y verificar firmas/sha256 de paquetes.</li>
+<li><strong>Rotación de credenciales</strong>: cambiar todas las contraseñas administrativas y rotar claves/credenciales que pudieran haberse visto comprometidas.</li>
+<li><strong>Segmentación y endurecimiento</strong>: restringir acceso al puerto 10000 mediante firewall (solo administradores / IPs permitidas), emplear VPN/ACLs y, si no es estrictamente necesario, deshabilitar Webmin.</li>
+<li><strong>Monitoreo y alertas</strong>: implementar reglas IDS/IPS para detectar patrones de explotación de <code>password_change.cgi</code> y firmas del exploit; auditar accesos recientes.</li>
+</ol>
+<h2>Conclusión</h2>
+<p>La máquina <em>Source</em> fue comprometida porque se exponía un servicio con una vulnerabilidad crítica en una ruta de administración (Webmin) que permitía inyección de comandos sin autenticación.</p>
+<p>El proceso de explotación fue: enumeración con nmap → identificación de Webmin en puerto 10000 → uso de exploit público / módulo Metasploit para CVE-2019-15107 → obtención de shell → estabilización de TTY y lectura de flags.</p>
+<p>Desde el punto de vista defensivo, la lección clave es minimizar exposición de paneles administrativos, mantener el software actualizado, verificar la integridad de las distribuciones y monitorizar accesos a endpoints sensibles. Las referencias técnicas sobre la vulnerabilidad, su naturaleza de backdoor en binarios distribuidos y las acciones de mitigación están ampliamente documentadas en NVD, informes de investigación y la propia página de seguridad de Webmin</p>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

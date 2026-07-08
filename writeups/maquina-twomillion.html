@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>TwoMillion | ZsZsec</title>
+<meta content="Explotación web completa: invitación beta, API abuse, escalada a admin, command injection y privilege escalation local." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>TwoMillion<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox / API / Command Injection</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span><span class="tag">API</span><span class="tag">Command Injection</span><span class="tag">Linux</span><span class="tag">Privilege Escalation</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body"><h2>Información de la Máquina</h2>
+<ul>
+<li><strong>Nombre:</strong> TwoMillion</li>
+<li><strong>IP:</strong> 10.10.11.221</li>
+<li><strong>Sistema Operativo:</strong> Linux (Ubuntu)</li>
+</ul>
+<h2>Resumen Ejecutivo</h2>
+<p>Esta máquina presenta una vulnerabilidad en una API web que permite escalada de privilegios a través de la manipulación de parámetros JSON. Posteriormente, se explota CVE-2023-4911 (Looney Tunables) para obtener acceso root mediante un buffer overflow en glibc.</p>
+<p><strong>Cadena de Ataque:</strong></p>
+<ol>
+<li>Reconocimiento → Descubrimiento de API</li>
+<li>Ingeniería inversa de código JavaScript ofuscado</li>
+<li>Generación de código de invitación mediante API</li>
+<li>Escalada de privilegios a admin via manipulación de API</li>
+<li>Command Injection para obtener reverse shell</li>
+<li>Explotación de CVE-2023-4911 para escalada a root</li>
+</ol>
+<h1>Introduccion</h1>
+<p>En este documento se presenta la explotación completa de la máquina <strong>TwoMillion</strong>, una máquina basada en <strong>Linux (Ubuntu)</strong>, la cual simula un entorno web corporativo con múltiples fallos de seguridad encadenables. A lo largo del análisis se demuestra cómo una serie de malas prácticas en el diseño de la aplicación, combinadas con una vulnerabilidad crítica a nivel de sistema, permiten comprometer completamente el servidor hasta obtener acceso <strong>root</strong>.</p>
+<p>La intrusión inicia con la enumeración de una <strong>API web vulnerable</strong>, cuya lógica de control de acceso es defectuosa, permitiendo la <strong>escalada de privilegios mediante manipulación de parámetros JSON</strong>. Posteriormente, se aprovecha una <strong>inyección de comandos</strong> en un endpoint administrativo para obtener acceso inicial al sistema. Finalmente, se explota la vulnerabilidad <strong>CVE-2023-4911 (Looney Tunables)</strong> en <code>glibc</code>, logrando una <strong>escalada total de privilegios</strong>.</p>
+<p>Este laboratorio pone de manifiesto la importancia de:</p>
+<ul>
+<li>La correcta validación de datos en APIs.</li>
+<li>La implementación rigurosa de controles de acceso.</li>
+<li>La gestión segura de credenciales.</li>
+<li>El mantenimiento actualizado de librerías críticas del sistema.</li>
+</ul>
+<p>Además, permite reforzar habilidades prácticas en <strong>pentesting web</strong>, <strong>explotación de APIs</strong>, <strong>command injection</strong>, <strong>post-explotación en Linux</strong> y <strong>escalada de privilegios a nivel de sistema</strong>.</p>
+<h2>1. Reconocimiento</h2>
+<h3>1.1 Escaneo de Puertos</h3>
+<p>Iniciamos con un escaneo básico de puertos utilizando nmap:</p>
+<pre><code class="language-bash"> Nmap 7.95 scan initiated Sat Dec  6 00:32:45 2025 as: /usr/lib/nmap/nmap --privileged -p- -Pn --min-rate 2500 -oN basico 10.10.11.221
+Nmap scan report for 10.10.11.221
+Host is up (0.093s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT   STATE SERVICE
+22/tcp open  ssh
+80/tcp open  http
+</code></pre>
+<p>Resultado:</p>
+<pre><code class="language-bash">PORT      STATE SERVICE
+22/tcp    open  ssh
+80/tcp    open  http
+</code></pre>
+<h3>1.2 Escaneo Exhaustivo</h3>
+<p>Realizamos un escaneo más detallado en los puertos identificados:</p>
+<pre><code class="language-bash"> Nmap 7.95 scan initiated Sat Dec  6 00:33:52 2025 as: /usr/lib/nmap/nmap --privileged -p22,80 -sC -sV -Pn --min-rate 2500 -oN exhaustivo 10.10.11.221
+Nmap scan report for 10.10.11.221
+Host is up (0.093s latency).
+
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.9p1 Ubuntu 3ubuntu0.1 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   256 3e:ea:45:4b:c5:d1:6d:6f:e2:d4:d1:3b:0a:3d:a9:4f (ECDSA)
+|_  256 64:cc:75:de:4a:e6:a5:b4:73:eb:3f:1b:cf:b4:e3:94 (ED25519)
+80/tcp open  http    nginx
+|_http-title: Did not follow redirect to http://2million.htb/
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+</code></pre>
+<p>Resultado:</p>
+<pre><code class="language-bash">PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.9p1 Ubuntu 3ubuntu0.1
+80/tcp open  http    nginx
+       |_http-title: Did not follow redirect to http://2million.htb/
+</code></pre>
+<p><strong>Servicios Identificados:</strong></p>
+<ul>
+<li>SSH: OpenSSH 8.9p1</li>
+<li>HTTP: Nginx con redirección a <code>2million.htb</code></li>
+</ul>
+<p>Agregamos el dominio al archivo <code>/etc/hosts</code>:</p>
+<pre><code class="language-bash">echo "10.10.11.221 2million.htb" &gt;&gt; /etc/hosts
+</code></pre>
+<h2>2. Enumeración Web</h2>
+<h3>2.1 Fuzzing de Directorios</h3>
+<p>Realizamos fuzzing de directorios con feroxbuster:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/01bb9867-e3c6-4c00-8480-ae906d20575c"/></p>
+<p><strong>Hallazgos Relevantes:</strong></p>
+<ul>
+<li><code>/register</code> - Formulario de registro (requiere código de invitación)</li>
+<li><code>/login</code> - Panel de autenticación</li>
+<li><code>/js/inviteapi.min.js</code> - Script JavaScript ofuscado</li>
+</ul>
+<h3>2.2 Análisis de Código JavaScript</h3>
+<p>En el archivo <code>inviteapi.min.js</code> encontramos código ofuscado:</p>
+<pre><code class="language-js">eval(function(p,a,c,k,e,d){e=function(c){return c.toString(36)};if(!''.replace(/^/,String)){while(c--){d[c.toString(a)]=k[c]||c.toString(a)}k=[function(e){return d[e]}];e=function(){return'\\w+'};c=1};while(c--){if(k[c]){p=p.replace(new RegExp('\\b'+e(c)+'\\b','g'),k[c])}}return p}('1 i(4){h 8={"4":4};$.9({a:"7",5:"6",g:8,b:\'/d/e/n\',c:1(0){3.2(0)},f:1(0){3.2(0)}})}1 j(){$.9({a:"7",5:"6",b:\'/d/e/k/l/m\',c:1(0){3.2(0)},f:1(0){3.2(0)}})}',24,24,'response|function|log|console|code|dataType|json|POST|formData|ajax|type|url|success|api/v1|invite|error|data|var|verifyInviteCode|makeInviteCode|how|to|generate|verify'.split('|'),0,{}))
+</code></pre>
+<p>Utilizamos <a href="https://de4js.kshift.me/">de4js.kshift.me</a> para desofuscarlo:</p>
+<p><strong>Código Desofuscado:</strong></p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/be27d5e3-dcc5-4237-8e29-ec39424508d8"/></p>
+<p>Identificamos dos funciones importantes relacionadas con la API de invitaciones.</p>
+<h2>3. Explotación de la API de Invitaciones</h2>
+<h3>3.1 Obtención de Instrucciones</h3>
+<p>Realizamos una petición POST al endpoint descubierto:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/aac71d83-5b63-44ab-ab48-ac9b4ce25386"/></p>
+<p><strong>Respuesta (codificada en ROT13):</strong></p>
+<p><code>Va beqre gb trarengr gur vaivgr pbqr, znxr n CBFG erdhrfg gb \/ncv\/i1\/vaivgr\/trarengr</code></p>
+<p><strong>Decodificado</strong></p>
+<p><code>In order to generate the invite code, make a POST request to \/api\/v1\/invite\/generate</code></p>
+<h3>3.2 Generación del Código de Invitación</h3>
+<p>Ejecutamos la petición <code>POST</code> indicada:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/70c55e85-3ae7-49e8-821b-6c24fdb3cb66"/></p>
+<p>Decodificamos el base64:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/ecf18ce2-9f4f-458b-866e-464c8952b1fd"/></p>
+<p>Obtenemos el código de invitación válido.</p>
+<h2>4. Registro y Autenticación</h2>
+<h3>4.1 Creación de Cuenta</h3>
+<p>Interceptamos la petición de registro con Burp Suite y agregamos el parámetro del código de invitación:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/77acc9d9-55df-423a-8662-e09e9fc775c7"/></p>
+<p>la enviamos y nos vamos al directorio <code>/login</code> para ingresar</p>
+<h3>4.2 Enumeración Post-Autenticación</h3>
+<p>Después de iniciar sesión, realizamos fuzzing desde <code>/home</code>:</p>
+<pre><code class="language-bash">└─$ feroxbuster -u http://2million.htb/home -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-lowercase-2.3-medium.txt --cookies "PHPSESSID=k2gjeel52jjj1eet3fo0007ena"  -x txt,php,bak,js 
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/b9cb1e5a-6217-4c04-8034-837448b9158c"/></p>
+<p>Encontramos dos directorios, <code>/access</code> <code>/rules</code></p>
+<p>Encontramos la funcionalidad "Connection Pack" que nos lleva a interactuar con la API.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/95f5fe8a-9c5c-40ce-bbe3-a5f2b1f34ff9"/></p>
+<p>Damos click en <code>Connection Pack</code> he interceptamos la peticion con burpsuite</p>
+<h2>5. Escalada de Privilegios en la Aplicación Web</h2>
+<h3>5.1 Enumeración de la API</h3>
+<p>Realizamos una petición GET al endpoint base de la API:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/7812cbbb-d217-40b9-b002-bac64f5f661b"/></p>
+<p>Como respuesta, el servidor nos devuelve un listado completo de los directorios disponibles dentro de la <strong>API</strong>, junto con los métodos HTTP que cada uno soporta, lo que nos permite mapear con precisión la superficie de ataque expuesta.</p>
+<h3>5.2 Verificación de Estado Actual</h3>
+<p>Consultamos nuestro estado de privilegios administrativos:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/97521f74-8922-44af-b889-124d8ca0e8b2"/></p>
+<p><strong>Interpretación:</strong> No tenemos privilegios administrativos. Necesitamos escalar privilegios para acceder a las funcionalidades administrativas, específicamente al endpoint <code>/api/v1/admin/vpn/generate</code>.</p>
+<h3>5.3 Escalada a Administrador mediante Manipulación de API</h3>
+<h4>5.3.1 Primera Tentativa - Identificación del Método</h4>
+<p>Intentamos enviar una petición PUT al endpoint de actualización:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/012fbe94-1dbb-4096-a480-9348c64fbe7b"/></p>
+<pre><code class="language-json">{"status":"danger","message":"Invalid content type."}
+</code></pre>
+<p><strong>Análisis:</strong> El servidor requiere un Content-Type específico. Las APIs REST modernas típicamente esperan <code>application/json</code>.</p>
+<h4>5.3.2 Segunda Tentativa - Agregando Content-Type</h4>
+<p>Modificamos la petición incluyendo el header apropiado:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/b610ba36-d864-4a40-a350-73fd24ee1691"/></p>
+<p><strong>Análisis:</strong> El servidor valida la presencia de parámetros pero nos proporciona información sobre qué falta. Esto es una fuga de información que nos ayuda a construir la petición correcta.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/86bc97a0-3b70-409d-9e7d-91734e0015ed"/></p>
+<h4>5.3.3 Tercera Tentativa - Agregando Email</h4>
+<p>Agregamos el parámetro <code>email</code>:</p>
+<pre><code class="language-json">{"status":"danger","message":"Missing parameter: is_admin"}
+</code></pre>
+<p><strong>Análisis Crítico:</strong></p>
+<p><strong>Vulnerabilidad Identificada:</strong> El servidor nos indica que existe un parámetro <code>is_admin</code> que puede ser modificado directamente por el usuario. Esto representa una vulnerabilidad de <strong>Insecure Direct Object Reference (IDOR)</strong> y <strong>Broken Access Control</strong>.</p>
+<h4>5.3.4 Explotación Exitosa - IDOR/BAC</h4>
+<p>Construimos la petición final con el parámetro <code>is_admin</code> establecido en <code>1</code>:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/9225297b-cbd7-4387-b5e2-de7dffc091cf"/></p>
+<p><strong>¡Escalada exitosa!</strong> Hemos modificado nuestro estado de privilegios sin validación del lado del servidor.</p>
+<h4>5.3.5 Verificación de Escalada</h4>
+<p>Validamos nuevamente nuestro estado administrativo:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/1121265d-6e04-4550-9fe7-87def1b58f0f"/></p>
+<p><strong>Confirmación:</strong> Ahora poseemos privilegios administrativos completos en la aplicación web.</p>
+<h3>5.4 Análisis de la Vulnerabilidad</h3>
+<p><strong>Tipo de Vulnerabilidad:</strong></p>
+<ul>
+<li>CWE-639: Authorization Bypass Through User-Controlled Key</li>
+<li>OWASP A01:2021 - Broken Access Control</li>
+</ul>
+<p><strong>Causa Raíz:</strong></p>
+<ol>
+<li>El servidor permite que usuarios autenticados modifiquen directamente su propio flag de privilegios</li>
+<li>No existe validación del lado del servidor para verificar si el usuario actual tiene permisos para cambiar <code>is_admin</code></li>
+<li>No hay separación entre usuarios normales y administradores en la lógica de actualización</li>
+</ol>
+<p><strong>Impacto:</strong></p>
+<ul>
+<li>Cualquier usuario autenticado puede convertirse en administrador</li>
+<li>Acceso completo a funcionalidades administrativas</li>
+<li>Potencial para comprometer completamente la aplicación</li>
+</ul>
+<hr/>
+<h2>6. Obtención de Reverse Shell mediante Command Injection</h2>
+<h3>6.1 Identificación del Endpoint Vulnerable</h3>
+<p>Con privilegios administrativos, procedemos a investigar el endpoint de generación de VPN:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/2c905be2-3cfa-47b9-ac57-eefe448281a2"/></p>
+<p><strong>Análisis:</strong> Similar al endpoint anterior, requiere el Content-Type correcto.</p>
+<h3>6.2 Descubrimiento de Parámetros</h3>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/16241846-ad34-4406-9979-b0a0d66c2858"/></p>
+<p><strong>Análisis Crítico:</strong> El servidor requiere un parámetro <code>username</code>. Este endpoint probablemente ejecuta comandos del sistema para generar configuraciones VPN, lo que lo convierte en un candidato perfecto para <strong>Command Injection</strong>.</p>
+<h3>6.3 Prueba de Concepto - Command Injection</h3>
+<h4>6.3.1 Hipótesis de Vulnerabilidad</h4>
+<p>Los generadores de VPN típicamente ejecutan comandos como:</p>
+<pre><code class="language-bash">openvpn --genkey --secret /tmp/username.key
+</code></pre>
+<p>Si el parámetro <code>username</code> no está sanitizado, podríamos inyectar comandos adicionales usando operadores de shell como:</p>
+<ul>
+<li><code>&amp;&amp;</code> - Ejecuta el siguiente comando si el anterior tuvo éxito</li>
+<li><code>;</code> - Ejecuta comandos secuencialmente</li>
+<li><code>|</code> - Pipe para encadenar comandos</li>
+</ul>
+<h4>6.3.2 Preparación del Listener</h4>
+<p>En nuestra máquina atacante, configuramos un listener con netcat o penelope:</p>
+<pre><code class="language-bash">penelope -p 4444
+</code></pre>
+<p><strong>Características de Penelope:</strong></p>
+<ul>
+<li>Auto-upgrade de shell a PTY</li>
+<li>Persistencia de sesión</li>
+<li>Transferencia de archivos integrada</li>
+<li>Soporte multi-sesión</li>
+</ul>
+<h3>6.4 Explotación - Reverse Shell</h3>
+<h4>6.4.1 Construcción del Payload</h4>
+<p>Utilizamos la técnica de <strong>Named Pipe (FIFO)</strong> para establecer la reverse shell:</p>
+<h4>6.4.2 Petición de Explotación</h4>
+<p>Construimos la petición HTTP con el payload inyectado:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/e3371ea8-b1ad-4c87-a8d5-a34ee040668c"/></p>
+<p>El operador <code>&amp;&amp;</code> asegura que nuestro comando se ejecute después del comando original del servidor (si este tiene éxito).</p>
+<h3>6.5 Obtención de Shell</h3>
+<p><strong>En nuestro listener:</strong></p>
+<p><p><img alt="Image" src="https://github.com/user-attachments/assets/7683391f-79b3-4879-bd5e-066f6dd52426"/></p>
+<strong>¡Acceso inicial exitoso!</strong> Hemos obtenido shell como el usuario <code>www-data</code>.</p>
+<h3>6.6 Análisis de la Vulnerabilidad de Command Injection</h3>
+<p><strong>Tipo de Vulnerabilidad:</strong></p>
+<ul>
+<li>CWE-78: OS Command Injection</li>
+<li>OWASP A03:2021 - Injection</li>
+</ul>
+<p><strong>Código Vulnerable (Hipotético):</strong></p>
+<pre><code class="language-php">&lt;?php
+// VULNERABLE - NO HACER ESTO
+$username = $_POST['username'];
+$command = "openvpn --genkey --secret /tmp/" . $username . ".key";
+exec($command);
+?&gt;
+</code></pre>
+<p><strong>Impacto:</strong></p>
+<ul>
+<li>Ejecución remota de código (RCE)</li>
+<li>Compromiso completo del servidor web</li>
+<li>Acceso a datos sensibles</li>
+<li>Posibilidad de pivoting en la red interna
+<strong>Mitigación:</strong></li>
+</ul>
+<ol>
+<li>Validar entrada con whitelist de caracteres permitidos</li>
+<li>Usar funciones seguras (evitar <code>exec()</code>, <code>system()</code>, <code>shell_exec()</code>)</li>
+<li>Implementar escapado de caracteres especiales con <code>escapeshellarg()</code></li>
+<li>Ejecutar servicios web con privilegios mínimos (principio de mínimo privilegio)</li>
+<li>Usar contenedores o sandboxing para aislar la aplicación</li>
+</ol>
+<h2>7. Escalada de Privilegios Horizontal</h2>
+<h3>7.1 Enumeración del Sistema de Archivos</h3>
+<p>Buscamos archivos de configuración en el directorio web:</p>
+<h3>7.2 Descubrimiento de Credenciales</h3>
+<p>Encontramos el archivo <code>.env</code>:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/68088d6c-6402-42f5-9aee-febce5f4b730"/></p>
+<pre><code>admin:SuperDuperPass123</code></pre>
+<h3>7.3 Acceso SSH como Admin</h3>
+<pre><code class="language-bash">ssh admin@10.10.11.221 Password: SuperDuperPass123
+</code></pre>
+<h2>8. Escalada de Privilegios a Root</h2>
+<h3>8.1 Enumeración con LinPEAS</h3>
+<p>Transferimos y ejecutamos LinPEAS:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/0be4467d-d989-4f76-b65a-12704eac775c"/></p>
+<h3>8.2 Identificación de Binarios SGID</h3>
+<p>LinPEAS identifica <code>/usr/bin/write.ul</code> con permisos SGID.</p>
+<pre><code class="language-bash">strings /usr/bin/write.ul 
+</code></pre>
+<p>Resultado:
+<p><img alt="Image" src="https://github.com/user-attachments/assets/aa362f51-3eaa-4879-8b59-21ef20563a7c"/></p></p>
+<p>Al buscar si <code>util-linux 2.37.2</code> tiene algun <code>CVE</code> me encuentro con que tiene <code>CVE-2023-4911</code></p>
+<h1>CVE-2023-4911 — <em>Looney Tunables</em></h1>
+<p>Afecta a: <strong>glibc (GNU C Library)</strong><br/>
+Año: 2023<br/>
+Impacto: <strong>Escalada de privilegios a ROOT</strong><br/>
+Tipo: <strong>Buffer Overflow en variables de entorno</strong></p>
+<hr/>
+<h2>¿QUÉ ES EXACTAMENTE?</h2>
+<p>Es una <strong>vulnerabilidad crítica en <code>glibc</code></strong> que permite que <strong>un usuario normal obtenga ROOT</strong>, explotando <strong>cómo se procesan ciertas variables de entorno llamadas <code>GLIBC_TUNABLES</code></strong>.</p>
+<p>El fallo ocurre <strong>ANTES de que el programa baje privilegios</strong>, lo cual es lo más peligroso posible.</p>
+<h2>COMPONENTE VULNERABLE</h2>
+<p>El fallo está en cómo <code>glibc</code> procesa esta variable:</p>
+<pre><code class="language-C">GLIBC_TUNABLES
+</code></pre>
+<p>Esta variable se evalúa <strong>antes de que el binario quite privilegios</strong>, incluso en binarios <strong>SUID root</strong> como:</p>
+<ul>
+<li><code>sudo</code></li>
+<li><code>su</code></li>
+<li><code>passwd</code></li>
+<li><code>pkexec</code></li>
+</ul>
+<h2>TIPO DE VULNERABILIDAD</h2>
+<p>Es un:</p>
+<blockquote>
+<p><strong>Stack Buffer Overflow por mala validación de entrada</strong></p>
+</blockquote>
+<p>Puedes <strong>sobrescribir estructuras internas</strong> de glibc y redirigir la ejecución.</p>
+<h1>Explotacion</h1>
+<p>Vamos a ir al repositorio de <a href="https://github.com/NishanthAnand21/CVE-2023-4911-PoC">https://github.com/NishanthAnand21/CVE-2023-4911-PoC</a> y ahi encontraremos la prueba de concepto para explotar esta vulnerabilidad.</p>
+<p>Compilamos el exploit:</p>
+<pre><code class="language-bash">admin@2million:/tmp$ gcc exploit.c -o explotacion
+</code></pre>
+<p>Generamos la biblioteca maliciosa:</p>
+<pre><code class="language-bash">admin@2million:/tmp$ nano genlib.py
+admin@2million:/tmp$ python3 genlib.py
+</code></pre>
+<p>Ejecutamos el exploit:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/bea417a6-3b7d-441f-a1b6-9f7593b01cea"/></p>
+<p>Despues de un rato logramos escalar privilegios al usuario <code>root</code> en la maquina victima explotando <code>CVE-2023-4911</code></p>
+<h2>9. Mitigaciones Recomendadas</h2>
+<h3>9.1 Vulnerabilidades de la Aplicación Web</h3>
+<ol>
+<li><strong>API de Invitaciones:</strong><ul>
+<li>Implementar rate limiting</li>
+<li>Validar códigos del lado del servidor</li>
+<li>No exponer lógica de generación en el cliente</li>
+</ul>
+</li>
+<li><strong>Escalada de Privilegios via API:</strong><ul>
+<li>Validar permisos en cada endpoint</li>
+<li>No permitir modificación directa del flag <code>is_admin</code></li>
+<li>Implementar autenticación basada en roles (RBAC)</li>
+</ul>
+</li>
+<li><strong>Command Injection:</strong><ul>
+<li>Sanitizar todas las entradas de usuario</li>
+<li>Utilizar funciones seguras (evitar <code>system()</code>, <code>exec()</code>)</li>
+<li>Implementar whitelisting de caracteres permitidos</li>
+</ul>
+</li>
+<li><strong>Exposición de Credenciales:</strong><ul>
+<li>No almacenar credenciales en archivos <code>.env</code> accesibles</li>
+<li>Utilizar gestores de secretos</li>
+<li>Aplicar principio de mínimo privilegio</li>
+</ul>
+</li>
+</ol>
+<h3>9.2 Sistema Operativo</h3>
+<ol>
+<li><strong>CVE-2023-4911:</strong><ul>
+<li>Actualizar glibc a la versión más reciente</li>
+<li>Aplicar parches de seguridad regularmente</li>
+<li>Monitorear advisories de seguridad</li>
+</ul>
+</li>
+</ol>
+<p>bash</p>
+<pre><code class="language-bash"># Verificar versión de glibc
+ldd --version
+
+# Actualizar sistema
+sudo apt update &amp;&amp; sudo apt upgrade
+</code></pre>
+<hr/>
+<h2>10. Conclusión</h2>
+<p>La máquina TwoMillion demuestra la importancia de:</p>
+<ul>
+<li>Validación adecuada de entrada en APIs</li>
+<li>Implementación correcta de controles de acceso</li>
+<li>Mantenimiento actualizado de componentes del sistema</li>
+<li>No exponer información sensible en archivos de configuración</li>
+</ul>
+<p><strong>Habilidades Desarrolladas:</strong></p>
+<ul>
+<li>Ingeniería inversa de JavaScript</li>
+<li>Manipulación de APIs REST</li>
+<li>Command Injection</li>
+<li>Explotación de vulnerabilidades de glibc</li>
+<li>Enumeración de Linux</li>
+</ul>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

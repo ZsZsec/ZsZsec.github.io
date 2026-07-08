@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>JuicyDetails | ZsZsec</title>
+<meta content="Introducción El presente informe documenta el análisis realizado sobre los registros entregados por el equipo de TI de Juicy Shop , tras detectar actividad maliciosa dentro de su i..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>JuicyDetails<span>_</span></h1>
+<div class="writeup-meta"><span>blue_team / #incident / #SOC</span></div>
+<div class="tag-row"><span class="tag">blue_team</span><span class="tag">#incident</span><span class="tag">#SOC</span><span class="tag">logs</span><span class="tag">evidence</span><span class="tag">MITRE_ATTCK</span><span class="tag">exfiltration</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h2>Introducción</h2>
+<p>El presente informe documenta el análisis realizado sobre los registros entregados por el equipo de TI de <strong>Juicy Shop</strong>, tras detectar actividad maliciosa dentro de su infraestructura. El objetivo de este análisis es identificar las técnicas utilizadas por el atacante, los endpoints comprometidos, la información exfiltrada y el impacto potencial del incidente.</p>
+<h2>Cronología del Ataque</h2>
+<p>A partir de los archivos de registro (<code>access.log</code>) se identificaron las siguientes fases del ataque, ejecutadas el <strong>11 de abril de 2021</strong> desde la dirección IP <strong>192.168.10.5</strong>:</p>
+<h2>Sesión 1 — Reconocimiento / Escaneo (11/Apr/2021 09:08:29)</h2>
+<p><strong>Evidencia:</strong> el primer evento registrado es un escaneo desde la IP <code>192.168.10.5</code> a las <strong>09:08:29</strong>; en los logs se detecta actividad típica de mapeo de puertos/servicios.</p>
+<ul>
+<li>El atacante inició un escaneo de reconocimiento empleando <strong>Nmap</strong>, con el fin de identificar servicios y puertos expuestos.</li>
+<li>Esta fase le permitió descubrir vectores de ataque en la superficie de exposición del sistema.</li>
+</ul>
+<p><strong>Acción recomendada inmediata:</strong></p>
+<ul>
+<li>Revisar/aislar la IP origen si es externa; si es interna, iniciar trazado de origen y escalado a TI.</li>
+<li>Habilitar alertas de escaneo en IDS/IPS y limitar acceso a servicios administrativos desde redes no confiables.</li>
+</ul>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/fb3f39dd-f91c-4a1c-bd21-d9b4ed9f732a"/></p>
+<h2>Sesión 2 — Fuzzing / Enumeración de directorios (09:08:30 – 09:15:35)</h2>
+<p><strong>Evidencia:</strong> múltiples peticiones HTTP con user-agent <code>Mozilla/5.0 (X11; Linux x86_64; rv:78.0) Gecko/20100101 Firefox/78.0</code> y patrones de requests típicos de feroxbuster/dirbuster; duración hasta <strong>09:15:35</strong>.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/22a0be95-30f7-491f-a7fb-39fc29db36c7"/></p>
+<p><strong>Qué pasó</strong>:</p>
+<ul>
+<li>Se ejecutó un escaneo de directorios (fuzzing) para descubrir endpoints sensibles.</li>
+<li>Resultado relevante: descubrimiento del endpoint de autenticación <code>/rest/user/login</code>.</li>
+</ul>
+<p><strong>Por qué importa:</strong></p>
+<ul>
+<li>El descubrimiento del panel de login es lo que permitió al atacante pasar a la fase de acceso directo (fuerza bruta).</li>
+</ul>
+<p><strong>Acción recomendada inmediata:</strong></p>
+<ul>
+<li>Revisar logs de 404/403 y endpoints enumerados; colocar reglas WAF para bloquear patrones de fuzzing (cabeceras, frecuencia).</li>
+<li>Implementar rate limiting y CAPTCHA en endpoints de login.</li>
+</ul>
+<h2>Sesión 3 — Fuerza bruta contra <code>/rest/user/login</code> (09:16:27 – <strong>09:16:31</strong>; login exitoso a <strong>09:16:31 +0000</strong>)</h2>
+<p><strong>Evidencia:</strong> ráfaga de <strong>144</strong> intentos contra <code>/rest/user/login</code> en ~3 segundos, herramienta identificada: <strong>Hydra</strong>; registro de un inicio de sesión exitoso a las <strong>09:16:31 +0000</strong>.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/cedffc40-f7e8-4184-93dd-bdb7c0d8cc6e"/></p>
+<p><strong>Qué pasó</strong>:</p>
+<ul>
+<li>Ataque de fuerza bruta automatizado con credenciales/wordlist.</li>
+<li>Hubo un acceso exitoso (usuario/credencial válida) a las <strong>09:16:31</strong>, lo que le otorgó al atacante una sesión autenticada en la aplicación.</li>
+</ul>
+<p><strong>Por qué importa:</strong></p>
+<ul>
+<li>El bloqueo por intentos repetidos no estaba activo o era insuficiente. Acceso autenticado permite escalar privilegios y ejecutar acciones posteriores (como inyecciones, consultas privilegiadas, etc.).</li>
+</ul>
+<p><strong>Acción recomendada inmediata:</strong></p>
+<ul>
+<li>Forzar la rotación de la contraseña comprometida; invalidar todas las sesiones activas.</li>
+<li>Implementar bloqueo de cuenta, bloqueo por IP temporal y MFA en todos los inicios de sesión.</li>
+<li>Buscar signos de lateral movement desde la cuenta comprometida.</li>
+</ul>
+<h2>Sesión 4 — Inyección SQL en <code>/rest/products/search?q=</code> (09:29:14 – 09:32:51)</h2>
+<p><strong>Evidencia:</strong> peticiones con payloads de SQLi detectadas; uso de <strong>sqlmap</strong> y posteriormente consultas <code>UNION SELECT</code> automatizadas vía <strong>curl 7.74.0</strong> entre <strong>09:29:58</strong> y <strong>09:32:51</strong>. Se apunta a columnas de la tabla <code>Users</code> (id, email, password).</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/18145c6b-8451-480e-b02d-6163ad869e17"/></p>
+<p><strong>Qué pasó</strong></p>
+<ul>
+<li>El atacante explotó un parámetro vulnerable (<code>q</code>) en el endpoint de búsqueda para ejecutar consultas SQL arbitrarias.</li>
+<li>Intentos de volcado (<code>dump</code>) de la base de datos; éxito en extraer columnas sensibles (<code>email</code>, <code>password</code>).</li>
+</ul>
+<p><strong>Por qué importa:</strong></p>
+<ul>
+<li>Exfiltración de credenciales y correos compromete la privacidad de usuarios y posibilita más acceso (credential stuffing en otros servicios).</li>
+<li>Indica falta de input sanitization y/o uso de queries parametrizadas.</li>
+</ul>
+<p><strong>Acción recomendada inmediata:</strong></p>
+<ul>
+<li>Poner el endpoint fuera de línea o aplicar regla WAF de bloqueo para patrones <code>UNION SELECT</code>, <code>OR 1=1</code>, etc.</li>
+<li>Auditar la base de datos por consultas inusuales y rotar credenciales de usuarios afectados.</li>
+<li>Habilitar monitoreo de integridad en tablas sensibles.</li>
+</ul>
+<h2>Sesión 5 — Automatización de extracción con cURL (09:29:58 – 09:32:51)</h2>
+<p>Se observó que el atacante automatizó el ataque mediante <code>curl</code> (versión 7.74.0), enviando consultas tipo <code>UNION SELECT</code> para intentar exfiltrar columnas de la tabla <code>Users</code>, incluyendo <code>id</code>, <code>email</code> y <code>password</code>. Las solicitudes se registraron entre las <code>09:29:58 y 09:32:51 del 11/Apr/2021."</code></p>
+<p><strong>Evidencia:</strong> múltiples requests con <code>curl/7.74.0</code> realizando <code>UNION SELECT</code> y recuperando columnas; las entradas en access.log muestran respuestas con datos.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/405baab9-94c7-4893-a074-2417b03d7c92"/></p>
+<p><strong>Qué pasó</strong>:</p>
+<ul>
+<li>Tras verificar vulnerabilidad con sqlmap, el atacante usó <code>curl</code> para automatizar y extraer columnas específicas (id, email, password).</li>
+<li>Esto confirma exfiltración programada y no solo pruebas puntuales.</li>
+</ul>
+<p><strong>Por qué importa:</strong></p>
+<ul>
+<li>Uso de herramientas estándar y scripts hace que la exfiltración sea reproducible y rápida; más difícil de detectar si no hay alertas por patrones.</li>
+</ul>
+<p><strong>Acción recomendada inmediata:</strong></p>
+<ul>
+<li>Capturar y preservar todas las respuestas registradas durante esas solicitudes (para evidencia).</li>
+<li>Notificar a cumplimiento/privacidad si datos de usuarios fueron comprometidos.</li>
+</ul>
+<h2>Sesión 6 — Segundo Fuzzing / Feroxbuster (posterior al SQLi)</h2>
+<p><strong>Evidencia:</strong> nuevo ciclo de enumeración de directorios con feroxbuster; secuencia de accesos a rutas enumeradas, incluyendo <code>/backup, /promotion, /admin</code>.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/b48acb61-80be-416b-9a57-84f733126194"/></p>
+<p><strong>Qué pasó:</strong></p>
+<ul>
+<li>El atacante reanudó enumeración para encontrar archivos o endpoints con contenido interesante (correos, backups, markdowns).</li>
+<li>En <code>/products/reviews</code> se detectaron intentos de extracción de correos en distintas secciones.</li>
+</ul>
+<p><strong>Por qué importa:</strong></p>
+<ul>
+<li>Buscar archivos y rutas con datos sensibles o backups es típico post-exploit para maximizar información exfiltrada.</li>
+</ul>
+<p><strong>Acción recomendada inmediata:</strong></p>
+<ul>
+<li>Escanear repositorio web en busca de archivos .bak, .md, .old, .sql expuestos y eliminarlos o restringir acceso.</li>
+<li>Implementar reglas WAF que bloqueen patrones de búsqueda masiva.</li>
+</ul>
+<h2>Sesión 7 — Acceso FTP anónimo y exfiltración de archivos (11/Apr/2021 09:34:33 – 09:34:52)</h2>
+<p><strong>Evidencia:</strong> conexiones FTP desde <code>192.168.10.5</code> usando usuario <code>anonymous</code>; transferencia (GET) de dos archivos: <code>www-data.bak</code> y <code>coupons_2013.md.bak</code>.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/c3d294aa-2c60-411f-9d39-7844188f168e"/></p>
+<p><strong>Qué pasó:</strong></p>
+<ul>
+<li>El atacante aprovechó FTP anónimo para descargar copias de seguridad y archivos con datos potencialmente sensibles.</li>
+<li>Los archivos descargados contienen probables configuraciones/credenciales o cupones (posible información comercial).</li>
+</ul>
+<p><strong>Por qué importa:</strong></p>
+<ul>
+<li>FTP anónimo habilita exfiltración fácil; backups con credenciales son un vector directo de escalada.</li>
+<li>La presencia de <code>www-data.bak</code> sugiere backup de archivos de servidor que pueden contener claves o configuraciones.</li>
+</ul>
+<p><strong>Acción recomendada inmediata:</strong></p>
+<ul>
+<li>Deshabilitar accesos FTP anónimos y auditar el servidor FTP.</li>
+<li>Recuperar y analizar los archivos descargados (si hay copia en servidor) para evaluar la sensibilidad.</li>
+<li>Cambiar credenciales encontradas en esos backups.</li>
+</ul>
+<h2>Sesión 8 — Acceso SSH como <code>www-data</code> y shell persistente (posterior)</h2>
+<p><strong>Evidencia:</strong> logs indican conexión SSH con usuario <code>www-data</code> y obtención de shell por parte del atacante; secuencia posterior consistente con comandos interactivos.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/3661b95f-ad09-4c64-9d67-c60a5a1bc7c3"/></p>
+<p><strong>Qué pasó:</strong></p>
+<ul>
+<li>El atacante, con credenciales recuperadas (posiblemente desde backups o SQLi), consiguió acceso a una cuenta del sistema (<code>www-data</code>) vía SSH y obtuvo shell.</li>
+<li>Desde esa shell pudo moverse, crear persistencia, y preparar exfiltración adicional.</li>
+</ul>
+<p><strong>Por qué importa:</strong></p>
+<ul>
+<li>Acceso directo al sistema operativo permite ejecutar ataques fuera del contexto Web (escalada a root, lateral movement, instalación de backdoors).</li>
+</ul>
+<p><strong>Acción recomendada inmediata:</strong></p>
+<ul>
+<li>Terminar todas las sesiones SSH sospechosas; cambiar claves/credenciales en el host.</li>
+<li>Buscar binarios/cronjobs/keys colocados por el atacante para persistencia.</li>
+<li>Aislar la máquina comprometida y tomar imagen forense antes de limpiarla.</li>
+</ul>
+<h2>Resumen</h2>
+<p>El atacante siguió una campaña clásica: reconocimiento → fuzzing → fuerza bruta (login exitoso) → inyección SQL (exfiltración de credenciales) → búsqueda de archivos sensibles → exfiltración via FTP → SSH para shell persistente. Los puntos críticos fueron la existencia de FTP anónimo, falta de mitigaciones contra fuerza bruta y la vulnerabilidad SQL en el endpoint de búsqueda.</p>
+<h2>Siguientes pasos (prioridad inmediata)</h2>
+<ol>
+<li><strong>Contención:</strong> bloquear IPs sospechosas, aislar host comprometido.</li>
+<li><strong>Erradicación:</strong> deshabilitar FTP anónimo, aplicar parches/parametrización SQL, forzar cambios de contraseña y MFA.</li>
+<li><strong>Recuperación:</strong> restaurar desde backups limpios, revisar integridad del sistema.</li>
+<li><strong>Forense:</strong> capturar imágenes, conservar logs y respuestas de las solicitudes SQL para evidencia.</li>
+<li><strong>Notificación:</strong> activar protocolos legales/privacidad si datos de usuarios fueron comprometidos.</li>
+</ol>
+<h1>Indicadores de Compromiso (IOCs)</h1>
+<table>
+<thead>
+<tr>
+<th>Tipo</th>
+<th>IOC (valor)</th>
+<th style="text-align:right">Timestamp(s) (UTC)</th>
+<th>Evidencia (extracto / línea de log)</th>
+<th>Acción rápida</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>IP origen</td>
+<td><code>192.168.10.5</code></td>
+<td style="text-align:right">11/Apr/2021 09:08:29 — 11/Apr/2021 09:34:52</td>
+<td>Múltiples entradas en <code>access.log</code> registran solicitudes originadas desde <code>192.168.10.5</code> durante todo el incidente (reconocimiento, fuzzing, fuerza bruta, SQLi, FTP). Timestamps registrados en el PDF: 09:08:29, 09:16:27–09:16:31, 09:29:14–09:32:51, 09:34:33–09:34:52.</td>
+<td>Bloquear/aislar la IP; buscar movimiento lateral desde esa IP.</td>
+</tr>
+<tr>
+<td>User-Agent (fuzzing)</td>
+<td><code>Mozilla/5.0 (X11; Linux x86_64; rv:78.0) Gecko/20100101 Firefox/78.0</code></td>
+<td style="text-align:right">11/Apr/2021 09:08:30 – 09:15:35</td>
+<td>El PDF muestra numerosas peticiones con ese User-Agent durante la fase de enumeración de directorios (patrón típico de feroxbuster), incluyendo descubrimiento de <code>/rest/user/login</code>.</td>
+<td>Correlacionar/alertar por patrones de feroxbuster; bloquear o mitigar.</td>
+</tr>
+<tr>
+<td>User-Agent (exfiltración HTTP)</td>
+<td><code>curl/7.74.0</code></td>
+<td style="text-align:right">11/Apr/2021 09:29:58 – 09:32:51</td>
+<td>Registros que muestran <code>curl/7.74.0</code> realizando peticiones con payloads <code>UNION SELECT</code> entre 09:29:58 y 09:32:51; respuestas contienen columnas <code>id</code>, <code>email</code>, <code>password</code>.</td>
+<td>Detectar/alertar solicitudes <code>curl</code> con patrones SQLi; preservar respuestas para evidencia.</td>
+</tr>
+<tr>
+<td>Herramienta (fuerza bruta)</td>
+<td><code>hydra</code> (patrón de requests)</td>
+<td style="text-align:right">11/Apr/2021 09:16:27 – 09:16:31</td>
+<td>El access.log indica 144 intentos rápidos contra <code>/rest/user/login</code> en ~3s, patrón consistente con Hydra; el PDF declara explícitamente uso de hydra y login exitoso a las 09:16:31 +0000.</td>
+<td>Implementar rate-limits, bloqueo temporal por IP y exigir MFA; rotar credenciales comprometidas.</td>
+</tr>
+<tr>
+<td>Herramienta (automatización SQL)</td>
+<td><code>sqlmap</code> (seguido de <code>curl</code>)</td>
+<td style="text-align:right">11/Apr/2021 09:29:14 – 09:32:51</td>
+<td>El PDF registra ejecución de <code>sqlmap</code> iniciada a las 09:29:14 y posteriormente peticiones <code>curl</code> entre 09:29:58 y 09:32:51 con <code>UNION SELECT</code> dirigidas a <code>/rest/products/search?q=</code>; evidencia de volcado de la tabla <code>Users</code>.</td>
+<td>Aplicar WAF y consultas parametrizadas; auditar DB y revocar credenciales filtradas.</td>
+</tr>
+<tr>
+<td>Endpoint (login)</td>
+<td><code>/rest/user/login</code></td>
+<td style="text-align:right">Descubierto 09:15:xx; ataques 09:16:27 – 09:16:31; <strong>login exitoso 11/Apr/2021 09:16:31 +0000</strong></td>
+<td>El PDF indica descubrimiento del endpoint durante el fuzzing y registra 144 intentos de fuerza bruta seguidos de un inicio de sesión exitoso a las 09:16:31 +0000 en <code>access.log</code>.</td>
+<td>Invalidar sesión, forzar cambio de credenciales, activar MFA, revisar logs de la cuenta.</td>
+</tr>
+<tr>
+<td>Endpoint (vulnerable a SQLi)</td>
+<td><code>/rest/products/search?q=</code></td>
+<td style="text-align:right">11/Apr/2021 09:29:14 – 09:32:51</td>
+<td>Entradas en logs muestran payloads SQLi dirigidos al parámetro <code>q</code> desde 09:29:14; el PDF documenta extracción de <code>id</code>, <code>email</code>, <code>password</code> vía <code>UNION SELECT</code>.</td>
+<td>Desactivar/poner en cuarentena endpoint, aplicar parches y parametrizar queries.</td>
+</tr>
+<tr>
+<td>Endpoint (recolección datos)</td>
+<td><code>/products/reviews</code></td>
+<td style="text-align:right">~09:32:xx – 09:34:xx (posterior al SQLi)</td>
+<td>El PDF muestra intentos posteriores de raspar secciones como <code>/products/reviews</code> en búsqueda de correos y datos visibles tras el volcado.</td>
+<td>Revisar campos públicos por exposiciones; eliminar/ocultar datos sensibles.</td>
+</tr>
+<tr>
+<td>FTP — acceso anónimo</td>
+<td>Login <code>anonymous</code></td>
+<td style="text-align:right">11/Apr/2021 09:34:33 – 09:34:52</td>
+<td>Registros de FTP indican conexión anónima desde <code>192.168.10.5</code> y transferencias GET entre 09:34:33 y 09:34:52; PDF lista los archivos descargados.</td>
+<td>Deshabilitar FTP anónimo; auditar transferencias y restringir acceso.</td>
+</tr>
+<tr>
+<td>Archivos exfiltrados</td>
+<td><code>www-data.bak</code>, <code>coupons_2013.md.bak</code></td>
+<td style="text-align:right">Transferencias 11/Apr/2021 09:34:33 – 09:34:52</td>
+<td>El PDF reporta la descarga de <code>www-data.bak</code> y <code>coupons_2013.md.bak</code> vía FTP anónimo en la ventana 09:34:33–09:34:52; potencial contenido sensible en backups.</td>
+<td>Recuperar copias forenses, analizar por secretos/credenciales y rotar claves.</td>
+</tr>
+<tr>
+<td>Acceso SSH</td>
+<td>SSH como <code>www-data</code> (shell interactivo)</td>
+<td style="text-align:right">Posterior a 09:34:52 (actividad post-exfiltración)</td>
+<td>Logs indicativos en el PDF muestran conexión SSH con usuario <code>www-data</code> y comandos de shell posteriores; se reporta obtención de shell para persistencia.</td>
+<td>Terminar sesiones, revisar <code>authorized_keys</code>, cronjobs, binarios y posibles backdoors; aislar host.</td>
+</tr>
+<tr>
+<td>Técnica de reconocimiento</td>
+<td>Escaneo activo (posible Nmap)</td>
+<td style="text-align:right">11/Apr/2021 09:08:29</td>
+<td>El PDF documenta un escaneo inicial a las 09:08:29 que coincide con patrones de Nmap / scanning en <code>access.log</code>.</td>
+<td>Habilitar detección de scans; revisar IDS/IPS para el origen y alcance.</td>
+</tr>
+</tbody>
+</table>
+<h1>Técnicas  MITRE ATT&amp;CK</h1>
+<table>
+<thead>
+<tr>
+<th>Técnica (ATT&amp;CK)</th>
+<th style="text-align:right">ID</th>
+<th>Descripción (resumida)</th>
+<th>Evidencia en logs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Active Scanning / Reconocimiento activo (escaneo de puertos/servicios)</td>
+<td style="text-align:right"><strong>T1595</strong>. (Active Scanning) (<a href="https://attack.mitre.org/techniques/T1595/?utm_source=chatgpt.com" title="Active Scanning, Technique T1595 - Enterprise - MITRE ATT&amp;CK®">MITRE ATT&amp;CK</a>)</td>
+<td>Escaneo inicial para identificar puertos/servicios expuestos (p. ej. Nmap o escaneo similar).</td>
+<td>Escaneo inicial desde <code>192.168.10.5</code> a las <strong>09:08:29</strong>.</td>
+</tr>
+<tr>
+<td>Vulnerability / Directory discovery (fuzzing de endpoints) – sub-actividad de escaneo</td>
+<td style="text-align:right"><strong>T1595.002</strong> (Vulnerability Scanning / reconocimiento activo) (<a href="https://center-for-threat-informed-defense.github.io/mappings-explorer/attack/attack-9.0/domain-enterprise/techniques/T1595.002/?utm_source=chatgpt.com" title="ATT&amp;CK Technique T1595.002 - Mappings Explorer - GitHub Pages">center-for-threat-informed-defense.github.io</a>)</td>
+<td>Enumeración de directorios/webpaths (feroxbuster / dirb) para descubrir endpoints como <code>/rest/user/login</code>.</td>
+<td>Peticiones con user-agent <code>Firefox/78.0</code> y secuencia típica de feroxbuster (09:08:30–09:15:35).</td>
+</tr>
+<tr>
+<td>Brute Force (ataque de fuerza bruta contra autenticación web)</td>
+<td style="text-align:right"><strong>T1110</strong> (Brute Force) (<a href="https://attack.mitre.org/techniques/T1110/?utm_source=chatgpt.com" title="Brute Force, Technique T1110 - Enterprise - MITRE ATT&amp;CK®">MITRE ATT&amp;CK</a>)</td>
+<td>Intentos automatizados de adivinar credenciales (Hydra).</td>
+<td>144 intentos contra <code>/rest/user/login</code> entre <strong>09:16:27</strong> y <strong>09:16:31</strong>, login exitoso 09:16:31 +0000.</td>
+</tr>
+<tr>
+<td>Valid Accounts (uso de credenciales válidas)</td>
+<td style="text-align:right"><strong>T1078</strong> (Valid Accounts) (<a href="https://attack.mitre.org/techniques/T1078/?utm_source=chatgpt.com" title="Valid Accounts, Technique T1078 - Enterprise | MITRE ATT&amp;CK®">MITRE ATT&amp;CK</a>)</td>
+<td>Uso de credenciales válidas para autenticarse y moverse (p. ej. sesión obtenida en la app y SSH con <code>www-data</code>).</td>
+<td>Login exitoso web 09:16:31; acceso SSH como <code>www-data</code> posteriormente.</td>
+</tr>
+<tr>
+<td>Exploit Public-Facing Application (explotación de aplicación pública — SQLi)</td>
+<td style="text-align:right"><strong>T1190</strong> (Exploit Public-Facing Application) (<a href="https://attack.mitre.org/techniques/T1190/?utm_source=chatgpt.com" title="Exploit Public-Facing Application, Technique T1190 - Enterprise">MITRE ATT&amp;CK</a>)</td>
+<td>Explotación de una vulnerabilidad en una aplicación pública (SQLi contra <code>/rest/products/search?q=</code> para ejecutar <code>UNION SELECT</code>).</td>
+<td>Inyección SQL registrada 09:29:14 – 09:32:51, uso de <code>sqlmap</code> y <code>UNION SELECT</code>.</td>
+</tr>
+<tr>
+<td>Exfiltration Over Alternative Protocol (exfiltración vía FTP / protocolos alternativos)</td>
+<td style="text-align:right"><strong>T1048</strong> (Exfiltration Over Alternative Protocol) — FTP/HTTP etc. (<a href="https://attack.mitre.org/techniques/T1048/?utm_source=chatgpt.com" title="Exfiltration Over Alternative Protocol, Technique T1048 - Enterprise">MITRE ATT&amp;CK</a>, <a href="https://www.cisa.gov/eviction-strategies-tool/info-attack/T1048?utm_source=chatgpt.com" title="T1048 Exfiltration Over Alternative Protocol - | CISA">cisa.gov</a>)</td>
+<td>Exfiltración de archivos usando un protocolo distinto al C2 principal (ej. FTP anónimo, HTTP <code>curl</code>).</td>
+<td>Descarga FTP anónimo de <code>www-data.bak</code> y <code>coupons_2013.md.bak</code> 09:34:33–09:34:52; uso de <code>curl</code> para extraer datos vía HTTP.</td>
+</tr>
+<tr>
+<td>Remote Services: SSH (uso de servicios remotos para acceso interactivo)</td>
+<td style="text-align:right"><strong>T1021.004</strong> (SSH) (<a href="https://attack.mitre.org/techniques/T1021/004/?utm_source=chatgpt.com" title="Remote Services: SSH, Sub-technique T1021.004 - MITRE ATT&amp;CK®">MITRE ATT&amp;CK</a>)</td>
+<td>Uso de SSH/servicios remotos para autenticarse y obtener shell interactivo.</td>
+<td>Acceso SSH con usuario <code>www-data</code> y obtención de shell (post-explotación).</td>
+</tr>
+<tr>
+<td>Exfiltration over C2 / Exfiltration (general)</td>
+<td style="text-align:right"><strong>T1041</strong> (Exfiltration Over C2 Channel) — (contextual) (<a href="https://attack.mitre.org/techniques/T1041/?utm_source=chatgpt.com" title="Exfiltration Over C2 Channel, Technique T1041 - MITRE ATT&amp;CK®">MITRE ATT&amp;CK</a>)</td>
+<td>Categoría general de exfiltración — en este caso combinada: extracción via HTTP/FTP/CURL.</td>
+<td>Respuestas con datos extraídos tras <code>UNION SELECT</code> y transferencias FTP; evidencia en logs de transferencias/respuestas.</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

