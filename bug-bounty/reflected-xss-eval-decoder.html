@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reflected XSS mediante un decoder JSON basado en eval() | ZsZsec</title>
+  <meta name="description" content="Análisis de un Reflected XSS encontrado en el NASA VDP y causado por un decoder JSON heredado que evaluaba como JavaScript un parámetro de la URL." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="canonical" href="https://zszsec.github.io/bug-bounty/reflected-xss-eval-decoder.html" />
+  <meta property="og:title" content="Reflected XSS mediante un decoder JSON basado en eval()" />
+  <meta property="og:description" content="Un encoder HTML aplicado antes de un decoder basado en eval() permitía ejecutar JavaScript desde un parámetro de la URL." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/bug-bounty/reflected-xss-eval-decoder.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Reflected XSS mediante un decoder JSON basado en eval()" />
+  <meta name="twitter:description" content="Reflected XSS causado por un decoder JSON heredado que evaluaba como JavaScript un parámetro de la URL." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Reflected XSS mediante un decoder JSON basado en eval()",
+    "description": "Análisis de un Reflected XSS causado por un decoder JSON heredado que evaluaba como JavaScript un parámetro de la URL.",
+    "author": {
+      "@type": "Person",
+      "name": "Santiago Bedoya",
+      "alternateName": "ZsZsec",
+      "url": "https://zszsec.github.io/sobre-mi.html"
+    },
+    "mainEntityOfPage": "https://zszsec.github.io/bug-bounty/reflected-xss-eval-decoder.html"
+  }
+  </script>
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../bug-bounty.html" aria-current="page">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">bug bounty / nasa vdp</p>
+      <h1>Reflected XSS<span>_</span></h1>
+      <div class="writeup-meta"><span>CWE-95</span><span>Medium</span></div>
+      <div class="tag-row"><span class="tag">Web Security</span><span class="tag">Reflected XSS</span><span class="tag">JavaScript</span><span class="tag">Legacy Code</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <p>Encontré esta vulnerabilidad durante pruebas autorizadas dentro del programa de divulgación de vulnerabilidades de NASA. La aplicación tomaba un parámetro de la URL, aplicaba un encoder para HTML y después enviaba el resultado a un decoder JSON heredado que utilizaba <code>eval()</code>.</p>
+
+        <p>El valor nunca llegaba a un sink HTML. El JavaScript se ejecutaba porque la aplicación trataba una cadena controlada desde la URL como código.</p>
+
+        <blockquote><p>El sistema concreto se mantiene anónimo. El dominio, la ruta, el parámetro y los nombres internos utilizados en los ejemplos son sintéticos.</p></blockquote>
+
+        <h2>Ficha técnica</h2>
+
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Programa</td><td>NASA Vulnerability Disclosure Program</td></tr>
+            <tr><td>Categoría</td><td>Reflected Cross-Site Scripting</td></tr>
+            <tr><td>CWE</td><td>CWE-95</td></tr>
+            <tr><td>Criticidad</td><td>Medium</td></tr>
+            <tr><td>Superficie</td><td>Aplicación web pública</td></tr>
+            <tr><td>Autenticación</td><td>No requerida</td></tr>
+            <tr><td>Interacción</td><td>La víctima debe abrir un enlace preparado</td></tr>
+          </tbody>
+        </table>
+
+        <h2>El flujo vulnerable</h2>
+
+        <p>La aplicación utilizaba una versión heredada de ExtJS con el parser JSON nativo deshabilitado. En esa configuración, el framework recurría a un decoder basado en <code>eval()</code>.</p>
+
+        <p>El flujo podía resumirse así:</p>
+
+        <pre><code>parámetro de la URL
+        ↓
+Ext.String.htmlEncode()
+        ↓
+estado inicial de la aplicación
+        ↓
+decoder JSON heredado
+        ↓
+eval("(" + input + ")")</code></pre>
+
+        <p>El uso de <code>htmlEncode()</code> daba la impresión de que la entrada estaba sanitizada. Sin embargo, ese método solamente protegía caracteres relevantes para HTML, como <code>&lt;</code>, <code>&gt;</code>, comillas y <code>&amp;</code>.</p>
+
+        <p>El sink era JavaScript. Caracteres como paréntesis, puntos y corchetes seguían intactos, por lo que una expresión válida podía atravesar el encoder y llegar hasta <code>eval()</code>.</p>
+
+        <h2>Por qué el encoder no servía</h2>
+
+        <p>La entrada se estaba protegiendo para un contexto diferente al que finalmente la interpretaba:</p>
+
+        <pre><code>contexto protegido: HTML
+contexto real:      JavaScript</code></pre>
+
+        <p>Un payload como el siguiente no necesita etiquetas HTML ni comillas:</p>
+
+        <pre><code class="language-javascript">alert(document.domain)</code></pre>
+
+        <p>Al llegar al decoder, la operación efectiva era equivalente a:</p>
+
+        <pre><code class="language-javascript">eval("(" + "alert(document.domain)" + ")")</code></pre>
+
+        <p>El navegador evaluaba primero <code>alert(document.domain)</code> y mostraba el origen de la aplicación.</p>
+
+        <h2>Reproducción</h2>
+
+        <p>Para el artículo reemplacé la URL original por un dominio reservado y cambié el nombre del parámetro:</p>
+
+        <pre><code>https://search.example-space.test/app/?state=alert(document.domain)</code></pre>
+
+        <p>La solicitud equivalente era:</p>
+
+        <pre><code class="language-http">GET /app/?state=alert(document.domain) HTTP/1.1
+Host: search.example-space.test
+Accept: text/html
+Connection: close</code></pre>
+
+        <p>Al abrir el enlace, la aplicación leía <code>state</code> durante la carga inicial. El valor pasaba por el encoder HTML, llegaba al decoder y terminaba ejecutándose en el origen de la aplicación.</p>
+
+        <p>No era necesario modificar headers, utilizar un navegador antiguo ni preparar una interacción adicional dentro de la página.</p>
+
+        <h2>Impacto</h2>
+
+        <p>La ejecución ocurría bajo el mismo origen de la aplicación. Si una víctima abría el enlace mientras mantenía una sesión activa, el script podía interactuar con cualquier recurso disponible para esa sesión.</p>
+
+        <p>Esto permitía, dentro de las capacidades del origen:</p>
+
+        <ul>
+          <li>Leer información renderizada en el DOM.</li>
+          <li>Realizar solicitudes autenticadas desde el navegador de la víctima.</li>
+          <li>Modificar el contenido visible de la aplicación.</li>
+          <li>Insertar formularios o interfaces falsas.</li>
+          <li>Redirigir la navegación hacia otro sitio.</li>
+        </ul>
+
+        <p>El hecho de que el enlace perteneciera a un dominio legítimo aumentaba su utilidad en escenarios de phishing. Las políticas CSP presentes no restringían la ejecución de scripts, por lo que no impedían esta cadena.</p>
+
+        <h2>Causa raíz</h2>
+
+        <p>El problema tenía dos partes:</p>
+
+        <ol>
+          <li>Un valor controlado desde la URL alcanzaba un decoder implementado con <code>eval()</code>.</li>
+          <li>La aplicación aplicaba encoding para HTML aunque la entrada iba a utilizarse en un contexto JavaScript.</li>
+        </ol>
+
+        <p>Eliminar solamente el encoder no solucionaba el problema. El sink peligroso seguía siendo el decoder capaz de ejecutar código.</p>
+
+        <h2>Remediación</h2>
+
+        <p>La corrección principal era habilitar el parser JSON nativo y retirar cualquier ruta de decodificación basada en <code>eval()</code>.</p>
+
+        <p>También era necesario:</p>
+
+        <ol>
+          <li>Parsear los datos con <code>JSON.parse()</code>.</li>
+          <li>Rechazar entradas que no cumplieran el esquema esperado.</li>
+          <li>Evitar que parámetros arbitrarios de la URL se utilizaran como estado ejecutable.</li>
+          <li>Aplicar controles según el contexto real del sink.</li>
+          <li>Utilizar una CSP restrictiva como defensa adicional, no como sustituto del fix.</li>
+        </ol>
+
+        <h2>Resultado</h2>
+
+        <p>Reporté el hallazgo en junio de 2026. NASA respondió y el reporte fue cerrado como corregido en julio de 2026. Al repetir la prueba, el payload ya no se ejecutaba.</p>
+
+        <p>El hallazgo fue reconocido mediante una Letter of Recognition.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

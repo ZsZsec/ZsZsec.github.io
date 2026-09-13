@@ -3,9 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Inicio | ZsZsec</title>
-  <meta name="description" content="Portfolio de ZsZsec: seguridad ofensiva, web security, Active Directory, bug bounty y writeups." />
+  <title>Santiago Bedoya (ZsZsec) | Security Researcher</title>
+  <meta name="description" content="Investigación de vulnerabilidades web, bug bounty, Active Directory y CVE research por Santiago Bedoya (ZsZsec)." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
   <meta name="theme-color" content="#000000" />
+  <link rel="canonical" href="https://zszsec.github.io/" />
+  <meta property="og:title" content="Santiago Bedoya (ZsZsec) | Security Researcher" />
+  <meta property="og:description" content="Bug bounty, CVE research, seguridad web y Active Directory." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://zszsec.github.io/" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Santiago Bedoya (ZsZsec) | Security Researcher" />
+  <meta name="twitter:description" content="Bug bounty, CVE research, seguridad web y Active Directory." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/style.css" />
 </head>
@@ -13,45 +25,138 @@
   <div class="scanline"></div>
   <header class="site-header">
     <a class="brand" href="index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
-    <nav class="nav" aria-label="Navegación principal"><a class="nav-link active" href="index.html">Inicio</a><a class="nav-link " href="sobre-mi.html">Sobre mí</a><a class="nav-link " href="articulos.html">Artículos</a><a class="nav-link " href="writeups.html">Writeups</a></nav>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link active" href="index.html" aria-current="page">Inicio</a><a class="nav-link" href="sobre-mi.html">Sobre mí</a><a class="nav-link" href="articulos.html">Artículos</a><a class="nav-link" href="bug-bounty.html">Bug Bounty</a><a class="nav-link" href="writeups.html">Writeups</a></nav>
   </header>
   <main>
 <section class="hero">
   <div class="hero-copy">
-    <p class="eyebrow">offensive security / writeups / research</p>
-    <h1>ZsZsec<span>_</span><br>notes from the lab.</h1>
-    <p class="hero-text">Portafolio personal de ciberseguridad enfocado en seguridad ofensiva, seguridad web, Active Directory, bug bounty y CTFs. Aquí publico rutas técnicas, aprendizajes y writeups.</p>
-    <div class="hero-actions"><a class="btn primary" href="writeups.html">open writeups</a><a class="btn ghost" href="sobre-mi.html">whoami</a></div>
+    <p class="eyebrow">bug bounty / cve research / offensive security</p>
+    <h1>ZsZsec<span>_</span><br>security research notes.</h1>
+    <p class="hero-text">Portafolio de Santiago Bedoya, investigador de seguridad. Aquí documento vulnerabilidades reales que he descubierto en productos utilizados por organizaciones, desde su reproducción técnica hasta el reporte y el análisis de impacto.</p>
+    <div class="hero-actions"><a class="btn primary" href="articulos.html">investigaciones</a><a class="btn ghost" href="bug-bounty.html">bug bounty</a></div>
   </div>
-  <div class="terminal-card" aria-label="Terminal decorativa">
+  <div class="terminal-card" aria-hidden="true">
     <div class="terminal-bar"><span></span><span></span><span></span></div>
     <pre><code><span class="cmd">$ whoami</span>
-Zikuta / ZsZsec
+Santiago Bedoya / ZsZsec
 
 <span class="cmd">$ cat focus.txt</span>
-web_security
-active_directory
-offensive_security
+vulnerability_research
 bug_bounty
-ctf_writeups
+web_security
+cve_research
+active_directory
 
 <span class="cmd">$ grep -i "signal" achievements.log</span>
 [+] eJPT certified
 [+] NASA VDP — Letter of Recognition
-[+] OEA Cyber Challenge Panamá 2025 — 4th place
-[+] Fluid Attacks Reto LATAM 2026 — Top 25
+[+] 3 CVE publications in progress
+[+] 7 bug bounty findings documented
+[+] 13 vulnerability research case studies
 
-<span class="cmd">$ ls latest/</span>
-maquina-signed.html
-maquina-darkzero.html
-maquina-cicada.html</code></pre>
+<span class="cmd">$ ls research/</span>
+trilium-safe-import-stored-xss-svg.html
+akaunting-stored-xss-customer-import-admin-escalation.html
+logchimp-password-reset-account-takeover.html
+logchimp-stored-xss-jwt-theft.html
+reflected-dom-xss-blog-modal-chain.html
+reflected-dom-xss-search-counter.html
+websocket-endpoint-injection.html
+unauthenticated-achievement-history-idor.html
+reflected-xss-eval-decoder.html
+payment-bypass-trial-entitlement.html</code></pre>
   </div>
 </section>
 
 <section class="stats-grid" aria-label="Resumen rápido">
-  <div class="stat"><strong>40</strong><span>writeups publicados</span></div>
-  <div class="stat"><strong>NASA</strong><span>Letter of Recognition</span></div>
-  <div class="stat"><strong>eJPT</strong><span>certificación</span></div>
+    <div class="stat"><strong>NASA</strong><span>Letter of Recognition</span></div>
+    <div class="stat"><strong>03</strong><span>CVE publications in progress</span></div>
+    <div class="stat"><strong>13</strong><span>investigaciones de seguridad</span></div>
+    <div class="stat"><strong>40</strong><span>writeups publicados</span></div>
+</section>
+
+<section class="section-block">
+  <div class="section-heading"><div><p class="eyebrow">source code security / cve research</p><h2>Security Research</h2></div><a class="btn ghost" href="articulos.html">ver todas</a></div>
+  <div class="cards-grid">
+    <a class="writeup-card" href="articulos/dbgate-json-runner-newline-injection-rce.html">
+      <div class="card-topline"><span>Critical</span><span>Remote code execution</span><span>No response</span></div>
+      <h3>DbGate: RCE autenticado mediante inyección de newline</h3>
+      <p>Los campos de comentarios del JSON runner llegaban a comentarios JavaScript sin escape, permitiendo romper el comentario e inyectar código en el proceso Node.js.</p>
+      <div class="mini-tag-row"><span class="mini-tag">DbGate</span><span class="mini-tag">RCE</span><span class="mini-tag">Node.js</span><span class="mini-tag">GHSA</span></div>
+    </a>
+    <a class="writeup-card" href="articulos/trilium-safe-import-stored-xss-svg.html">
+      <div class="card-topline"><span>GHSA published</span><span>Stored XSS / Safe Import</span><span>Responded</span></div>
+      <h3>Trilium: Safe Import bypass con Stored XSS en SVG</h3>
+      <p>Un ZIP nativo podía declarar una nota file como image/svg+xml y evitar la sanitización, ejecutando JavaScript al abrir el archivo desde el origen autenticado.</p>
+      <div class="mini-tag-row"><span class="mini-tag">TriliumNext</span><span class="mini-tag">Stored XSS</span><span class="mini-tag">Safe Import</span><span class="mini-tag">SVG</span></div>
+    </a>
+    <a class="writeup-card" href="articulos/akaunting-stored-xss-customer-import-admin-escalation.html">
+      <div class="card-topline"><span>Critical</span><span>Stored XSS / Privilege escalation</span><span>No response</span></div>
+      <h3>Stored XSS en Akaunting: de XLSX a Administrator</h3>
+      <p>Un campo de dirección importado llegaba a v-html y ejecutaba JavaScript cuando un administrador seleccionaba el cliente durante la creación de una factura.</p>
+      <div class="mini-tag-row"><span class="mini-tag">Akaunting</span><span class="mini-tag">Stored XSS</span><span class="mini-tag">Privilege Escalation</span><span class="mini-tag">Vue.js</span></div>
+    </a>
+    <a class="writeup-card" href="articulos/invoice-ninja-shop-api-bola-client-contact-takeover.html">
+      <div class="card-topline"><span>Critical</span><span>BOLA / Account takeover</span><span>No response</span></div>
+      <h3>Invoice Ninja: BOLA en Shop API con toma de cuenta</h3>
+      <p>Un ID hash de ClientContact en el endpoint público permitía sobrescribir credenciales y tomar sesiones del portal, incluso entre compañías.</p>
+      <div class="mini-tag-row"><span class="mini-tag">Invoice Ninja</span><span class="mini-tag">BOLA</span><span class="mini-tag">Account Takeover</span><span class="mini-tag">Multi-tenant</span></div>
+    </a>
+    <a class="writeup-card" href="articulos/openmrs-double-encoded-path-traversal-file-disclosure.html">
+      <div class="card-topline"><span>High</span><span>Path traversal / File disclosure</span><span>No response</span></div>
+      <h3>OpenMRS: path traversal doblemente codificado en contenido estático</h3>
+      <p>Una ruta no autenticada permitía leer archivos internos del WAR, incluyendo descriptores, configuración de Spring y propiedades de CSRFGuard.</p>
+      <div class="mini-tag-row"><span class="mini-tag">OpenMRS</span><span class="mini-tag">Path Traversal</span><span class="mini-tag">File Disclosure</span><span class="mini-tag">GHSA</span></div>
+    </a>
+    <a class="writeup-card" href="articulos/logchimp-password-reset-account-takeover.html">
+      <div class="card-topline"><span>High</span><span>Account takeover</span><span>Responded</span></div>
+      <h3>Account takeover en LogChimp por ruptura del binding</h3>
+      <p>Un token válido de una cuenta normal podía restablecer la contraseña de cualquier usuario porque el correo del body reemplazaba al sujeto validado.</p>
+      <div class="mini-tag-row"><span class="mini-tag">LogChimp</span><span class="mini-tag">Account Takeover</span><span class="mini-tag">Token Confusion</span></div>
+    </a>
+  </div>
+</section>
+
+<section class="section-block">
+  <div class="section-heading"><div><p class="eyebrow">latest research</p><h2>Bug bounty findings</h2></div><a class="btn ghost" href="bug-bounty.html">view all</a></div>
+  <div class="cards-grid">
+    <a class="writeup-card" href="bug-bounty/reflected-dom-xss-blog-modal-chain.html">
+      <div class="card-topline"><span>CWE-79</span><span>Medium</span></div>
+      <h3>Reflected DOM XSS mediante un filtro y un modal</h3>
+      <p>Un breakout en el filtro de un blog creaba un modal cuyo texto de cierre era reinterpretado con innerHTML y convertido en markup ejecutable.</p>
+      <div class="mini-tag-row"><span class="mini-tag">HTML Parsing</span><span class="mini-tag">JavaScript</span><span class="mini-tag">Input Handling</span></div>
+    </a>
+    <a class="writeup-card" href="bug-bounty/reflected-dom-xss-search-counter.html">
+      <div class="card-topline"><span>CWE-79</span><span>Medium</span></div>
+      <h3>Reflected DOM XSS en un contador de resultados</h3>
+      <p>Una etiqueta incompleta sobrevivía a un filtro regex y era completada por el navegador al insertar el término de búsqueda mediante innerHTML.</p>
+      <div class="mini-tag-row"><span class="mini-tag">Search</span><span class="mini-tag">JavaScript</span><span class="mini-tag">Input Handling</span></div>
+    </a>
+    <a class="writeup-card" href="bug-bounty/websocket-endpoint-injection.html">
+      <div class="card-topline"><span>CWE-15</span><span>Medium</span></div>
+      <h3>Inyección de endpoint WebSocket desde la URL</h3>
+      <p>Un override sin validación permitía redirigir la conexión de un chatbot, interceptar mensajes y controlar las respuestas mostradas en su interfaz.</p>
+      <div class="mini-tag-row"><span class="mini-tag">WebSocket</span><span class="mini-tag">URL Parsing</span><span class="mini-tag">Chatbot Security</span></div>
+    </a>
+    <a class="writeup-card" href="bug-bounty/unauthenticated-achievement-history-idor.html">
+      <div class="card-topline"><span>CWE-639</span><span>Low</span></div>
+      <h3>IDOR sin autenticación en historiales de usuario</h3>
+      <p>Un endpoint devolvía actividad histórica de otros usuarios mediante identificadores numéricos, sin exigir autenticación ni comprobar la propiedad del objeto.</p>
+      <div class="mini-tag-row"><span class="mini-tag">Access Control</span><span class="mini-tag">API</span><span class="mini-tag">Data Exposure</span></div>
+    </a>
+    <a class="writeup-card" href="bug-bounty/reflected-xss-eval-decoder.html">
+      <div class="card-topline"><span>CWE-95</span><span>Medium</span></div>
+      <h3>Reflected XSS mediante un decoder basado en eval()</h3>
+      <p>Un encoder HTML aplicado antes de un decoder JSON heredado permitía ejecutar JavaScript desde un parámetro de la URL.</p>
+      <div class="mini-tag-row"><span class="mini-tag">NASA VDP</span><span class="mini-tag">JavaScript</span><span class="mini-tag">Legacy Code</span></div>
+    </a>
+    <a class="writeup-card" href="bug-bounty/payment-bypass-trial-entitlement.html">
+      <div class="card-topline"><span>CWE-841</span><span>High</span></div>
+      <h3>Payment bypass en una API de suscripciones</h3>
+      <p>Una prueba gratuita controlada por el cliente permitía activar cuentas de pago y extender su duración de forma acumulativa.</p>
+      <div class="mini-tag-row"><span class="mini-tag">Web Security</span><span class="mini-tag">Business Logic</span><span class="mini-tag">Entitlement Management</span></div>
+    </a>
+  </div>
 </section>
 
 <section class="section-block">
@@ -95,6 +200,6 @@ maquina-cicada.html</code></pre>
 </a></div>
 </section>
 </main>
-  <footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
 </body>
 </html>

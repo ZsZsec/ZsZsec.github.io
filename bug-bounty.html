@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Bug Bounty Findings | ZsZsec</title>
+  <meta name="description" content="Casos de estudio de vulnerabilidades web y fallos de lógica encontrados por ZsZsec en programas de bug bounty." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="canonical" href="https://zszsec.github.io/bug-bounty.html" />
+  <meta property="og:title" content="Bug Bounty Findings | ZsZsec" />
+  <meta property="og:description" content="Hallazgos técnicos en programas públicos, privados y self-hosted." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://zszsec.github.io/bug-bounty.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Bug Bounty Findings | ZsZsec" />
+  <meta name="twitter:description" content="Hallazgos técnicos en programas públicos, privados y self-hosted." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="index.html">Inicio</a><a class="nav-link" href="sobre-mi.html">Sobre mí</a><a class="nav-link" href="articulos.html">Artículos</a><a class="nav-link active" href="bug-bounty.html" aria-current="page">Bug Bounty</a><a class="nav-link" href="writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero">
+      <p class="eyebrow">real-world findings</p>
+      <h1>Bug Bounty<span>_</span></h1>
+      <p>Casos de estudio de vulnerabilidades que he encontrado en programas públicos, privados y self-hosted: análisis, explotación, impacto y resultado.</p>
+    </section>
+    <section class="cards-grid all-writeups" aria-label="Hallazgos de bug bounty publicados">
+      <a class="writeup-card" href="bug-bounty/reflected-dom-xss-blog-modal-chain.html">
+        <div class="card-topline"><span>CWE-79</span><span>Medium</span></div>
+        <h3>Reflected DOM XSS mediante un filtro y un modal</h3>
+        <p>Un breakout en el filtro de un blog creaba un modal cuyo texto de cierre era reinterpretado con innerHTML y convertido en markup ejecutable.</p>
+        <div class="mini-tag-row"><span class="mini-tag">HTML Parsing</span><span class="mini-tag">JavaScript</span><span class="mini-tag">Input Handling</span></div>
+      </a>
+      <a class="writeup-card" href="bug-bounty/reflected-dom-xss-search-counter.html">
+        <div class="card-topline"><span>CWE-79</span><span>Medium</span></div>
+        <h3>Reflected DOM XSS en un contador de resultados</h3>
+        <p>Una etiqueta incompleta sobrevivía a un filtro regex y era completada por el navegador al insertar el término de búsqueda mediante innerHTML.</p>
+        <div class="mini-tag-row"><span class="mini-tag">Search</span><span class="mini-tag">JavaScript</span><span class="mini-tag">Input Handling</span></div>
+      </a>
+      <a class="writeup-card" href="bug-bounty/websocket-endpoint-injection.html">
+        <div class="card-topline"><span>CWE-15</span><span>Medium</span></div>
+        <h3>Inyección de endpoint WebSocket desde la URL</h3>
+        <p>Un override sin validación permitía redirigir la conexión de un chatbot, interceptar mensajes y controlar las respuestas mostradas en su interfaz.</p>
+        <div class="mini-tag-row"><span class="mini-tag">WebSocket</span><span class="mini-tag">URL Parsing</span><span class="mini-tag">Chatbot Security</span></div>
+      </a>
+      <a class="writeup-card" href="bug-bounty/unauthenticated-achievement-history-idor.html">
+        <div class="card-topline"><span>CWE-639</span><span>Low</span></div>
+        <h3>IDOR sin autenticación en historiales de usuario</h3>
+        <p>Un endpoint devolvía actividad histórica de otros usuarios mediante identificadores numéricos, sin exigir autenticación ni comprobar la propiedad del objeto.</p>
+        <div class="mini-tag-row"><span class="mini-tag">Access Control</span><span class="mini-tag">API</span><span class="mini-tag">Data Exposure</span></div>
+      </a>
+      <a class="writeup-card" href="bug-bounty/reflected-xss-eval-decoder.html">
+        <div class="card-topline"><span>CWE-95</span><span>Medium</span></div>
+        <h3>Reflected XSS mediante un decoder basado en eval()</h3>
+        <p>Un encoder HTML aplicado antes de un decoder JSON heredado permitía ejecutar JavaScript desde un parámetro de la URL.</p>
+        <div class="mini-tag-row"><span class="mini-tag">NASA VDP</span><span class="mini-tag">JavaScript</span><span class="mini-tag">Legacy Code</span></div>
+      </a>
+      <a class="writeup-card" href="bug-bounty/payment-bypass-trial-entitlement.html">
+        <div class="card-topline"><span>CWE-841</span><span>High</span></div>
+        <h3>Payment bypass en una API de suscripciones</h3>
+        <p>Una prueba gratuita controlada por el cliente permitía activar cuentas de pago y extender su duración de forma acumulativa.</p>
+        <div class="mini-tag-row"><span class="mini-tag">Web Security</span><span class="mini-tag">Business Logic</span><span class="mini-tag">Entitlement Management</span></div>
+      </a>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

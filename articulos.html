@@ -3,9 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Artículos | ZsZsec</title>
-  <meta name="description" content="Artículos técnicos de ZsZsec." />
+  <title>Security Research | ZsZsec</title>
+  <meta name="description" content="CVE research, zero-days y revisiones de código fuente realizadas por ZsZsec." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos.html" />
   <meta name="theme-color" content="#000000" />
+  <meta property="og:title" content="Security Research | ZsZsec" />
+  <meta property="og:description" content="CVE research, zero-days y revisiones de código fuente realizadas por ZsZsec." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Security Research | ZsZsec" />
+  <meta name="twitter:description" content="CVE research, zero-days y revisiones de código fuente realizadas por ZsZsec." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="assets/style.css" />
 </head>
@@ -13,22 +25,95 @@
   <div class="scanline"></div>
   <header class="site-header">
     <a class="brand" href="index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
-    <nav class="nav" aria-label="Navegación principal"><a class="nav-link " href="index.html">Inicio</a><a class="nav-link " href="sobre-mi.html">Sobre mí</a><a class="nav-link active" href="articulos.html">Artículos</a><a class="nav-link " href="writeups.html">Writeups</a></nav>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="index.html">Inicio</a><a class="nav-link" href="sobre-mi.html">Sobre mí</a><a class="nav-link active" href="articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="bug-bounty.html">Bug Bounty</a><a class="nav-link" href="writeups.html">Writeups</a></nav>
   </header>
   <main>
 <section class="page-hero">
-  <p class="eyebrow">research notes</p>
-  <h1>Artículos<span>_</span></h1>
-  <p>Espacio para publicar análisis de vulnerabilidades, notas de bug bounty, metodología ofensiva y aprendizajes fuera de los writeups.</p>
+  <p class="eyebrow">source code security / cve research</p>
+  <h1>Security Research<span>_</span></h1>
+  <p>Estas son mis investigaciones de seguridad, realizadas mediante revisión de código fuente, validación local y divulgación responsable. Documento el impacto y la evidencia técnica de cada hallazgo. Algunas organizaciones respondieron y corrigieron los problemas; otras no contestaron o no solicitaron la asignación de un CVE. El estado de cada investigación se indica claramente como <strong>Responded</strong> o <strong>No response</strong>.</p>
 </section>
-<section class="empty-state">
-  <div class="terminal-card small"><div class="terminal-bar"><span></span><span></span><span></span></div><pre><code><span class="cmd">$ ls articulos/</span>
-coming_soon.md
-
-<span class="cmd">$ cat coming_soon.md</span>
-Próximamente: notas técnicas, investigación y metodología.</code></pre></div>
+<section class="cards-grid all-writeups" aria-label="Investigaciones de seguridad">
+  <a class="writeup-card" href="articulos/trilium-safe-import-stored-xss-svg.html">
+    <div class="card-topline"><span>GHSA published</span><span>Stored XSS / Safe Import</span><span>Responded</span></div>
+    <h3>Trilium: Safe Import bypass con Stored XSS en SVG</h3>
+    <p>Un ZIP nativo podía declarar una nota file como image/svg+xml y evitar la sanitización, ejecutando JavaScript al abrir el archivo desde el origen autenticado.</p>
+    <div class="mini-tag-row"><span class="mini-tag">TriliumNext</span><span class="mini-tag">Stored XSS</span><span class="mini-tag">Safe Import</span><span class="mini-tag">SVG</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/invoice-ninja-shop-api-bola-client-contact-takeover.html">
+    <div class="card-topline"><span>Critical</span><span>BOLA / Account takeover</span><span>No response</span></div>
+    <h3>Invoice Ninja: BOLA en Shop API con toma de cuenta</h3>
+    <p>Un ID hash de ClientContact en el endpoint público permitía sobrescribir credenciales y tomar sesiones del portal, incluso entre compañías.</p>
+    <div class="mini-tag-row"><span class="mini-tag">Invoice Ninja</span><span class="mini-tag">BOLA</span><span class="mini-tag">Account Takeover</span><span class="mini-tag">Multi-tenant</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/openmrs-double-encoded-path-traversal-file-disclosure.html">
+    <div class="card-topline"><span>High</span><span>Path traversal / File disclosure</span><span>No response</span></div>
+    <h3>OpenMRS: path traversal doblemente codificado en contenido estático</h3>
+    <p>Una ruta no autenticada permitía leer archivos internos del WAR, incluyendo descriptores, configuración de Spring y propiedades de CSRFGuard.</p>
+    <div class="mini-tag-row"><span class="mini-tag">OpenMRS</span><span class="mini-tag">Path Traversal</span><span class="mini-tag">File Disclosure</span><span class="mini-tag">GHSA</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/dbgate-json-runner-newline-injection-rce.html">
+    <div class="card-topline"><span>Critical</span><span>Remote code execution</span><span>No response</span></div>
+    <h3>DbGate: RCE autenticado mediante inyección de newline</h3>
+    <p>Los campos de comentarios del JSON runner llegaban a comentarios JavaScript sin escape, permitiendo romper el comentario e inyectar código en el proceso Node.js.</p>
+    <div class="mini-tag-row"><span class="mini-tag">DbGate</span><span class="mini-tag">RCE</span><span class="mini-tag">Node.js</span><span class="mini-tag">GHSA</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/dbgate-files-arbitrary-read-write.html">
+    <div class="card-topline"><span>High</span><span>Arbitrary file read/write</span><span>No response</span></div>
+    <h3>DbGate: lectura y escritura arbitrarias en /files</h3>
+    <p>Varios endpoints confiaban en rutas controladas por el cliente y las pasaban a operaciones de filesystem, exponiendo lectura y escritura autenticadas en el servidor.</p>
+    <div class="mini-tag-row"><span class="mini-tag">DbGate</span><span class="mini-tag">Arbitrary File Write</span><span class="mini-tag">Arbitrary File Read</span><span class="mini-tag">GHSA</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/magistrala-timescale-reader-sql-injection.html">
+    <div class="card-topline"><span>Medium</span><span>SQL injection</span><span>No response</span></div>
+    <h3>Magistrala: SQL injection autenticada en Timescale Reader</h3>
+    <p>El parámetro format se concatenaba en la cláusula FROM, permitiendo SELECT arbitrarios y lectura de mensajes de otros dominios mediante una ruta autorizada.</p>
+    <div class="mini-tag-row"><span class="mini-tag">Magistrala</span><span class="mini-tag">SQL Injection</span><span class="mini-tag">TimescaleDB</span><span class="mini-tag">GHSA</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/signoz-downtime-schedules-cross-tenant-idor.html">
+    <div class="card-topline"><span>Medium</span><span>Cross-tenant IDOR</span><span>No response</span></div>
+    <h3>SigNoz: IDOR cross-tenant en downtime schedules</h3>
+    <p>Los endpoints por UUID no verificaban la organización propietaria, permitiendo leer, modificar, reasignar y borrar ventanas de mantenimiento de otros tenants.</p>
+    <div class="mini-tag-row"><span class="mini-tag">SigNoz</span><span class="mini-tag">IDOR</span><span class="mini-tag">Broken Access Control</span><span class="mini-tag">Multi-tenant</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/signoz-alert-rule-history-idor-incomplete-fix.html">
+    <div class="card-topline"><span>Medium</span><span>Cross-tenant IDOR</span><span>No response</span></div>
+    <h3>SigNoz: IDOR en el historial de alert rules</h3>
+    <p>Seis endpoints v1 y v2 devolvían el historial de una regla de otra organización porque la autorización validaba el UUID, pero no su propietario.</p>
+    <div class="mini-tag-row"><span class="mini-tag">SigNoz</span><span class="mini-tag">IDOR</span><span class="mini-tag">Alert History</span><span class="mini-tag">Incomplete Fix</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/stalwart-jmap-push-subscription-ssrf.html">
+    <div class="card-topline"><span>High</span><span>Server-side request forgery</span><span>No response</span></div>
+    <h3>Stalwart: SSRF blind mediante PushSubscription/set</h3>
+    <p>Una suscripción JMAP aceptaba una URL arbitraria y hacía que el servidor enviara un POST saliente hacia hosts internos sin validar el destino.</p>
+    <div class="mini-tag-row"><span class="mini-tag">Stalwart</span><span class="mini-tag">SSRF</span><span class="mini-tag">JMAP</span><span class="mini-tag">Push Notifications</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/react-starter-kit-forwarded-origin-auth-poisoning.html">
+    <div class="card-topline"><span>Medium</span><span>Header poisoning</span><span>No response</span></div>
+    <h3>React Starter Kit: X-Forwarded-Origin en Better Auth</h3>
+    <p>El entrypoint de desarrollo confiaba en un header controlado por el cliente para construir la baseURL y trustedOrigins, permitiendo envenenar reset links y cookies de sesión.</p>
+    <div class="mini-tag-row"><span class="mini-tag">React Starter Kit</span><span class="mini-tag">Better Auth</span><span class="mini-tag">Header Poisoning</span><span class="mini-tag">Dev Environment</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/akaunting-stored-xss-customer-import-admin-escalation.html">
+    <div class="card-topline"><span>Critical</span><span>Stored XSS / Privilege escalation</span><span>No response</span></div>
+    <h3>Stored XSS en Akaunting: de XLSX a Administrator</h3>
+    <p>Un campo de dirección importado llegaba a v-html y ejecutaba JavaScript cuando un administrador seleccionaba el cliente durante la creación de una factura.</p>
+    <div class="mini-tag-row"><span class="mini-tag">Akaunting</span><span class="mini-tag">Stored XSS</span><span class="mini-tag">Privilege Escalation</span><span class="mini-tag">Vue.js</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/logchimp-password-reset-account-takeover.html">
+    <div class="card-topline"><span>High</span><span>Account takeover</span><span>Responded</span></div>
+    <h3>Account takeover en LogChimp por ruptura del binding</h3>
+    <p>Un token válido de una cuenta normal podía restablecer la contraseña de cualquier usuario porque el correo del body reemplazaba al sujeto validado.</p>
+    <div class="mini-tag-row"><span class="mini-tag">LogChimp</span><span class="mini-tag">Account Takeover</span><span class="mini-tag">Token Confusion</span></div>
+  </a>
+  <a class="writeup-card" href="articulos/logchimp-stored-xss-jwt-theft.html">
+    <div class="card-topline"><span>Critical</span><span>Stored XSS / JWT theft</span><span>Responded</span></div>
+    <h3>Stored XSS en LogChimp con robo de JWT</h3>
+    <p>El contenido de un post llegaba sin sanitización a v-html y permitía robar el JWT de cualquier usuario que abriera la publicación.</p>
+    <div class="mini-tag-row"><span class="mini-tag">LogChimp</span><span class="mini-tag">Stored XSS</span><span class="mini-tag">JWT</span><span class="mini-tag">Vue.js</span></div>
+  </a>
 </section>
 </main>
-  <footer class="site-footer"><span>ZsZsec // Zikuta</span><span class="footer-dot">•</span><span>Offensive Security Notes</span></footer>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
 </body>
 </html>

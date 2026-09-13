@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>IDOR sin autenticación en historiales de usuario | ZsZsec</title>
+  <meta name="description" content="Análisis técnico de un endpoint que devolvía historiales asociados a identificadores numéricos sin exigir autenticación ni validar la propiedad del objeto." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/bug-bounty/unauthenticated-achievement-history-idor.html" />
+  <meta property="og:title" content="IDOR sin autenticación en historiales de usuario" />
+  <meta property="og:description" content="Análisis técnico de un endpoint que exponía historiales de usuario sin autenticación ni control de propiedad." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/bug-bounty/unauthenticated-achievement-history-idor.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="IDOR sin autenticación en historiales de usuario" />
+  <meta name="twitter:description" content="Endpoint que exponía historiales de usuario sin autenticación ni control de propiedad." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../bug-bounty.html" aria-current="page">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">bug bounty / web security</p>
+      <h1>Unauthenticated IDOR<span>_</span></h1>
+      <div class="writeup-meta"><span>CWE-639</span><span>Low</span></div>
+      <div class="tag-row"><span class="tag">Web Security</span><span class="tag">IDOR</span><span class="tag">Broken Access Control</span><span class="tag">Data Exposure</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <p>Encontré este comportamiento durante pruebas autorizadas en un programa público de divulgación de vulnerabilidades. La aplicación mostraba el historial personal de logros dentro de una sección disponible después de iniciar sesión.</p>
+
+        <p>Mi primer intento fue modificar el identificador de usuario en la petición que tenía disponible desde esa funcionalidad. El IDOR no funcionó en esa ruta. Después revisé el JavaScript encargado de cargar los logros y encontré una variante del endpoint que añadía el parámetro de versión <code>x-api-version=2</code>.</p>
+
+        <p>Al repetir la prueba contra esa variante, el backend devolvió historiales de otros usuarios sin cookies, token de sesión ni API key. El identificador seguía formando parte de la ruta y no existía una comprobación de propiedad antes de entregar el objeto.</p>
+
+        <blockquote><p>El programa, la aplicación, el endpoint, los identificadores y los datos utilizados en esta publicación están anonimizados.</p></blockquote>
+
+        <h2>Ficha técnica</h2>
+
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Categoría</td><td>IDOR / Broken Access Control</td></tr>
+            <tr><td>CWE</td><td>CWE-639</td></tr>
+            <tr><td>Criticidad</td><td>Low</td></tr>
+            <tr><td>Superficie</td><td>Endpoint de historiales de usuario</td></tr>
+            <tr><td>Autenticación</td><td>No requerida</td></tr>
+            <tr><td>Identificadores</td><td>Numéricos y predecibles</td></tr>
+            <tr><td>Remediación</td><td>No confirmada</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Del primer intento al endpoint versionado</h2>
+
+        <p>La ruta que probé inicialmente no permitió acceder a otro objeto cambiando el ID. En lugar de asumir que toda la funcionalidad estaba protegida, busqué las llamadas relacionadas dentro de los archivos JavaScript de la aplicación.</p>
+
+        <p>En el servicio encargado de los logros encontré una segunda forma de construir la petición:</p>
+
+        <pre><code class="language-javascript">const url = `/achievements/users/${userId}/history?x-api-version=2`;</code></pre>
+
+        <p><code>x-api-version=2</code> no era el nombre del endpoint, sino un parámetro que seleccionaba otra versión del backend. Esa diferencia cambió el resultado de la prueba: la variante versionada respondía sin autenticación y aceptaba cualquier identificador válido.</p>
+
+        <h2>El endpoint sin restricciones</h2>
+
+        <p>La petición del cliente seguía este patrón:</p>
+
+        <pre><code class="language-http">GET /achievements/users/900001/history?x-api-version=2 HTTP/1.1
+Host: achievements.example-science.test
+Accept: application/json
+Connection: close</code></pre>
+
+        <p>No era necesario enviar un header de autorización. El servidor respondía con información asociada al usuario solicitado:</p>
+
+        <pre><code class="language-json">{
+  "user_id": 900001,
+  "active": true,
+  "last_activity_at": "2026-01-01T12:00:00Z",
+  "current_streak": 4,
+  "longest_streak": 12,
+  "achievements": [
+    {
+      "category": "protocol-a",
+      "observation_count": 18,
+      "earned_at": "2025-10-14T09:30:00Z"
+    }
+  ]
+}</code></pre>
+
+        <p>Los valores del ejemplo son sintéticos, pero mantienen la estructura necesaria para explicar el impacto.</p>
+
+        <h2>Cómo lo verifiqué</h2>
+
+        <p>Primero creé una cuenta de prueba y generé una única actividad desde la aplicación. Después consulté el historial desde una sesión limpia, sin cookies ni credenciales.</p>
+
+        <p>La respuesta reflejó inmediatamente la actividad que acababa de crear. Esto confirmó que el endpoint entregaba datos actuales y no un archivo público desactualizado o una respuesta almacenada en caché.</p>
+
+        <p>Para comprobar el control de acceso horizontal, cambié solamente el identificador numérico. Utilicé dos IDs que ya aparecían en comentarios del código JavaScript público de la aplicación. Ambos devolvieron historiales diferentes sin requerir autenticación.</p>
+
+        <p>La diferencia entre las solicitudes era únicamente el ID:</p>
+
+        <pre><code class="language-diff">- GET /achievements/users/900001/history?x-api-version=2
++ GET /achievements/users/900002/history?x-api-version=2</code></pre>
+
+        <p>No existía una sesión contra la cual comparar el objeto solicitado. En la práctica, el backend utilizaba el ID como localizador y también como autorización.</p>
+
+        <h2>Información expuesta</h2>
+
+        <p>Las respuestas permitían reconstruir parte de la actividad histórica de una cuenta:</p>
+
+        <ul>
+          <li>Cantidad de observaciones realizadas por categoría.</li>
+          <li>Fechas exactas de obtención de logros.</li>
+          <li>Inicio y final de periodos de actividad.</li>
+          <li>Rachas actuales e históricas.</li>
+          <li>Progresión acumulada durante varios años.</li>
+          <li>Fecha de la actividad más reciente.</li>
+        </ul>
+
+        <p>Aunque no observé credenciales ni información financiera, los timestamps y las rachas permitían inferir patrones de participación y actividad vinculados a cuentas concretas.</p>
+
+        <h2>Por qué lo reporté como IDOR</h2>
+
+        <p>La interfaz presentaba la información como una vista personal disponible tras iniciar sesión. Sin embargo, el backend no aplicaba los mismos límites:</p>
+
+        <pre><code>interfaz autenticada
+        ↓
+GET /users/{user_id}/history?x-api-version=2
+        ↓
+sin autenticación
+sin comprobación de propiedad
+        ↓
+historial de cualquier ID válido</code></pre>
+
+        <p>El comportamiento cumplía las dos condiciones centrales de un IDOR:</p>
+
+        <ol>
+          <li>El cliente controlaba la referencia directa al objeto mediante <code>user_id</code>.</li>
+          <li>El servidor devolvía el objeto sin verificar autorización.</li>
+        </ol>
+
+        <p>Al tratarse de IDs numéricos, el patrón también permitía automatizar consultas sobre un rango de usuarios. No realicé enumeración masiva; la validación se limitó a los casos necesarios para demostrar que el problema no afectaba únicamente a mi cuenta.</p>
+
+        <h2>Impacto</h2>
+
+        <p>Una persona sin cuenta podía consultar historiales asociados a otros usuarios y recopilar información de actividad a lo largo del tiempo. El impacto principal era de privacidad y exposición de datos, no de modificación de cuentas.</p>
+
+        <p>La severidad dependía de cómo el programa clasificara esos historiales: si eran datos deliberadamente públicos, el riesgo era bajo; si debían permanecer dentro de la sección autenticada, el endpoint rompía ese límite de acceso.</p>
+
+        <p>Esa diferencia de interpretación explica por qué un comportamiento técnicamente reproducible puede terminar clasificado como informativo.</p>
+
+        <h2>Remediación</h2>
+
+        <p>Si los historiales son privados, el backend debería exigir una sesión válida y resolver el usuario desde el token, en lugar de confiar en un ID enviado por el cliente.</p>
+
+        <p>Cuando exista una necesidad legítima de consultar otros usuarios, el servidor debe comprobar permisos explícitos antes de devolver el objeto:</p>
+
+        <pre><code>authenticated_user.id == requested_user.id</code></pre>
+
+        <p>Para vistas públicas, la alternativa sería exponer un recurso separado con un conjunto reducido de campos y una decisión de privacidad clara para cada usuario.</p>
+
+        <h2>Resultado del reporte</h2>
+
+        <p>El reporte fue reproducible y el programa consideró informativo su impacto. La remediación no ha sido confirmada.</p>
+
+        <p>No tengo confirmación de que el endpoint haya sido corregido. Por esa razón, el programa y el sistema afectado permanecen anónimos.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

