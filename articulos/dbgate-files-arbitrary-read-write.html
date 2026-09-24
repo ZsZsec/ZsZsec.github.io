@@ -11,12 +11,16 @@
   <meta property="og:description" content="Investigación sobre lectura y escritura arbitrarias de archivos en endpoints /files autenticados de DbGate." />
   <meta property="og:type" content="article" />
   <meta property="og:url" content="https://zszsec.github.io/articulos/dbgate-files-arbitrary-read-write.html" />
-  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
-  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cve-2026-97226.png" />
+  <meta property="og:image:alt" content="CVE-2026-97226 | DbGate | ZsZsec" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:type" content="image/png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="DbGate: lectura y escritura arbitrarias en /files" />
   <meta name="twitter:description" content="Lectura y escritura arbitrarias autenticadas en endpoints /files de DbGate." />
-  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cve-2026-97226.png" />
+  <meta name="twitter:image:alt" content="CVE-2026-97226 | DbGate | ZsZsec" />
   <meta name="theme-color" content="#000000" />
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="../assets/style.css" />
@@ -31,12 +35,12 @@
     <section class="page-hero compact">
       <p class="eyebrow">security research / dbgate</p>
       <h1>Arbitrary file read/write in /files<span>_</span></h1>
-        <div class="writeup-meta"><span>High</span><span>Arbitrary file read/write</span><span>No response</span></div>
+        <div class="writeup-meta"><span>Medium</span><span>Arbitrary file read/write</span><span><a href="https://www.cve.org/CVERecord?id=CVE-2026-97226" target="_blank" rel="noopener noreferrer">CVE-2026-97226</a></span></div>
       <div class="tag-row"><span class="tag">DbGate</span><span class="tag">Arbitrary File Write</span><span class="tag">Arbitrary File Read</span><span class="tag">Path Traversal</span></div>
     </section>
     <section class="content-shell">
       <article class="markdown-body">
-        <blockquote><p><strong>Alcance:</strong> la validación se realizó contra un build local de DbGate master / <code>7.2.4-packer-beta.3</code>. Los ejemplos utilizan únicamente un laboratorio Docker controlado. El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-8x25-5rvx-jvhp</code>; el maintainer no respondió y no hay versión corregida publicada.</p></blockquote>
+        <blockquote><p><strong>Alcance:</strong> la validación se realizó contra un build local de DbGate master / <code>7.2.4-packer-beta.3</code>. Los ejemplos utilizan únicamente un laboratorio Docker controlado. El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-8x25-5rvx-jvhp</code>; posteriormente se publicó <code>CVE-2026-97226</code>. El registro CVE no indica una versión corregida ni un parche.</p></blockquote>
 
         <p>Durante la revisión de DbGate encontré varios endpoints web expuestos bajo <code>/files</code> que confiaban en rutas controladas por el cliente y las pasaban directamente a operaciones como <code>fs.writeFile</code>, <code>fs.copyFile</code> y <code>fs.readFile</code>.</p>
 
@@ -53,14 +57,16 @@
             <tr><td>Reporte enviado</td><td>24 de julio de 2026</td></tr>
             <tr><td>Paquete</td><td><code>dbgate</code> (npm)</td></tr>
             <tr><td>Versión probada</td><td>master / <code>7.2.4-packer-beta.3</code></td></tr>
-            <tr><td>Versiones afectadas</td><td><code>&lt;= 7.2.4-packer-beta.3</code></td></tr>
-            <tr><td>Versiones corregidas</td><td>Ninguna publicada</td></tr>
+            <tr><td>Versiones afectadas</td><td><code>7.2.0</code> a <code>7.2.5</code>; <code>7.3.1-premium-beta.0</code> y <code>7.3.1-premium-beta.1</code></td></tr>
+            <tr><td>Versión corregida</td><td>No indicada en el registro CVE</td></tr>
             <tr><td>Componente</td><td><code>packages/api/src/controllers/files.js</code></td></tr>
             <tr><td>Autenticación</td><td>Requerida</td></tr>
             <tr><td>Vulnerabilidades</td><td>Arbitrary file write / arbitrary file read</td></tr>
-            <tr><td>Triage</td><td>High</td></tr>
+            <tr><td>Triage</td><td>Medium</td></tr>
+            <tr><td>CVE</td><td><a href="https://www.cve.org/CVERecord?id=CVE-2026-97226" target="_blank" rel="noopener noreferrer"><code>CVE-2026-97226</code></a></td></tr>
             <tr><td>GHSA</td><td><code>GHSA-8x25-5rvx-jvhp</code></td></tr>
-            <tr><td>Estado</td><td>No response / sin parche publicado</td></tr>
+            <tr><td>Parche</td><td>No indicado en el registro CVE</td></tr>
+            <tr><td>Estado</td><td>CVE publicado / sin parche indicado en el registro CVE</td></tr>
           </tbody>
         </table>
 
@@ -266,7 +272,7 @@ bin:x:2:2:bin:/bin:/usr/sbin/nologin</code></pre>
         </ul>
 
         <h2>Estado</h2>
-        <p>El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-8x25-5rvx-jvhp</code>. El maintainer no respondió y no hay versión corregida publicada.</p>
+        <p>El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-8x25-5rvx-jvhp</code>. Posteriormente se publicó <code>CVE-2026-97226</code>; el registro CVE indica que el vendor fue contactado, pero no especifica una versión corregida ni un parche.</p>
       </article>
     </section>
   </main>

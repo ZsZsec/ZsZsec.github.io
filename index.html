@@ -78,12 +78,14 @@ payment-bypass-trial-entitlement.html</code></pre>
 <section class="section-block">
   <div class="section-heading"><div><p class="eyebrow">source code security / cve research</p><h2>Security Research</h2></div><a class="btn ghost" href="articulos.html">ver todas</a></div>
   <div class="cards-grid">
-    <a class="writeup-card" href="articulos/dbgate-json-runner-newline-injection-rce.html">
-      <div class="card-topline"><span>Critical</span><span>Remote code execution</span><span>No response</span></div>
-      <h3>DbGate: RCE autenticado mediante inyección de newline</h3>
-      <p>Los campos de comentarios del JSON runner llegaban a comentarios JavaScript sin escape, permitiendo romper el comentario e inyectar código en el proceso Node.js.</p>
-      <div class="mini-tag-row"><span class="mini-tag">DbGate</span><span class="mini-tag">RCE</span><span class="mini-tag">Node.js</span><span class="mini-tag">GHSA</span></div>
-    </a>
+    <article class="writeup-card dbgate-card">
+      <div class="card-topline"><span>Medium</span><span>Remote code execution</span><a class="cve-link" href="https://www.cve.org/CVERecord?id=CVE-2026-97225" target="_blank" rel="noopener noreferrer">CVE-2026-97225</a></div>
+      <a class="card-link" href="articulos/dbgate-json-runner-newline-injection-rce.html">
+        <h3>DbGate: RCE autenticado mediante inyección de newline</h3>
+        <p>Los campos de comentarios del JSON runner llegaban a comentarios JavaScript sin escape, permitiendo romper el comentario e inyectar código en el proceso Node.js.</p>
+        <div class="mini-tag-row"><span class="mini-tag">DbGate</span><span class="mini-tag">RCE</span><span class="mini-tag">Node.js</span><span class="mini-tag">GHSA</span></div>
+      </a>
+    </article>
     <a class="writeup-card" href="articulos/trilium-safe-import-stored-xss-svg.html">
       <div class="card-topline"><span>GHSA published</span><span>Stored XSS / Safe Import</span><span>Responded</span></div>
       <h3>Trilium: Safe Import bypass con Stored XSS en SVG</h3>

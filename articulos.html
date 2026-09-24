@@ -34,6 +34,12 @@
   <p>Estas son mis investigaciones de seguridad, realizadas mediante revisión de código fuente, validación local y divulgación responsable. Documento el impacto y la evidencia técnica de cada hallazgo. Algunas organizaciones respondieron y corrigieron los problemas; otras no contestaron o no solicitaron la asignación de un CVE. El estado de cada investigación se indica claramente como <strong>Responded</strong> o <strong>No response</strong>.</p>
 </section>
 <section class="cards-grid all-writeups" aria-label="Investigaciones de seguridad">
+  <a class="writeup-card" href="articulos/cve-2026-86089-apache-nifi-connector-migration-authorization.html">
+    <div class="card-topline"><span class="cve-label">CVE-2026-86089</span><span>Authorization / Connector Migration</span><span>Responded</span></div>
+    <h3>Apache NiFi: CVE-2026-86089 por autorización ausente</h3>
+    <p>La API de migración de Connectors no comprobaba los permisos sobre el Process Group de origen, permitiendo enumerar y migrar flows fuera del alcance autorizado.</p>
+    <div class="mini-tag-row"><span class="mini-tag">Apache NiFi</span><span class="mini-tag">CVE-2026-86089</span><span class="mini-tag">Authorization</span><span class="mini-tag">REST API</span></div>
+  </a>
   <a class="writeup-card" href="articulos/trilium-safe-import-stored-xss-svg.html">
     <div class="card-topline"><span>GHSA published</span><span>Stored XSS / Safe Import</span><span>Responded</span></div>
     <h3>Trilium: Safe Import bypass con Stored XSS en SVG</h3>
@@ -52,18 +58,22 @@
     <p>Una ruta no autenticada permitía leer archivos internos del WAR, incluyendo descriptores, configuración de Spring y propiedades de CSRFGuard.</p>
     <div class="mini-tag-row"><span class="mini-tag">OpenMRS</span><span class="mini-tag">Path Traversal</span><span class="mini-tag">File Disclosure</span><span class="mini-tag">GHSA</span></div>
   </a>
-  <a class="writeup-card" href="articulos/dbgate-json-runner-newline-injection-rce.html">
-    <div class="card-topline"><span>Critical</span><span>Remote code execution</span><span>No response</span></div>
-    <h3>DbGate: RCE autenticado mediante inyección de newline</h3>
-    <p>Los campos de comentarios del JSON runner llegaban a comentarios JavaScript sin escape, permitiendo romper el comentario e inyectar código en el proceso Node.js.</p>
-    <div class="mini-tag-row"><span class="mini-tag">DbGate</span><span class="mini-tag">RCE</span><span class="mini-tag">Node.js</span><span class="mini-tag">GHSA</span></div>
-  </a>
-  <a class="writeup-card" href="articulos/dbgate-files-arbitrary-read-write.html">
-    <div class="card-topline"><span>High</span><span>Arbitrary file read/write</span><span>No response</span></div>
-    <h3>DbGate: lectura y escritura arbitrarias en /files</h3>
-    <p>Varios endpoints confiaban en rutas controladas por el cliente y las pasaban a operaciones de filesystem, exponiendo lectura y escritura autenticadas en el servidor.</p>
-    <div class="mini-tag-row"><span class="mini-tag">DbGate</span><span class="mini-tag">Arbitrary File Write</span><span class="mini-tag">Arbitrary File Read</span><span class="mini-tag">GHSA</span></div>
-  </a>
+  <article class="writeup-card dbgate-card">
+    <div class="card-topline"><span>Medium</span><span>Remote code execution</span><a class="cve-link" href="https://www.cve.org/CVERecord?id=CVE-2026-97225" target="_blank" rel="noopener noreferrer">CVE-2026-97225</a></div>
+    <a class="card-link" href="articulos/dbgate-json-runner-newline-injection-rce.html">
+      <h3>DbGate: RCE autenticado mediante inyección de newline</h3>
+      <p>Los campos de comentarios del JSON runner llegaban a comentarios JavaScript sin escape, permitiendo romper el comentario e inyectar código en el proceso Node.js.</p>
+      <div class="mini-tag-row"><span class="mini-tag">DbGate</span><span class="mini-tag">RCE</span><span class="mini-tag">Node.js</span><span class="mini-tag">GHSA</span></div>
+    </a>
+  </article>
+  <article class="writeup-card dbgate-card">
+    <div class="card-topline"><span>Medium</span><span>Arbitrary file read/write</span><a class="cve-link" href="https://www.cve.org/CVERecord?id=CVE-2026-97226" target="_blank" rel="noopener noreferrer">CVE-2026-97226</a></div>
+    <a class="card-link" href="articulos/dbgate-files-arbitrary-read-write.html">
+      <h3>DbGate: lectura y escritura arbitrarias en /files</h3>
+      <p>Varios endpoints confiaban en rutas controladas por el cliente y las pasaban a operaciones de filesystem, exponiendo lectura y escritura autenticadas en el servidor.</p>
+      <div class="mini-tag-row"><span class="mini-tag">DbGate</span><span class="mini-tag">Arbitrary File Write</span><span class="mini-tag">Arbitrary File Read</span><span class="mini-tag">GHSA</span></div>
+    </a>
+  </article>
   <a class="writeup-card" href="articulos/magistrala-timescale-reader-sql-injection.html">
     <div class="card-topline"><span>Medium</span><span>SQL injection</span><span>No response</span></div>
     <h3>Magistrala: SQL injection autenticada en Timescale Reader</h3>
