@@ -23,10 +23,16 @@
 .card-topline{align-items:flex-start;flex-wrap:wrap;gap:8px 12px;font-size:10px;letter-spacing:.1em}
 .card-topline span{max-width:100%}
 .writeup-card h3 a{color:inherit}
+.writeup-card.dbgate-card .card-topline{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.45fr) minmax(0,1fr);align-items:start}
+.writeup-card.dbgate-card .card-topline span:nth-child(2){text-align:center}
+.writeup-card.dbgate-card .cve-link{color:var(--cyan);text-align:right;text-decoration:underline;text-underline-offset:3px}
+.writeup-card.dbgate-card .card-link{display:block}
+.writeup-card.dbgate-card .card-link h3{color:inherit}
 
 a.writeup-card[href^="articulos/"] .card-topline{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.45fr) minmax(0,1fr);align-items:start}
 a.writeup-card[href^="articulos/"] .card-topline span:nth-child(2){text-align:center}
 a.writeup-card[href^="articulos/"] .card-topline span:nth-child(3){text-align:right}
+a.writeup-card[href="articulos/cve-2026-86089-apache-nifi-connector-migration-authorization.html"] .cve-label{white-space:nowrap}
 a.writeup-card[href^="bug-bounty/"] .card-topline{display:flex;justify-content:space-between;align-items:flex-start}
 
 @media(max-width:620px){
@@ -35,6 +41,7 @@ a.writeup-card[href^="bug-bounty/"] .card-topline{display:flex;justify-content:s
   .writeup-card,.card-topline,.card-topline span,.writeup-card h3,.writeup-card p{min-width:0}
   .card-topline span{overflow-wrap:anywhere;word-break:break-word}
   a.writeup-card[href^="articulos/"] .card-topline{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .writeup-card.dbgate-card .card-topline{grid-template-columns:repeat(3,minmax(0,1fr))}
   .page-hero h1{width:100%;max-width:100%!important;font-size:clamp(30px,9.5vw,42px);overflow-wrap:anywhere;word-break:break-all}
   .page-hero>p:last-child{width:100%;max-width:100%!important;overflow-wrap:anywhere;word-break:break-word}
 }
@@ -116,3 +123,5 @@ a.writeup-card[href^="bug-bounty/"] .card-topline{display:flex;justify-content:s
 .credential-line{display:flex;flex-direction:column;gap:5px;padding:12px 0;border-bottom:1px solid rgba(0,255,102,.16)}.credential-line:last-child{border-bottom:0;padding-bottom:0}.credential-line strong{color:var(--text);font-size:14px}.credential-line span{color:var(--muted);font-size:11px}
 @media(max-width:980px){.resume-grid{grid-template-columns:1fr}.resume-sidebar{grid-template-columns:repeat(2,minmax(0,1fr))}.resume-identity{grid-column:1/-1}}
 @media(max-width:620px){.cv-heading{padding-top:48px}.resume-grid{padding-bottom:48px}.resume-main{padding:24px 20px}.resume-main .about-lead{font-size:17px!important}.research-row{grid-template-columns:minmax(0,1fr) auto;gap:7px 12px}.research-row strong{grid-column:1;grid-row:1}.research-row span{grid-column:1;grid-row:2;font-size:12px}.research-row em{grid-column:2;grid-row:1}.resume-sidebar{grid-template-columns:1fr}.resume-identity{grid-column:auto}.resume-links .btn{width:100%;justify-content:center}}
+
+a.writeup-card[href="articulos/cve-2026-86089-apache-nifi-connector-migration-authorization.html"] .card-topline{grid-template-columns:max-content minmax(0,1fr) max-content}

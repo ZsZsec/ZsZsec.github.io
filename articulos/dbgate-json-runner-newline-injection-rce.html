@@ -11,12 +11,16 @@
   <meta property="og:description" content="Investigación sobre una RCE autenticada en el JSON runner de DbGate mediante inyección de saltos de línea." />
   <meta property="og:type" content="article" />
   <meta property="og:url" content="https://zszsec.github.io/articulos/dbgate-json-runner-newline-injection-rce.html" />
-  <meta property="og:image" content="https://zszsec.github.io/assets/og-cover.png" />
-  <meta property="og:image:alt" content="ZsZsec | Security Researcher" />
+  <meta property="og:image" content="https://zszsec.github.io/assets/og-cve-2026-97225.png" />
+  <meta property="og:image:alt" content="CVE-2026-97225 | DbGate | ZsZsec" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:type" content="image/png" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="DbGate: RCE autenticado mediante inyección de newline" />
   <meta name="twitter:description" content="RCE autenticada en el JSON runner de DbGate mediante inyección de saltos de línea." />
-  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cover.png" />
+  <meta name="twitter:image" content="https://zszsec.github.io/assets/og-cve-2026-97225.png" />
+  <meta name="twitter:image:alt" content="CVE-2026-97225 | DbGate | ZsZsec" />
   <meta name="theme-color" content="#000000" />
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="../assets/style.css" />
@@ -31,12 +35,12 @@
     <section class="page-hero compact">
       <p class="eyebrow">security research / dbgate</p>
       <h1>JSON runner newline injection RCE<span>_</span></h1>
-        <div class="writeup-meta"><span>Critical</span><span>Remote code execution</span><span>No response</span></div>
+        <div class="writeup-meta"><span>Medium</span><span>Remote code execution</span><span><a href="https://www.cve.org/CVERecord?id=CVE-2026-97225" target="_blank" rel="noopener noreferrer">CVE-2026-97225</a></span></div>
       <div class="tag-row"><span class="tag">DbGate</span><span class="tag">RCE</span><span class="tag">Node.js</span><span class="tag">Code Generation</span></div>
     </section>
     <section class="content-shell">
       <article class="markdown-body">
-        <blockquote><p><strong>Alcance:</strong> toda la validación se realizó en un despliegue Docker local construido desde DbGate master / <code>7.2.4-packer-beta.3</code>. El usuario de prueba estaba autenticado y no tenía el permiso <code>run-shell-script</code>. El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-v9rq-w97f-8vpm</code>; el maintainer no respondió y no hay versión corregida publicada.</p></blockquote>
+        <blockquote><p><strong>Alcance:</strong> toda la validación se realizó en un despliegue Docker local construido desde DbGate master / <code>7.2.4-packer-beta.3</code>. El usuario de prueba estaba autenticado y no tenía el permiso <code>run-shell-script</code>. El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-v9rq-w97f-8vpm</code>; posteriormente se publicó <code>CVE-2026-97225</code> y el parche quedó disponible en <code>7.2.5-beta.6</code>.</p></blockquote>
 
         <p>Durante la revisión de DbGate encontré una ejecución remota de código autenticada en el JSON script runner. El runner convertía comandos JSON estructurados en JavaScript, pero emitía valores controlados por el usuario dentro de comentarios JavaScript de una sola línea sin escapar los saltos de línea.</p>
 
@@ -53,14 +57,16 @@
             <tr><td>Reporte enviado</td><td>25 de julio de 2026</td></tr>
             <tr><td>Paquete</td><td><code>dbgate-serve</code> (npm)</td></tr>
             <tr><td>Versión probada</td><td>master / <code>7.2.4-packer-beta.3</code></td></tr>
-            <tr><td>Versiones afectadas</td><td><code>&lt;= 7.2.4-packer-beta.3</code></td></tr>
-            <tr><td>Versiones corregidas</td><td>Ninguna publicada</td></tr>
+            <tr><td>Versiones afectadas</td><td><code>7.2.5-beta.0</code> a <code>7.2.5-beta.5</code></td></tr>
+            <tr><td>Versión corregida</td><td><a href="https://github.com/dbgate/dbgate/releases/tag/v7.2.5-beta.6" target="_blank" rel="noopener noreferrer"><code>7.2.5-beta.6</code></a></td></tr>
             <tr><td>Endpoints</td><td><code>POST /runners/script-result</code> y <code>POST /runners/start</code></td></tr>
             <tr><td>Autenticación</td><td>Requerida</td></tr>
             <tr><td>Vulnerabilidad</td><td>Authenticated remote code execution</td></tr>
-            <tr><td>Triage</td><td>Critical</td></tr>
+            <tr><td>Triage</td><td>Medium</td></tr>
+            <tr><td>CVE</td><td><a href="https://www.cve.org/CVERecord?id=CVE-2026-97225" target="_blank" rel="noopener noreferrer"><code>CVE-2026-97225</code></a></td></tr>
             <tr><td>GHSA</td><td><code>GHSA-v9rq-w97f-8vpm</code></td></tr>
-            <tr><td>Estado</td><td>No response / sin parche publicado</td></tr>
+            <tr><td>Parche</td><td><a href="https://github.com/dbgate/dbgate/commit/70e7b6b58e464d7a015ba16e8d7574b420ee4877" target="_blank" rel="noopener noreferrer"><code>70e7b6b58e464d7a015ba16e8d7574b420ee4877</code></a></td></tr>
+            <tr><td>Estado</td><td>CVE publicado / parche disponible en <code>7.2.5-beta.6</code></td></tr>
           </tbody>
         </table>
 
@@ -254,7 +260,7 @@ uid=0(root) gid=0(root) groups=0(root)</code></pre>
         </ul>
 
         <h2>Estado</h2>
-        <p>El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-v9rq-w97f-8vpm</code>. El maintainer no respondió y no hay versión corregida publicada.</p>
+        <p>El hallazgo fue reportado mediante GitHub Security Advisory como <code>GHSA-v9rq-w97f-8vpm</code>. Posteriormente se publicó <code>CVE-2026-97225</code> y el parche fue incorporado en <code>7.2.5-beta.6</code>.</p>
       </article>
     </section>
   </main>
